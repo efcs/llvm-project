@@ -1,0 +1,48 @@
+image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
+variables:
+  ROOT_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE
+  LLVM_PROJECT: $CI_PROJECT_DIR
+  BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
+
+stages:
+  - prepare
+  - build
+  - test
+  - finish
+
+prepare:
+  stage: prepare
+  script:
+    - ls
+    - pwd
+    - ls ..
+    - cd ..
+    - pwd
+    - env
+
+build:
+  stage: build
+  script:
+    - echo "build"
+    - ls
+    - clang++ --version
+    - ninja --version
+    - cmake --version
+  dependencies:
+    - prepare
+
+test:
+  stage: test
+  script:
+    - echo "test"
+  dependencies:
+    - build
+
+finish:
+  stage: finish
+  script:
+    - echo "finish"
+  dependencies:
+    - prepare
+    - build
+    - test
