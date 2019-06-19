@@ -4,7 +4,7 @@ variables:
   LLVM_PROJECT: $CI_PROJECT_DIR
   BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
   GIT_DEPTH: 1
-  GIT_STRATEGY: none
+  GIT_STRATEGY: fetch
 
 stages:
   - prepare
