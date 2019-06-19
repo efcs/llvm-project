@@ -3,8 +3,8 @@ variables:
   ROOT_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE
   LLVM_PROJECT: $CI_PROJECT_DIR
   BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
-  GIT_DEPTH: 3
-  GIT_STRATEGY: fetch
+  GIT_DEPTH: 1
+  GIT_STRATEGY: none
 
 stages:
   - prepare
@@ -47,6 +47,7 @@ test:
     - ninja -C $BUILD_DIR check-cxx
   dependencies:
     - build
+    - configure
 
 finish:
   stage: finish
