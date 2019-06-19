@@ -4,6 +4,7 @@ variables:
   LLVM_PROJECT: $CI_PROJECT_DIR
   BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
   GIT_DEPTH: 3
+  GIT_STRATEGY: fetch
 
 stages:
   - prepare
@@ -15,26 +16,30 @@ stages:
 prepare:
   stage: prepare
   script:
-    - mkdir $BUILD_DIR
     - clang++ --version
     - cmake --version
     - ninja --version
 
+
 configure:
   stage: configure
   script:
+    - mkdir $BUILD_DIR
     - cd $BUILD_DIR
     - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" -DLIBCXX_CXX_ABI=libcxxabi $LLVM_PROJECT/llvm
-  dependencies:
-    - prepare
+  artifacts:
+    paths:
+      - $BUILD_DIR/
 
 build:
   stage: build
   script:
     - ninja -C $BUILD_DIR cxx
   dependencies:
-    - prepare
     - configure
+  artifacts:
+    paths:
+      - $BUILD_DIR/
 
 test:
   stage: test
