@@ -14,10 +14,6 @@ stages:
   - finish
 
 
-
-before_script:
-  - export BUILD_PATH
-
 prepare:
   stage: prepare
   script:
@@ -49,6 +45,7 @@ build:
     when: always
     paths:
       - build/
+
 
 test:
   stage: test
