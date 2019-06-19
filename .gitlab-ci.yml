@@ -3,9 +3,11 @@ variables:
   ROOT_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE
   LLVM_PROJECT: $CI_PROJECT_DIR
   BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
+  GIT_DEPTH: 3
 
 stages:
   - prepare
+  - configure
   - build
   - test
   - finish
@@ -13,28 +15,31 @@ stages:
 prepare:
   stage: prepare
   script:
-    - ls
-    - pwd
-    - ls ..
-    - cd ..
-    - pwd
-    - env
+    - mkdir $BUILD_DIR
+    - clang++ --version
+    - cmake --version
+    - ninja --version
+
+configure:
+  stage: configure
+  script:
+    - cd $BUILD_DIR
+    - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" -DLIBCXX_CXX_ABI=libcxxabi $LLVM_PROJECT/llvm
+  dependencies:
+    - prepare
 
 build:
   stage: build
   script:
-    - echo "build"
-    - ls
-    - clang++ --version
-    - ninja --version
-    - cmake --version
+    - ninja -C $BUILD_DIR cxx
   dependencies:
     - prepare
+    - configure
 
 test:
   stage: test
   script:
-    - echo "test"
+    - ninja -C $BUILD_DIR check-cxx
   dependencies:
     - build
 
@@ -44,5 +49,6 @@ finish:
     - echo "finish"
   dependencies:
     - prepare
+    - configure
     - build
     - test
