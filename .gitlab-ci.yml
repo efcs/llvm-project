@@ -1,11 +1,10 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
 variables:
-  ROOT_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE
-  LLVM_PROJECT: $CI_PROJECT_DIR
-  BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
   GIT_DEPTH: 1
   GIT_STRATEGY: fetch
   GIT_CHECKOUT: fetch
+  GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project
+  LLVM_PROJECT: $CI_PROJECT_DIR/llvm-project
 
 stages:
   - prepare
@@ -14,48 +13,52 @@ stages:
   - test
   - finish
 
+
+
+before_script:
+  - export BUILD_PATH
+
 prepare:
   stage: prepare
   script:
     - clang++ --version
     - cmake --version
     - ninja --version
+    - ls
+    - pwd
+    - ls ..
+    - pwd
+    - env
 
 configure:
   stage: configure
   script:
-    - mkdir $BUILD_DIR
-    - cd $BUILD_DIR
+    - mkdir build/
+    - cd build/
     - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" -DLIBCXX_CXX_ABI=libcxxabi $LLVM_PROJECT/llvm
   artifacts:
-    paths:
-      - $BUILD_DIR/
-  dependencies:
-    - prepare
+    artifacts:
+      when: always
+      paths:
+        - build/
 
 build:
   stage: build
   script:
-    - ninja -C $BUILD_DIR cxx
-  dependencies:
-    - configure
+    - ninja -C build/ cxx
   artifacts:
+    when: always
     paths:
-      - $BUILD_DIR/
+      - build/
 
 test:
   stage: test
   script:
-    - ninja -C $BUILD_DIR check-cxx
-  dependencies:
-    - build
+    - ninja -C build/ check-cxx
+
 
 finish:
   stage: finish
   script:
     - echo "finish"
-  dependencies:
-    - prepare
-    - configure
-    - build
-    - test
+
