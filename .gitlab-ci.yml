@@ -25,6 +25,8 @@ prepare:
     - ls ..
     - pwd
     - env
+    - echo "tada"
+
 
 configure:
   stage: configure
