@@ -5,6 +5,7 @@ variables:
   BUILD_DIR: $CI_BUILDS_DIR/$CI_PROJECT_NAMESPACE/build
   GIT_DEPTH: 1
   GIT_STRATEGY: fetch
+  GIT_CHECKOUT: fetch
 
 stages:
   - prepare
@@ -19,9 +20,6 @@ prepare:
     - clang++ --version
     - cmake --version
     - ninja --version
-  artifacts:
-    paths:
-      - $LLVM_PROJECT/
 
 configure:
   stage: configure
