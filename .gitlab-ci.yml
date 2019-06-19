@@ -19,7 +19,9 @@ prepare:
     - clang++ --version
     - cmake --version
     - ninja --version
-
+  artifacts:
+    paths:
+      - $LLVM_PROJECT/
 
 configure:
   stage: configure
@@ -30,6 +32,8 @@ configure:
   artifacts:
     paths:
       - $BUILD_DIR/
+  dependencies:
+    - prepare
 
 build:
   stage: build
@@ -47,7 +51,6 @@ test:
     - ninja -C $BUILD_DIR check-cxx
   dependencies:
     - build
-    - configure
 
 finish:
   stage: finish
