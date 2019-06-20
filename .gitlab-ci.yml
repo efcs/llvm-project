@@ -3,7 +3,6 @@ variables:
   GIT_DEPTH: 1
   GIT_STRATEGY: fetch
   GIT_CHECKOUT: fetch
-  GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project
   LLVM_PROJECT: $CI_PROJECT_DIR/llvm-project
 
 stages:
@@ -26,7 +25,9 @@ prepare:
     - pwd
     - env
     - echo "tada"
-
+    - ls ~
+    - ls ~/.gitlab-runner/
+    - cat ~/.gitlab-runner/config.toml
 
 configure:
   stage: configure
