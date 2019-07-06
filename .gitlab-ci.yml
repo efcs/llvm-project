@@ -3,7 +3,11 @@ variables:
   GIT_DEPTH: 1
   GIT_STRATEGY: fetch
   GIT_CHECKOUT: fetch
+<<<<<<< HEAD
   GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project-two
+=======
+  GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project
+>>>>>>> 2e0bc036add0b79b387f743d965eca877188861a
   LLVM_PROJECT: $CI_PROJECT_DIR/llvm-project
 
 stages:
