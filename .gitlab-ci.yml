@@ -1,10 +1,4 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
-variables:
-  GIT_DEPTH: 1
-  GIT_STRATEGY: fetch
-  GIT_CHECKOUT: fetch
-  GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project-two
-  LLVM_PROJECT: $CI_PROJECT_DIR/llvm-project
 
 stages:
   - prepare
