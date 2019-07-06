@@ -6,7 +6,6 @@ set -e
 env
 pwd
 ls
-ls | xargs ls
 ls ..
 ls ../..
 clang++ --version

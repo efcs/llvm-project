@@ -1,5 +1,7 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
 variables:
+  ROOT: $CI_BUILDS_DIR/$CI_PROJECT_PATH
+  BUILD_ROOT: $ROOT/build
   LLVM_PROJECT: $CI_BUILDS_DIR/$CI_PROJECT_PATH/llvm-project
   GIT_CLONE_PATH: $CI_BUILDS_DIR/$CI_PROJECT_PATH/llvm-project
   GIT_STRATEGY: none
@@ -41,7 +43,7 @@ build:libcxx:
   variables:
     CC: "clang"
     CXX: "clang++"
-    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$CI_PROJECT_DIR/build/libcxx/test-results.xml"
+    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$ROOT/build/libcxx/test-results.xml"
     BUILD_TYPE: "RELWITHDEBINFO"
   script:
     - env
