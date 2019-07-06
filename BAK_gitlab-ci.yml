@@ -1,0 +1,60 @@
+image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
+variables:
+  GIT_CLONE_PATH: $CI_BUILDS_DIR/llvm-project-two
+
+stages:
+  - prepare
+  - configure
+  - build
+  - test
+  - finish
+
+
+prepare:
+  stage: prepare
+  script:
+    - clang++ --version
+    - cmake --version
+    - ninja --version
+    - ls
+    - pwd
+    - ls ..
+    - pwd
+    - env
+    - echo "tada"
+    - ls ~
+    - ls ~/.gitlab-runner/
+    - cat ~/.gitlab-runner/config.toml
+
+configure:
+  stage: configure
+  script:
+    - mkdir build/
+    - cd build/
+    - cmake -DCMAKE_BUILD_TYPE=RELWITHDEBINFO -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" -DLIBCXX_CXX_ABI=libcxxabi $LLVM_PROJECT/llvm
+  artifacts:
+    when: always
+    paths:
+      - build/
+
+build:
+  stage: build
+  script:
+    - ninja -C build/ cxx
+  artifacts:
+    when: always
+    paths:
+      - build/
+
+
+test:
+  stage: test
+  script:
+    - ninja -C build/ check-cxx
+
+
+finish:
+  stage: finish
+  script:
+    - echo "finish"
+
