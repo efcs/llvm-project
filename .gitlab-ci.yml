@@ -1,4 +1,6 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
+variables:
+  GIT_CLONE_PATH: $CI_BUILDS_DIR/llvm-project-two
 
 stages:
   - prepare
