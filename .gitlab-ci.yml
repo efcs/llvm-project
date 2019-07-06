@@ -1,8 +1,8 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
 variables:
   ROOT: $CI_PROJECT_DIR/
-  LLVM_PROJECT: $CI_BUILDS_DIR/llvm-project
-  GIT_CLONE_PATH: $CI_BUILDS_DIR/llvm-project
+  LLVM_PROJECT: $CI_PROJECT_DIR/llvm-project
+  GIT_CLONE_PATH: $CI_PROJECT_DIR/llvm-project
   GIT_STRATEGY: none
   GIT_DEPTH: 1
 
