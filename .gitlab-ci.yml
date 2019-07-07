@@ -19,62 +19,47 @@ stages:
       - llvm-project/
       - build/
 
-.staged-libcxx:
-  extends: .staged-llvm
-  artifacts:
-    when: always
-    paths:
-      - build/libcxx/
 
-stage:libcxx:
-  extends: .staged-libcxx
+stage:
+  extends: .staged-llvm
   stage: stage
   variables:
     GIT_STRATEGY: clone
   script:
     - cd $ROOT
     - $LLVM_PROJECT/llvm/utils/gitlab/display_environment.sh
-    - mkdir -p build/libcxx
-    - touch build/libcxx/BUILD_HERE
+    - mkdir -p build/
+    - touch build/BUILD_HERE
 
 
-build:libcxx:
-  extends: .staged-libcxx
+build:llvm:
+  extends: .staged-llvm
   stage: build
   variables:
     CC: "clang"
     CXX: "clang++"
-    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$ROOT/build/libcxx/test-results.xml"
+    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$ROOT/build/test-results.xml"
     BUILD_TYPE: "RELWITHDEBINFO"
   script:
     - env
-    - cd $ROOT/
-    - cd build/libcxx/
+    - cd $ROOT/build/
     - cmake -G Ninja "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
        "-DCMAKE_C_COMPILER=$CC"
        "-DCMAKE_CXX_COMPILER=$CXX"
-       "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi"
+       "-DLLVM_ENABLE_PROJECTS=all"
        "-DLLVM_LIT_ARGS=$LLVM_LIT_ARGS"
        $LLVM_PROJECT/llvm
-    - ninja cxx
-  dependencies:
-    - stage:libcxx
+    - ninja
 
-test:libcxx:
-  extends: .staged-libcxx
+test:
+  extends: .staged-llvm
   stage: test
   script:
       - ls
       - pwd
-      - cd $ROOT/
-      - cd build/libcxx
-      - ninja check-cxxabi
-      - ninja check-cxx
-      - ninja check-cxx-benchmarks
-      - ninja check-cxx-abilist
-  dependencies:
-    - build:libcxx
+      - cd $ROOT/build
+      - ninja check-all
   artifacts:
     when: always
     reports:
-      junit: build/libcxx/test-results.xml
+      junit: build/test-results.xml
