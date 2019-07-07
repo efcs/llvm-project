@@ -16,8 +16,8 @@ stages:
   artifacts:
     when: always
     paths:
-      - llvm-project/
-      - build/
+      - $ROOT/llvm-project/
+      - $ROOT/build/
 
 
 stage:
