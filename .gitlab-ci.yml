@@ -32,6 +32,7 @@ stage:libcxx:
   variables:
     GIT_STRATEGY: clone
   script:
+    - cd $ROOT
     - $LLVM_PROJECT/llvm/utils/gitlab/display_environment.sh
     - mkdir -p build/libcxx
     - touch build/libcxx/BUILD_HERE
@@ -47,6 +48,7 @@ build:libcxx:
     BUILD_TYPE: "RELWITHDEBINFO"
   script:
     - env
+    - cd $ROOT/
     - cd build/libcxx/
     - cmake -G Ninja "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
        "-DCMAKE_C_COMPILER=$CC"
@@ -63,6 +65,8 @@ test:libcxx:
   stage: test
   script:
       - ls
+      - pwd
+      - cd $ROOT/
       - cd build/libcxx
       - ninja check-cxxabi
       - ninja check-cxx
