@@ -386,8 +386,12 @@ void warn(StringRef Message) {
   errs().flush();
 }
 
-void warn(Twine Message) {
+static void warn(Twine Message) {
+  // Output order between errs() and outs() matters especially for archive
+  // files where the output is per member object.
+  outs().flush();
   WithColor::warning(errs(), ToolName) << Message << "\n";
+  errs().flush();
 }
 
 LLVM_ATTRIBUTE_NORETURN void report_error(StringRef File, Twine Message) {
@@ -600,8 +604,7 @@ void SourcePrinter::printSourceLine(raw_ostream &OS,
     return;
 
   DILineInfo LineInfo = DILineInfo();
-  auto ExpectedLineInfo =
-      Symbolizer->symbolizeCode(Obj->getFileName(), Address);
+  auto ExpectedLineInfo = Symbolizer->symbolizeCode(*Obj, Address);
   if (!ExpectedLineInfo)
     consumeError(ExpectedLineInfo.takeError());
   else

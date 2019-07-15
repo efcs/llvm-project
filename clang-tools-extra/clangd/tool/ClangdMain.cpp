@@ -58,8 +58,7 @@ static llvm::cl::opt<CompletionStyleFlag> CompletionStyle(
                    "completion, with full type information"),
         clEnumValN(Bundled, "bundled",
                    "Similar completion items (e.g. function overloads) are "
-                   "combined. Type information shown where possible")),
-    llvm::cl::init(Detailed));
+                   "combined. Type information shown where possible")));
 
 // FIXME: Flags are the wrong mechanism for user preferences.
 // We should probably read a dotfile or similar.
@@ -190,14 +189,6 @@ static llvm::cl::opt<bool> EnableBackgroundIndex(
         "Index project code in the background and persist index on disk. "
         "Experimental"),
     llvm::cl::init(true));
-
-static llvm::cl::opt<int> BackgroundIndexRebuildPeriod(
-    "background-index-rebuild-period",
-    llvm::cl::desc(
-        "If set to non-zero, the background index rebuilds the symbol index "
-        "periodically every X milliseconds; otherwise, the "
-        "symbol index will be updated for each indexed file"),
-    llvm::cl::init(5000), llvm::cl::Hidden);
 
 enum CompileArgsFrom { LSPCompileArgs, FilesystemCompileArgs };
 static llvm::cl::opt<CompileArgsFrom> CompileArgsFrom(
@@ -365,7 +356,7 @@ int main(int argc, char *argv[]) {
     LogLevel = Logger::Verbose;
     PrettyPrint = true;
     // Ensure background index makes progress.
-    BackgroundIndex::preventThreadStarvationInTests();
+    BackgroundQueue::preventThreadStarvationInTests();
   }
   if (Test || EnableTestScheme) {
     static URISchemeRegistry::Add<TestScheme> X(
@@ -466,7 +457,6 @@ int main(int argc, char *argv[]) {
     Opts.ResourceDir = ResourceDir;
   Opts.BuildDynamicSymbolIndex = EnableIndex;
   Opts.BackgroundIndex = EnableBackgroundIndex;
-  Opts.BackgroundIndexRebuildPeriodMs = BackgroundIndexRebuildPeriod;
   std::unique_ptr<SymbolIndex> StaticIdx;
   std::future<void> AsyncIndexLoad; // Block exit while loading the index.
   if (EnableIndex && !IndexFile.empty()) {
@@ -482,12 +472,12 @@ int main(int argc, char *argv[]) {
   }
   Opts.StaticIndex = StaticIdx.get();
   Opts.AsyncThreadsCount = WorkerThreadsCount;
-  Opts.HiddenFeatures = HiddenFeatures;
 
   clangd::CodeCompleteOptions CCOpts;
   CCOpts.IncludeIneligibleResults = IncludeIneligibleResults;
   CCOpts.Limit = LimitResults;
-  CCOpts.BundleOverloads = CompletionStyle != Detailed;
+  if (CompletionStyle.getNumOccurrences())
+    CCOpts.BundleOverloads = CompletionStyle != Detailed;
   CCOpts.ShowOrigins = ShowOrigins;
   CCOpts.InsertIncludes = HeaderInsertion;
   if (!HeaderInsertionDecorators) {
@@ -540,11 +530,14 @@ int main(int argc, char *argv[]) {
   }
   Opts.SuggestMissingIncludes = SuggestMissingIncludes;
   Opts.QueryDriverGlobs = std::move(QueryDriverGlobs);
-  if (TweakList.getNumOccurrences())
-    Opts.TweakFilter = [&](llvm::StringRef TweakToSearch) {
-      // return true if any tweak matches the TweakToSearch
-      return llvm::find(TweakList, TweakToSearch) != TweakList.end();
-    };
+
+  Opts.TweakFilter = [&](const Tweak &T) {
+    if (T.hidden() && !HiddenFeatures)
+      return false;
+    if (TweakList.getNumOccurrences())
+      return llvm::is_contained(TweakList, T.id());
+    return true;
+  };
   llvm::Optional<OffsetEncoding> OffsetEncodingFromFlag;
   if (ForceOffsetEncoding != OffsetEncoding::UnsupportedEncoding)
     OffsetEncodingFromFlag = ForceOffsetEncoding;

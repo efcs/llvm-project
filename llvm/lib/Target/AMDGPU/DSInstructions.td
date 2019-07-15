@@ -38,6 +38,8 @@ class DS_Pseudo <string opName, dag outs, dag ins, string asmOps, list<dag> patt
   bits<1> has_data0 = 1;
   bits<1> has_data1 = 1;
 
+  bits<1> has_gws_data0 = 0; // data0 is encoded as addr
+
   bits<1> has_offset  = 1; // has "offset" that should be split to offset0,1
   bits<1> has_offset0 = 1;
   bits<1> has_offset1 = 1;
@@ -320,7 +322,7 @@ class DS_GWS_1D <string opName>
 : DS_GWS<opName,
   (ins VGPR_32:$data0, offset:$offset, gds:$gds), "$data0$offset gds"> {
 
-  let has_data0 = 1;
+  let has_gws_data0 = 1;
 }
 
 class DS_VOID <string opName> : DS_Pseudo<opName,
@@ -623,12 +625,15 @@ class DSReadPat_D16 <DS_Pseudo inst, PatFrag frag, ValueType vt> : GCNPat <
 >;
 
 defm : DSReadPat_mc <DS_READ_I8, i32, "sextloadi8_local">;
-defm : DSReadPat_mc <DS_READ_U8,  i32, "az_extloadi8_local">;
 defm : DSReadPat_mc <DS_READ_I8,  i16, "sextloadi8_local">;
-defm : DSReadPat_mc <DS_READ_U8,  i16, "az_extloadi8_local">;
+defm : DSReadPat_mc <DS_READ_U8,  i32, "extloadi8_local">;
+defm : DSReadPat_mc <DS_READ_U8,  i32, "zextloadi8_local">;
+defm : DSReadPat_mc <DS_READ_U8,  i16, "extloadi8_local">;
+defm : DSReadPat_mc <DS_READ_U8,  i16, "zextloadi8_local">;
 defm : DSReadPat_mc <DS_READ_I16, i32, "sextloadi16_local">;
 defm : DSReadPat_mc <DS_READ_I16, i32, "sextloadi16_local">;
-defm : DSReadPat_mc <DS_READ_U16, i32, "az_extloadi16_local">;
+defm : DSReadPat_mc <DS_READ_U16, i32, "extloadi16_local">;
+defm : DSReadPat_mc <DS_READ_U16, i32, "zextloadi16_local">;
 defm : DSReadPat_mc <DS_READ_U16, i16, "load_local">;
 defm : DSReadPat_mc <DS_READ_B32, i32, "load_local">;
 defm : DSReadPat_mc <DS_READ_B32, i32, "atomic_load_32_local">;
@@ -829,7 +834,7 @@ class Base_DS_Real_gfx6_gfx7_gfx10<bits<8> op, DS_Pseudo ps, int ef> :
   let Inst{17}    = !if(ps.has_gds, gds, ps.gdsValue);
   let Inst{25-18} = op;
   let Inst{31-26} = 0x36;
-  let Inst{39-32} = !if(ps.has_addr, addr, 0);
+  let Inst{39-32} = !if(ps.has_addr, addr, !if(ps.has_gws_data0, data0, 0));
   let Inst{47-40} = !if(ps.has_data0, data0, 0);
   let Inst{55-48} = !if(ps.has_data1, data1, 0);
   let Inst{63-56} = !if(ps.has_vdst, vdst, 0);
@@ -1048,7 +1053,7 @@ class DS_Real_vi <bits<8> op, DS_Pseudo ds> :
   let Inst{16}    = !if(ds.has_gds, gds, ds.gdsValue);
   let Inst{24-17} = op;
   let Inst{31-26} = 0x36; // ds prefix
-  let Inst{39-32} = !if(ds.has_addr, addr, 0);
+  let Inst{39-32} = !if(ds.has_addr, addr, !if(ds.has_gws_data0, data0, 0));
   let Inst{47-40} = !if(ds.has_data0, data0, 0);
   let Inst{55-48} = !if(ds.has_data1, data1, 0);
   let Inst{63-56} = !if(ds.has_vdst, vdst, 0);

@@ -1593,8 +1593,9 @@ void Sema::checkOpenMPDeviceExpr(const Expr *E) {
        !Context.getTargetInfo().hasFloat128Type()) ||
       (Ty->isIntegerType() && Context.getTypeSize(Ty) == 128 &&
        !Context.getTargetInfo().hasInt128Type()))
-    targetDiag(E->getExprLoc(), diag::err_type_unsupported)
-        << Ty << E->getSourceRange();
+    targetDiag(E->getExprLoc(), diag::err_omp_unsupported_type)
+        << static_cast<unsigned>(Context.getTypeSize(Ty)) << Ty
+        << Context.getTargetInfo().getTriple().str() << E->getSourceRange();
 }
 
 bool Sema::isOpenMPCapturedByRef(const ValueDecl *D, unsigned Level) const {
@@ -12139,10 +12140,14 @@ static bool actOnOMPReductionKindClause(
     if ((OASE && !ConstantLengthOASE) ||
         (!OASE && !ASE &&
          D->getType().getNonReferenceType()->isVariablyModifiedType())) {
-      if (!Context.getTargetInfo().isVLASupported() &&
-          S.shouldDiagnoseTargetSupportFromOpenMP()) {
-        S.Diag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
-        S.Diag(ELoc, diag::note_vla_unsupported);
+      if (!Context.getTargetInfo().isVLASupported()) {
+        if (isOpenMPTargetExecutionDirective(Stack->getCurrentDirective())) {
+          S.Diag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
+          S.Diag(ELoc, diag::note_vla_unsupported);
+        } else {
+          S.targetDiag(ELoc, diag::err_omp_reduction_vla_unsupported) << !!OASE;
+          S.targetDiag(ELoc, diag::note_vla_unsupported);
+        }
         continue;
       }
       // For arrays/array sections only:

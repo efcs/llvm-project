@@ -20,8 +20,8 @@
 #include "clang/Basic/SourceManager.h"
 #include "clang/Format/Format.h"
 #include "clang/Tooling/Core/Replacement.h"
-#include "llvm/ADT/StringSet.h"
 #include "llvm/ADT/StringRef.h"
+#include "llvm/ADT/StringSet.h"
 #include "llvm/Support/SHA1.h"
 
 namespace clang {
@@ -32,7 +32,7 @@ namespace clangd {
 // We tend to generate digests for source codes in a lot of different places.
 // This represents the type for those digests to prevent us hard coding details
 // of hashing function at every place that needs to store this information.
-using FileDigest = decltype(llvm::SHA1::hash({}));
+using FileDigest = std::array<uint8_t, 8>;
 FileDigest digest(StringRef Content);
 Optional<FileDigest> digestFile(const SourceManager &SM, FileID FID);
 

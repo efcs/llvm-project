@@ -30,6 +30,7 @@
 
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/APInt.h"
+#include "llvm/Analysis/TargetLibraryInfo.h"
 #include "llvm/IR/Constant.h"
 #include "llvm/IR/Constants.h"
 #include "llvm/IR/InstrTypes.h"
@@ -418,16 +419,42 @@ inline cst_pred_ty<is_lowbit_mask> m_LowBitMask() {
   return cst_pred_ty<is_lowbit_mask>();
 }
 
-struct is_unsigned_less_than {
+struct icmp_pred_with_threshold {
+  ICmpInst::Predicate Pred;
   const APInt *Thr;
-  bool isValue(const APInt &C) { return C.ult(*Thr); }
+  bool isValue(const APInt &C) {
+    switch (Pred) {
+    case ICmpInst::Predicate::ICMP_EQ:
+      return C.eq(*Thr);
+    case ICmpInst::Predicate::ICMP_NE:
+      return C.ne(*Thr);
+    case ICmpInst::Predicate::ICMP_UGT:
+      return C.ugt(*Thr);
+    case ICmpInst::Predicate::ICMP_UGE:
+      return C.uge(*Thr);
+    case ICmpInst::Predicate::ICMP_ULT:
+      return C.ult(*Thr);
+    case ICmpInst::Predicate::ICMP_ULE:
+      return C.ule(*Thr);
+    case ICmpInst::Predicate::ICMP_SGT:
+      return C.sgt(*Thr);
+    case ICmpInst::Predicate::ICMP_SGE:
+      return C.sge(*Thr);
+    case ICmpInst::Predicate::ICMP_SLT:
+      return C.slt(*Thr);
+    case ICmpInst::Predicate::ICMP_SLE:
+      return C.sle(*Thr);
+    default:
+      llvm_unreachable("Unhandled ICmp predicate");
+    }
+  }
 };
-/// Match an integer or vector with every element unsigned less than the
-/// Threshold. For vectors, this includes constants with undefined elements.
-/// FIXME: is it worth generalizing this to simply take ICmpInst::Predicate?
-inline cst_pred_ty<is_unsigned_less_than>
-m_SpecificInt_ULT(const APInt &Threshold) {
-  cst_pred_ty<is_unsigned_less_than> P;
+/// Match an integer or vector with every element comparing 'pred' (eg/ne/...)
+/// to Threshold. For vectors, this includes constants with undefined elements.
+inline cst_pred_ty<icmp_pred_with_threshold>
+m_SpecificInt_ICMP(ICmpInst::Predicate Predicate, const APInt &Threshold) {
+  cst_pred_ty<icmp_pred_with_threshold> P;
+  P.Pred = Predicate;
   P.Thr = &Threshold;
   return P;
 }
@@ -1784,6 +1811,57 @@ template <typename Opnd_t> struct Signum_match {
 ///      x <  0  -> -1
 template <typename Val_t> inline Signum_match<Val_t> m_Signum(const Val_t &V) {
   return Signum_match<Val_t>(V);
+}
+
+/// \brief LibFunc matchers.
+struct LibFunc_match {
+  LibFunc F;
+  TargetLibraryInfo TLI;
+  
+  LibFunc_match(LibFunc Func, TargetLibraryInfo TargetLI)
+  : F(Func), TLI(TargetLI) {}
+  
+  template <typename OpTy> bool match(OpTy *V) {
+    LibFunc LF;
+    if (const auto *CI = dyn_cast<CallInst>(V))
+      if (!CI->isNoBuiltin() && CI->getCalledFunction() &&
+          TLI.getLibFunc(*CI->getCalledFunction(), LF) &&
+          LF == F && TLI.has(LF))
+        return true;
+    return false;
+  }
+};
+
+/// LibFunc matches are combinations of Name matchers, and argument
+/// matchers.
+template <typename T0 = void, typename T1 = void, typename T2 = void>
+struct m_LibFunc_Ty;
+template <typename T0> struct m_LibFunc_Ty<T0> {
+  using Ty = match_combine_and<LibFunc_match, Argument_match<T0>>;
+};
+template <typename T0, typename T1> struct m_LibFunc_Ty<T0, T1> {
+  using Ty =
+  match_combine_and<typename m_LibFunc_Ty<T0>::Ty,
+  Argument_match<T1>>;
+};
+
+/// \brief Match LibFunc calls like this:
+/// m_LibFunc<LibFunc_tan>(m_Value(X))
+template <LibFunc F>
+inline LibFunc_match m_LibFunc(TargetLibraryInfo TLI) {
+  return LibFunc_match(F, TLI);
+}
+
+template <LibFunc F, typename T0>
+inline typename m_LibFunc_Ty<T0>::Ty
+m_LibFunc(const TargetLibraryInfo TLI, const T0 &Op0) {
+  return m_CombineAnd(m_LibFunc<F>(TLI), m_Argument<0>(Op0));
+}
+
+template <LibFunc F, typename T0, typename T1>
+inline typename m_LibFunc_Ty<T0, T1>::Ty
+m_LibFunc(const TargetLibraryInfo TLI, const T0 &Op0, const T1 &Op1) {
+  return m_CombineAnd(m_LibFunc<F>(TLI, Op0), m_Argument<1>(Op1));
 }
 
 } // end namespace PatternMatch
