@@ -1,8 +1,6 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
 variables:
   LLVM_PROJECT: $CI_BUILDS_DIR/$CI_PROJECT_PATH/
-  BUILD_DIR: $ROOT/build
-  LLVM: $ROOT/llvm
   GIT_STRATEGY: none
   GIT_DEPTH: 1
 
@@ -15,8 +13,13 @@ stages:
   artifacts:
     when: always
     paths:
-      - $ROOT/llvm-project/
-      - $ROOT/build/
+      - clang/
+      - compiler-rt/
+      - clang-tools-extra/
+      - libcxx/
+      - libcxxabi/
+      - libunwind/
+      - llvm/
 
 
 stage:
@@ -36,11 +39,11 @@ build:llvm:
   variables:
     CC: "clang"
     CXX: "clang++"
-    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$ROOT/build/test-results.xml"
+    LLVM_LIT_ARGS: "-sv --show-xfail --show-unsupported --xunit-xml-output=$LLVM_PROJECT/build/test-results.xml"
     BUILD_TYPE: "RELWITHDEBINFO"
   script:
     - env
-    - cd $ROOT/build/
+    - cd build/
     - cmake -G Ninja "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
        "-DCMAKE_C_COMPILER=$CC"
        "-DCMAKE_CXX_COMPILER=$CXX"
@@ -55,8 +58,7 @@ test:
   script:
       - ls
       - pwd
-      - cd $ROOT/build
-      - ninja check-all
+      - ninja -C build/ check-all
   artifacts:
     when: always
     reports:
