@@ -1,9 +1,8 @@
 image: index.docker.io/ericwf/libcxx-gitlab-runner:latest
 variables:
-  ROOT: $CI_BUILDS_DIR/$CI_PROJECT_PATH
-  BUILD_ROOT: $ROOT/build
-  LLVM_PROJECT: $CI_BUILDS_DIR/$CI_PROJECT_PATH/llvm-project
-  GIT_CLONE_PATH: $CI_BUILDS_DIR/$CI_PROJECT_PATH/llvm-project
+  LLVM_PROJECT: $CI_BUILDS_DIR/$CI_PROJECT_PATH/
+  BUILD_DIR: $ROOT/build
+  LLVM: $ROOT/llvm
   GIT_STRATEGY: none
   GIT_DEPTH: 1
 
@@ -26,8 +25,7 @@ stage:
   variables:
     GIT_STRATEGY: clone
   script:
-    - cd $ROOT
-    - $LLVM_PROJECT/llvm/utils/gitlab/display_environment.sh
+    - llvm/utils/gitlab/display_environment.sh
     - mkdir -p build/
     - touch build/BUILD_HERE
 
