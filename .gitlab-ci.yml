@@ -23,7 +23,6 @@ stages:
       - libunwind/
       - lld/
       - lldb/
-      - llgo/
       - llvm/
       - openmp
       - parallel-libs/
@@ -56,7 +55,6 @@ build:llvm:
     - cmake -G Ninja "-DCMAKE_BUILD_TYPE=$BUILD_TYPE"
        "-DCMAKE_C_COMPILER=$CC"
        "-DCMAKE_CXX_COMPILER=$CXX"
-       "-DLLVM_ENABLE_PROJECTS=all"
        "-DLLVM_LIT_ARGS=$LLVM_LIT_ARGS"
        $LLVM_PROJECT/llvm
     - ninja
