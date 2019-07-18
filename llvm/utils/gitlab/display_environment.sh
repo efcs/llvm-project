@@ -12,3 +12,4 @@ clang++ --version
 g++ --version
 cmake --version
 ninja --version
+ninja --help
