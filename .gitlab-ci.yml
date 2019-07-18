@@ -23,14 +23,13 @@ stages:
       - libunwind/
       - lld/
       - lldb/
-      - llgo
+      - llgo/
       - llvm/
       - openmp
       - parallel-libs/
       - polly/
       - pstl/
       - build/
-
 
 stage:
   extends: .staged-llvm
