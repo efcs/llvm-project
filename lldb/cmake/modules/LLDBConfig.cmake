@@ -50,6 +50,7 @@ option(LLDB_USE_SYSTEM_SIX "Use six.py shipped with system and do not install a 
 option(LLDB_USE_ENTITLEMENTS "When codesigning, use entitlements if available" ON)
 option(LLDB_BUILD_FRAMEWORK "Build LLDB.framework (Darwin only)" OFF)
 option(LLDB_NO_INSTALL_DEFAULT_RPATH "Disable default RPATH settings in binaries" OFF)
+option(LLDB_USE_SYSTEM_DEBUGSERVER "Use the system's debugserver for testing (Darwin only)." OFF)
 
 if(LLDB_BUILD_FRAMEWORK)
   if(NOT APPLE)
@@ -137,8 +138,9 @@ function(find_python_libs_windows)
          REGEX "^#define[ \t]+PY_VERSION[ \t]+\"[^\"]+\"")
     string(REGEX REPLACE "^#define[ \t]+PY_VERSION[ \t]+\"([^\"+]+)[+]?\".*" "\\1"
          PYTHONLIBS_VERSION_STRING "${python_version_str}")
-    message(STATUS "Found Python version ${PYTHONLIBS_VERSION_STRING}")
+    message(STATUS "Found Python library version ${PYTHONLIBS_VERSION_STRING}")
     string(REGEX REPLACE "([0-9]+)[.]([0-9]+)[.][0-9]+" "python\\1\\2" PYTHONLIBS_BASE_NAME "${PYTHONLIBS_VERSION_STRING}")
+    set(PYTHONLIBS_VERSION_STRING "${PYTHONLIBS_VERSION_STRING}" PARENT_SCOPE)
     unset(python_version_str)
   else()
     message(WARNING "Unable to find ${PYTHON_INCLUDE_DIR}/patchlevel.h, Python installation is corrupt.")
@@ -185,7 +187,6 @@ function(find_python_libs_windows)
 endfunction(find_python_libs_windows)
 
 if (NOT LLDB_DISABLE_PYTHON)
-
   if ("${CMAKE_SYSTEM_NAME}" STREQUAL "Windows")
     find_python_libs_windows()
 
@@ -194,8 +195,13 @@ if (NOT LLDB_DISABLE_PYTHON)
       add_definitions( -DLLDB_PYTHON_HOME="${LLDB_PYTHON_HOME}" )
     endif()
   else()
-    find_package(PythonInterp)
-    find_package(PythonLibs)
+    find_package(PythonInterp REQUIRED)
+    find_package(PythonLibs REQUIRED)
+  endif()
+
+  if (NOT PYTHON_VERSION_STRING VERSION_EQUAL PYTHONLIBS_VERSION_STRING AND
+      NOT CMAKE_CROSSCOMPILING)
+    message(FATAL_ERROR "Found incompatible Python interpreter (${PYTHON_VERSION_STRING}) and Python libraries (${PYTHONLIBS_VERSION_STRING})")
   endif()
 
   if (PYTHON_INCLUDE_DIR)

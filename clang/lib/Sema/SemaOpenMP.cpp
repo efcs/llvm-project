@@ -4992,7 +4992,8 @@ public:
   bool VisitMemberExpr(const MemberExpr *E) {
     if (isa<CXXThisExpr>(E->getBase()->IgnoreParens())) {
       const ValueDecl *VD = E->getMemberDecl();
-      return checkDecl(E, VD);
+      if (isa<VarDecl>(VD) || isa<FieldDecl>(VD))
+        return checkDecl(E, VD);
     }
     return false;
   }
@@ -6000,7 +6001,7 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
         CollapseLoopCountExpr->EvaluateAsInt(Result, SemaRef.getASTContext())) {
       NestedLoopCount = Result.Val.getInt().getLimitedValue();
     } else {
-      Built.clear(/*size=*/1);
+      Built.clear(/*Size=*/1);
       return 1;
     }
   }
@@ -6022,7 +6023,7 @@ checkOpenMPLoop(OpenMPDirectiveKind DKind, Expr *CollapseLoopCountExpr,
       }
       OrderedLoopCount = Result.getLimitedValue();
     } else {
-      Built.clear(/*size=*/1);
+      Built.clear(/*Size=*/1);
       return 1;
     }
   }

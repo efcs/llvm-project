@@ -24,17 +24,6 @@
 
 using namespace llvm;
 
-void FileCheckNumericVariable::setValue(uint64_t NewValue) {
-  assert(!Value && "Overwriting numeric variable's value is not allowed");
-  Value = NewValue;
-}
-
-void FileCheckNumericVariable::clearValue() {
-  if (!Value)
-    return;
-  Value = None;
-}
-
 Expected<uint64_t> FileCheckNumericVariableUse::eval() const {
   Optional<uint64_t> Value = NumericVariable->getValue();
   if (Value)
@@ -124,8 +113,8 @@ char FileCheckNotFoundError::ID = 0;
 
 Expected<FileCheckNumericVariable *>
 FileCheckPattern::parseNumericVariableDefinition(
-    StringRef &Expr, FileCheckPatternContext *Context, size_t LineNumber,
-    const SourceMgr &SM) {
+    StringRef &Expr, FileCheckPatternContext *Context,
+    Optional<size_t> LineNumber, const SourceMgr &SM) {
   Expected<VariableProperties> ParseVarResult = parseVariable(Expr, SM);
   if (!ParseVarResult)
     return ParseVarResult.takeError();
@@ -152,7 +141,7 @@ FileCheckPattern::parseNumericVariableDefinition(
   if (VarTableIter != Context->GlobalNumericVariableTable.end())
     DefinedNumericVariable = VarTableIter->second;
   else
-    DefinedNumericVariable = Context->makeNumericVariable(LineNumber, Name);
+    DefinedNumericVariable = Context->makeNumericVariable(Name, LineNumber);
 
   return DefinedNumericVariable;
 }
@@ -177,11 +166,12 @@ FileCheckPattern::parseNumericVariableUse(StringRef Name, bool IsPseudo,
   if (VarTableIter != Context->GlobalNumericVariableTable.end())
     NumericVariable = VarTableIter->second;
   else {
-    NumericVariable = Context->makeNumericVariable(0, Name);
+    NumericVariable = Context->makeNumericVariable(Name);
     Context->GlobalNumericVariableTable[Name] = NumericVariable;
   }
 
-  if (!IsPseudo && NumericVariable->getDefLineNumber() == LineNumber)
+  Optional<size_t> DefLineNumber = NumericVariable->getDefLineNumber();
+  if (DefLineNumber && LineNumber && *DefLineNumber == *LineNumber)
     return FileCheckErrorDiagnostic::get(
         SM, Name,
         "numeric variable '" + Name + "' defined on the same line as used");
@@ -620,7 +610,8 @@ Expected<size_t> FileCheckPattern::match(StringRef Buffer, size_t &MatchLen,
   std::string TmpStr;
   if (!Substitutions.empty()) {
     TmpStr = RegExStr;
-    Context->LineVariable->setValue(LineNumber);
+    if (LineNumber)
+      Context->LineVariable->setValue(*LineNumber);
 
     size_t InsertOffset = 0;
     // Substitute all string variables and expressions whose values are only
@@ -629,10 +620,8 @@ Expected<size_t> FileCheckPattern::match(StringRef Buffer, size_t &MatchLen,
     for (const auto &Substitution : Substitutions) {
       // Substitute and check for failure (e.g. use of undefined variable).
       Expected<std::string> Value = Substitution->getResult();
-      if (!Value) {
-        Context->LineVariable->clearValue();
+      if (!Value)
         return Value.takeError();
-      }
 
       // Plop it into the regex at the adjusted offset.
       TmpStr.insert(TmpStr.begin() + Substitution->getIndex() + InsertOffset,
@@ -642,7 +631,6 @@ Expected<size_t> FileCheckPattern::match(StringRef Buffer, size_t &MatchLen,
 
     // Match the newly constructed regex.
     RegExToMatch = TmpStr;
-    Context->LineVariable->clearValue();
   }
 
   SmallVector<StringRef, 4> MatchInfo;
@@ -1102,7 +1090,7 @@ FindFirstMatchingPrefix(Regex &PrefixRE, StringRef &Buffer,
 void FileCheckPatternContext::createLineVariable() {
   assert(!LineVariable && "@LINE pseudo numeric variable already created");
   StringRef LineName = "@LINE";
-  LineVariable = makeNumericVariable(0, LineName);
+  LineVariable = makeNumericVariable(LineName);
   GlobalNumericVariableTable[LineName] = LineVariable;
 }
 
@@ -1131,7 +1119,7 @@ bool FileCheck::ReadCheckFile(SourceMgr &SM, StringRef Buffer, Regex &PrefixRE,
     SM.AddNewSourceBuffer(std::move(CmdLine), SMLoc());
 
     ImplicitNegativeChecks.push_back(
-        FileCheckPattern(Check::CheckNot, &PatternContext, 0));
+        FileCheckPattern(Check::CheckNot, &PatternContext));
     ImplicitNegativeChecks.back().parsePattern(PatternInBuffer,
                                                "IMPLICIT-CHECK", SM, Req);
   }
@@ -1790,8 +1778,8 @@ Error FileCheckPatternContext::defineCmdlineVariables(
     if (CmdlineDef[0] == '#') {
       StringRef CmdlineName = CmdlineDef.substr(1, EqIdx - 1);
       Expected<FileCheckNumericVariable *> ParseResult =
-          FileCheckPattern::parseNumericVariableDefinition(CmdlineName, this, 0,
-                                                           SM);
+          FileCheckPattern::parseNumericVariableDefinition(CmdlineName, this,
+                                                           None, SM);
       if (!ParseResult) {
         Errs = joinErrors(std::move(Errs), ParseResult.takeError());
         continue;

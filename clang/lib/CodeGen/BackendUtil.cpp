@@ -60,7 +60,6 @@
 #include "llvm/Transforms/Instrumentation/HWAddressSanitizer.h"
 #include "llvm/Transforms/Instrumentation/InstrProfiling.h"
 #include "llvm/Transforms/Instrumentation/MemorySanitizer.h"
-#include "llvm/Transforms/Instrumentation/SanitizerCoverage.h"
 #include "llvm/Transforms/Instrumentation/ThreadSanitizer.h"
 #include "llvm/Transforms/ObjCARC.h"
 #include "llvm/Transforms/Scalar.h"
@@ -196,8 +195,11 @@ static void addBoundsCheckingPass(const PassManagerBuilder &Builder,
   PM.add(createBoundsCheckingLegacyPass());
 }
 
-static SanitizerCoverageOptions
-getSancovOptsFromCGOpts(const CodeGenOptions &CGOpts) {
+static void addSanitizerCoveragePass(const PassManagerBuilder &Builder,
+                                     legacy::PassManagerBase &PM) {
+  const PassManagerBuilderWrapper &BuilderWrapper =
+      static_cast<const PassManagerBuilderWrapper&>(Builder);
+  const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
   SanitizerCoverageOptions Opts;
   Opts.CoverageType =
       static_cast<SanitizerCoverageOptions::Type>(CGOpts.SanitizeCoverageType);
@@ -213,17 +215,7 @@ getSancovOptsFromCGOpts(const CodeGenOptions &CGOpts) {
   Opts.Inline8bitCounters = CGOpts.SanitizeCoverageInline8bitCounters;
   Opts.PCTable = CGOpts.SanitizeCoveragePCTable;
   Opts.StackDepth = CGOpts.SanitizeCoverageStackDepth;
-  return Opts;
-}
-
-static void addSanitizerCoveragePass(const PassManagerBuilder &Builder,
-                                     legacy::PassManagerBase &PM) {
-  const PassManagerBuilderWrapper &BuilderWrapper =
-      static_cast<const PassManagerBuilderWrapper &>(Builder);
-  const CodeGenOptions &CGOpts = BuilderWrapper.getCGOpts();
-  auto Opts = getSancovOptsFromCGOpts(CGOpts);
-  PM.add(createModuleSanitizerCoverageLegacyPassPass(Opts));
-  PM.add(createSanitizerCoverageLegacyPassPass(Opts));
+  PM.add(createSanitizerCoverageModulePass(Opts));
 }
 
 // Check if ASan should use GC-friendly instrumentation for globals.
@@ -975,17 +967,6 @@ static void addSanitizersAtO0(ModulePassManager &MPM,
   if (LangOpts.Sanitize.has(SanitizerKind::Thread)) {
     MPM.addPass(createModuleToFunctionPassAdaptor(ThreadSanitizerPass()));
   }
-
-  if (LangOpts.Sanitize.has(SanitizerKind::HWAddress)) {
-    bool Recover = CodeGenOpts.SanitizeRecover.has(SanitizerKind::HWAddress);
-    MPM.addPass(createModuleToFunctionPassAdaptor(
-        HWAddressSanitizerPass(/*CompileKernel=*/false, Recover)));
-  }
-
-  if (LangOpts.Sanitize.has(SanitizerKind::KernelHWAddress)) {
-    MPM.addPass(createModuleToFunctionPassAdaptor(
-        HWAddressSanitizerPass(/*CompileKernel=*/true, /*Recover=*/true)));
-  }
 }
 
 /// A clean version of `EmitAssembly` that uses the new pass manager.
@@ -1143,21 +1124,6 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
             EntryExitInstrumenterPass(/*PostInlining=*/false)));
       });
 
-      if (CodeGenOpts.SanitizeCoverageType ||
-          CodeGenOpts.SanitizeCoverageIndirectCalls ||
-          CodeGenOpts.SanitizeCoverageTraceCmp) {
-        auto SancovOpts = getSancovOptsFromCGOpts(CodeGenOpts);
-        PB.registerPipelineStartEPCallback(
-            [SancovOpts](ModulePassManager &MPM) {
-              MPM.addPass(ModuleSanitizerCoveragePass(SancovOpts));
-            });
-        PB.registerOptimizerLastEPCallback(
-            [SancovOpts](FunctionPassManager &FPM,
-                         PassBuilder::OptimizationLevel Level) {
-              FPM.addPass(SanitizerCoveragePass(SancovOpts));
-            });
-      }
-
       // Register callbacks to schedule sanitizer passes at the appropriate part of
       // the pipeline.
       // FIXME: either handle asan/the remaining sanitizers or error out
@@ -1199,23 +1165,6 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
                   UseOdrIndicator));
             });
       }
-      if (LangOpts.Sanitize.has(SanitizerKind::HWAddress)) {
-        bool Recover =
-            CodeGenOpts.SanitizeRecover.has(SanitizerKind::HWAddress);
-        PB.registerOptimizerLastEPCallback(
-            [Recover](FunctionPassManager &FPM,
-                      PassBuilder::OptimizationLevel Level) {
-              FPM.addPass(HWAddressSanitizerPass(
-                  /*CompileKernel=*/false, Recover));
-            });
-      }
-      if (LangOpts.Sanitize.has(SanitizerKind::KernelHWAddress)) {
-        PB.registerOptimizerLastEPCallback(
-            [](FunctionPassManager &FPM, PassBuilder::OptimizationLevel Level) {
-              FPM.addPass(HWAddressSanitizerPass(
-                  /*CompileKernel=*/true, /*Recover=*/true));
-            });
-      }
       if (Optional<GCOVOptions> Options = getGCOVOptions(CodeGenOpts))
         PB.registerPipelineStartEPCallback([Options](ModulePassManager &MPM) {
           MPM.addPass(GCOVProfilerPass(*Options));
@@ -1242,18 +1191,18 @@ void EmitAssemblyHelper::EmitAssemblyWithNewPassManager(
       }
     }
 
-    if (CodeGenOpts.OptimizationLevel == 0) {
-      if (CodeGenOpts.SanitizeCoverageType ||
-          CodeGenOpts.SanitizeCoverageIndirectCalls ||
-          CodeGenOpts.SanitizeCoverageTraceCmp) {
-        auto SancovOpts = getSancovOptsFromCGOpts(CodeGenOpts);
-        MPM.addPass(ModuleSanitizerCoveragePass(SancovOpts));
-        MPM.addPass(createModuleToFunctionPassAdaptor(
-            SanitizerCoveragePass(SancovOpts)));
-      }
-
-      addSanitizersAtO0(MPM, TargetTriple, LangOpts, CodeGenOpts);
+    if (LangOpts.Sanitize.has(SanitizerKind::HWAddress)) {
+      bool Recover = CodeGenOpts.SanitizeRecover.has(SanitizerKind::HWAddress);
+      MPM.addPass(HWAddressSanitizerPass(
+          /*CompileKernel=*/false, Recover));
     }
+    if (LangOpts.Sanitize.has(SanitizerKind::KernelHWAddress)) {
+      MPM.addPass(HWAddressSanitizerPass(
+          /*CompileKernel=*/true, /*Recover=*/true));
+    }
+
+    if (CodeGenOpts.OptimizationLevel == 0)
+      addSanitizersAtO0(MPM, TargetTriple, LangOpts, CodeGenOpts);
   }
 
   // FIXME: We still use the legacy pass manager to do code generation. We

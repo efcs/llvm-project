@@ -55,8 +55,8 @@ static void expectUndefError(const Twine &ExpectedUndefVarName, Error Err) {
 
 TEST_F(FileCheckTest, NumericVariable) {
   // Undefined variable: getValue and eval fail, error returned by eval holds
-  // the name of the undefined variable and setValue does not trigger assert.
-  FileCheckNumericVariable FooVar = FileCheckNumericVariable(1, "FOO");
+  // the name of the undefined variable.
+  FileCheckNumericVariable FooVar = FileCheckNumericVariable("FOO", 1);
   EXPECT_EQ("FOO", FooVar.getName());
   FileCheckNumericVariableUse FooVarUse =
       FileCheckNumericVariableUse("FOO", &FooVar);
@@ -64,6 +64,7 @@ TEST_F(FileCheckTest, NumericVariable) {
   Expected<uint64_t> EvalResult = FooVarUse.eval();
   EXPECT_FALSE(EvalResult);
   expectUndefError("FOO", EvalResult.takeError());
+
   FooVar.setValue(42);
 
   // Defined variable: getValue and eval return value set.
@@ -87,10 +88,12 @@ TEST_F(FileCheckTest, NumericVariable) {
 uint64_t doAdd(uint64_t OpL, uint64_t OpR) { return OpL + OpR; }
 
 TEST_F(FileCheckTest, Binop) {
-  FileCheckNumericVariable FooVar = FileCheckNumericVariable("FOO", 42);
+  FileCheckNumericVariable FooVar = FileCheckNumericVariable("FOO");
+  FooVar.setValue(42);
   std::unique_ptr<FileCheckNumericVariableUse> FooVarUse =
       llvm::make_unique<FileCheckNumericVariableUse>("FOO", &FooVar);
-  FileCheckNumericVariable BarVar = FileCheckNumericVariable("BAR", 18);
+  FileCheckNumericVariable BarVar = FileCheckNumericVariable("BAR");
+  BarVar.setValue(18);
   std::unique_ptr<FileCheckNumericVariableUse> BarVarUse =
       llvm::make_unique<FileCheckNumericVariableUse>("BAR", &BarVar);
   FileCheckASTBinop Binop =
@@ -407,8 +410,10 @@ TEST_F(FileCheckTest, Substitution) {
 
   // Substitutions of defined pseudo and non-pseudo numeric variables return
   // the right value.
-  FileCheckNumericVariable LineVar = FileCheckNumericVariable("@LINE", 42);
-  FileCheckNumericVariable NVar = FileCheckNumericVariable("N", 10);
+  FileCheckNumericVariable LineVar = FileCheckNumericVariable("@LINE");
+  LineVar.setValue(42);
+  FileCheckNumericVariable NVar = FileCheckNumericVariable("N");
+  NVar.setValue(10);
   auto LineVarUse =
       llvm::make_unique<FileCheckNumericVariableUse>("@LINE", &LineVar);
   auto NVarUse = llvm::make_unique<FileCheckNumericVariableUse>("N", &NVar);
