@@ -58,6 +58,7 @@ build:llvm:
        "-DLLVM_LIT_ARGS=$LLVM_LIT_ARGS"
        $LLVM_PROJECT/llvm
     - ninja
+    - echo "done"
 
 test:
   extends: .staged-llvm
