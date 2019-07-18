@@ -16,10 +16,19 @@ stages:
       - clang/
       - compiler-rt/
       - clang-tools-extra/
+      - debuginfo-tests/
+      - libclc/
       - libcxx/
       - libcxxabi/
       - libunwind/
+      - lld/
+      - lldb/
+      - llgo
       - llvm/
+      - openmp
+      - parallel-libs/
+      - polly/
+      - pstl/
       - build/
 
 
