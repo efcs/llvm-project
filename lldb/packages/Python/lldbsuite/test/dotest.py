@@ -29,7 +29,6 @@ import logging
 import platform
 import re
 import signal
-import socket
 import subprocess
 import sys
 
@@ -58,7 +57,7 @@ def is_exe(fpath):
 
 def which(program):
     """Returns the full path to a program; None otherwise."""
-    fpath, fname = os.path.split(program)
+    fpath, _ = os.path.split(program)
     if fpath:
         if is_exe(program):
             return program
@@ -68,27 +67,6 @@ def which(program):
             if is_exe(exe_file):
                 return exe_file
     return None
-
-
-class _WritelnDecorator(object):
-    """Used to decorate file-like objects with a handy 'writeln' method"""
-
-    def __init__(self, stream):
-        self.stream = stream
-
-    def __getattr__(self, attr):
-        if attr in ('stream', '__getstate__'):
-            raise AttributeError(attr)
-        return getattr(self.stream, attr)
-
-    def writeln(self, arg=None):
-        if arg:
-            self.write(arg)
-        self.write('\n')  # text-mode streams translate to \r\n if needed
-
-#
-# Global variables:
-#
 
 
 def usage(parser):
@@ -558,17 +536,6 @@ def getXcodeOutputPaths(lldbRootDirectory):
     return result
 
 
-def createSocketToLocalPort(port):
-    def socket_closer(s):
-        """Close down an opened socket properly."""
-        s.shutdown(socket.SHUT_RDWR)
-        s.close()
-
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.connect(("localhost", port))
-    return (sock, lambda: socket_closer(sock))
-
-
 def setupTestResults():
     """Sets up test results-related objects based on arg settings."""
     # Setup the results formatter configuration.
@@ -639,7 +606,7 @@ def getOutputPaths(lldbRootDirectory):
 def get_llvm_bin_dirs():
     """
     Returns an array of paths that may have the llvm/clang/etc binaries
-    in them, relative to this current file.  
+    in them, relative to this current file.
     Returns an empty array if none are found.
     """
     result = []
@@ -693,16 +660,11 @@ def setupSysPath():
     os.environ["LLDB_SRC"] = lldbsuite.lldb_root
 
     pluginPath = os.path.join(scriptPath, 'plugins')
-    toolsLLDBMIPath = os.path.join(scriptPath, 'tools', 'lldb-mi')
     toolsLLDBVSCode = os.path.join(scriptPath, 'tools', 'lldb-vscode')
     toolsLLDBServerPath = os.path.join(scriptPath, 'tools', 'lldb-server')
 
-    # Insert script dir, plugin dir, lldb-mi dir and lldb-server dir to the
-    # sys.path.
+    # Insert script dir, plugin dir and lldb-server dir to the sys.path.
     sys.path.insert(0, pluginPath)
-    # Adding test/tools/lldb-mi to the path makes it easy
-    sys.path.insert(0, toolsLLDBMIPath)
-    # to "import lldbmi_testcase" from the MI tests
     # Adding test/tools/lldb-vscode to the path makes it easy to
     # "import lldb_vscode_testcase" from the VSCode tests
     sys.path.insert(0, toolsLLDBVSCode)
@@ -761,19 +723,7 @@ def setupSysPath():
     print("LLDB import library dir:", os.environ["LLDB_IMPLIB_DIR"])
     os.system('%s -v' % lldbtest_config.lldbExec)
 
-    # Assume lldb-mi is in same place as lldb
-    # If not found, disable the lldb-mi tests
-    # TODO: Append .exe on Windows
-    #   - this will be in a separate commit in case the mi tests fail horribly
     lldbDir = os.path.dirname(lldbtest_config.lldbExec)
-    lldbMiExec = os.path.join(lldbDir, "lldb-mi")
-    if is_exe(lldbMiExec):
-        os.environ["LLDBMI_EXEC"] = lldbMiExec
-    else:
-        if not configuration.shouldSkipBecauseOfCategories(["lldb-mi"]):
-            print(
-                "The 'lldb-mi' executable cannot be located.  The lldb-mi tests can not be run as a result.")
-            configuration.skipCategories.append("lldb-mi")
 
     lldbVSCodeExec = os.path.join(lldbDir, "lldb-vscode")
     if is_exe(lldbVSCodeExec):
@@ -1107,14 +1057,6 @@ def getVersionForSDK(sdk):
     return ver
 
 
-def getPathForSDK(sdk):
-    sdk = str.lower(sdk)
-    full_path = seven.get_command_output('xcrun -sdk %s --show-sdk-path' % sdk)
-    if os.path.exists(full_path):
-        return full_path
-    return None
-
-
 def setDefaultTripleForPlatform():
     if configuration.lldb_platform_name == 'ios-simulator':
         triple_str = 'x86_64-apple-ios%s' % (
@@ -1171,8 +1113,10 @@ def canRunLibstdcxxTests():
     from lldbsuite.test import lldbplatformutil
 
     platform = lldbplatformutil.getPlatform()
+    if lldbplatformutil.target_is_android():
+        platform = "android"
     if platform == "linux":
-      return True, "libstdcxx always present"
+        return True, "libstdcxx always present"
     return False, "Don't know how to build with libstdcxx on %s" % platform
 
 def checkLibstdcxxSupport():

@@ -266,16 +266,16 @@ TEST(TweakTest, ShowSelectionTree) {
   llvm::StringLiteral ID = "ShowSelectionTree";
 
   checkAvailable(ID, "^int f^oo() { re^turn 2 ^+ 2; }");
-  checkNotAvailable(ID, "/*c^omment*/ int foo() return 2 ^ + 2; }");
+  checkAvailable(ID, "/*c^omment*/ int foo() return 2 ^ + 2; }");
 
   const char *Input = "int fcall(int); int x = fca[[ll(2 +]]2);";
-  const char *Output = R"(TranslationUnitDecl 
-  VarDecl int x = fcall(2 + 2)
-   .CallExpr fcall(2 + 2)
-      ImplicitCastExpr fcall
-       .DeclRefExpr fcall
-     .BinaryOperator 2 + 2
-       *IntegerLiteral 2
+  const char *Output = R"( TranslationUnitDecl 
+   VarDecl int x = fcall(2 + 2)
+    .CallExpr fcall(2 + 2)
+       ImplicitCastExpr fcall
+        .DeclRefExpr fcall
+      .BinaryOperator 2 + 2
+        *IntegerLiteral 2
 )";
   EXPECT_EQ(Output, getMessage(ID, Input));
 }
@@ -291,74 +291,94 @@ TEST(TweakTest, DumpRecordLayout) {
   const char *Input = "struct ^X { int x; int y; }";
   EXPECT_THAT(getMessage(ID, Input), ::testing::HasSubstr("0 |   int x"));
 }
+
 TEST(TweakTest, ExtractVariable) {
   llvm::StringLiteral ID = "ExtractVariable";
   checkAvailable(ID, R"cpp(
-    int xyz() {
+    int xyz(int a = 1) {
+      struct T {
+        int bar(int a = 1);
+        int z;
+      } t;
       // return statement
-      return ^1;
+      return [[[[t.b[[a]]r]](t.z)]];
     }
     void f() {
-      int a = 5 + [[4 ^* ^xyz^()]];
+      int a = [[5 +]] [[4 * [[[[xyz]]()]]]];
       // multivariable initialization
       if(1)
-        int x = ^1, y = ^a + 1, a = ^1, z = a + 1;
+        int x = [[1]], y = [[a + 1]], a = [[1]], z = a + 1;
       // if without else
-      if(^1) {}
+      if([[1]])
+        a = [[1]];
       // if with else
-      if(a < ^3)
-        if(a == ^4)
-          a = ^5;
+      if(a < [[3]])
+        if(a == [[4]])
+          a = [[5]];
         else
-          a = ^6;
-      else if (a < ^4)
-        a = ^4;
+          a = [[5]];
+      else if (a < [[4]])
+        a = [[4]];
       else
-        a = ^5;
-      // for loop 
-      for(a = ^1; a > ^3^+^4; a++)
-        a = ^2;
-      // while 
-      while(a < ^1)
-        ^a++;
-      // do while 
+        a = [[5]];
+      // for loop
+      for(a = [[1]]; a > [[[[3]] + [[4]]]]; a++)
+        a = [[2]];
+      // while
+      while(a < [[1]])
+        [[a++]];
+      // do while
       do
-        a = ^1;
-      while(a < ^3);
+        a = [[1]];
+      while(a < [[3]]);
     }
   )cpp");
   // Should not crash.
   checkNotAvailable(ID, R"cpp(
     template<typename T, typename ...Args>
     struct Test<T, Args...> {
-    Test(const T &v) :val(^) {}
+    Test(const T &v) :val[[(^]]) {}
       T val;
     };
   )cpp");
   checkNotAvailable(ID, R"cpp(
-    int xyz(int a = ^1) {
-      return 1;
-      class T {
-        T(int a = ^1) {};
-        int xyz = ^1;
-      };
+    int xyz(int a = [[1]]) {
+      struct T {
+        int bar(int a = [[1]]);
+        int z = [[1]];
+      } t;
+      return [[t]].bar([[[[t]].z]]);
     }
+    void v() { return; }
     // function default argument
-    void f(int b = ^1) {
+    void f(int b = [[1]]) {
+      // empty selection
+      int a = ^1 ^+ ^2;
       // void expressions
       auto i = new int, j = new int;
-      de^lete i^, del^ete j;
+      [[[[delete i]], delete j]];
+      [[v]]();
       // if
       if(1)
-        int x = 1, y = a + 1, a = 1, z = ^a + 1;
+        int x = 1, y = a + 1, a = 1, z = [[a + 1]];
       if(int a = 1)
-        if(^a == 4)
-          a = ^a ^+ 1;
-      // for loop 
-      for(int a = 1, b = 2, c = 3; ^a > ^b ^+ ^c; ^a++)
-        a = ^a ^+ 1;
-      // lambda 
-      auto lamb = [&^a, &^b](int r = ^1) {return 1;}
+        if([[a + 1]] == 4)
+          a = [[[[a]] +]] 1;
+      // for loop
+      for(int a = 1, b = 2, c = 3; a > [[b + c]]; [[a++]])
+        a = [[a + 1]];
+      // lambda
+      auto lamb = [&[[a]], &[[b]]](int r = [[1]]) {return 1;}
+      // assigment
+      [[a = 5]];
+      [[a >>= 5]];
+      [[a *= 5]];
+      // Variable DeclRefExpr
+      a = [[b]];
+      // label statement
+      goto label;
+      label:
+        a = [[1]];
     }
   )cpp");
   // vector of pairs of input and output strings
@@ -394,36 +414,141 @@ TEST(TweakTest, ExtractVariable) {
                              break;
                        }
                  })cpp"},*/
+          // Macros
+          {R"cpp(#define PLUS(x) x++
+                 void f(int a) {
+                   PLUS([[1+a]]);
+                 })cpp",
+           R"cpp(#define PLUS(x) x++
+                 void f(int a) {
+                   auto dummy = PLUS(1+a); dummy;
+                 })cpp"},
           // ensure InsertionPoint isn't inside a macro
-          {R"cpp(#define LOOP(x) {int a = x + 1;}
+          {R"cpp(#define LOOP(x) while (1) {a = x;}
                  void f(int a) {
                    if(1)
-                    LOOP(5 + ^3)
+                    LOOP(5 + [[3]])
                  })cpp",
-           R"cpp(#define LOOP(x) {int a = x + 1;}
+           /*FIXME: It should be extracted like this. SelectionTree needs to be
+            * fixed for macros.
+         R"cpp(#define LOOP(x) while (1) {a = x;}
+               void f(int a) {
+                 auto dummy = 3; if(1)
+                  LOOP(5 + dummy)
+               })cpp"},*/
+           R"cpp(#define LOOP(x) while (1) {a = x;}
+                 void f(int a) {
+                   auto dummy = LOOP(5 + 3); if(1)
+                    dummy
+                 })cpp"},
+          {R"cpp(#define LOOP(x) do {x;} while(1);
+                 void f(int a) {
+                   if(1)
+                    LOOP(5 + [[3]])
+                 })cpp",
+           R"cpp(#define LOOP(x) do {x;} while(1);
                  void f(int a) {
                    auto dummy = 3; if(1)
                     LOOP(5 + dummy)
                  })cpp"},
-          // label and attribute testing
+          // attribute testing
           {R"cpp(void f(int a) {
-                    label: [ [gsl::suppress("type")] ] for (;;) a = ^1;
+                    [ [gsl::suppress("type")] ] for (;;) a = [[1]];
                  })cpp",
            R"cpp(void f(int a) {
-                    auto dummy = 1; label: [ [gsl::suppress("type")] ] for (;;) a = dummy;
+                    auto dummy = 1; [ [gsl::suppress("type")] ] for (;;) a = dummy;
                  })cpp"},
-          // FIXME: Doesn't work because bug in selection tree
-          /*{R"cpp(#define PLUS(x) x++
-                 void f(int a) {
-                   PLUS(^a);
+          // MemberExpr
+          {R"cpp(class T {
+                   T f() {
+                     return [[T().f()]].f();
+                   }
+                 };)cpp",
+           R"cpp(class T {
+                   T f() {
+                     auto dummy = T().f(); return dummy.f();
+                   }
+                 };)cpp"},
+          // Function DeclRefExpr
+          {R"cpp(int f() {
+                   return [[f]]();
                  })cpp",
-           R"cpp(#define PLUS(x) x++
-                 void f(int a) {
-                   auto dummy = a; PLUS(dummy);
-                 })cpp"},*/
-          // FIXME: Doesn't work correctly for \[\[clang::uninitialized\]\] int b
-          // = 1; since the attr is inside the DeclStmt and the bounds of
-          // DeclStmt don't cover the attribute
+           R"cpp(int f() {
+                   auto dummy = f(); return dummy;
+                 })cpp"},
+          // FIXME: Wrong result for \[\[clang::uninitialized\]\] int b = [[1]];
+          // since the attr is inside the DeclStmt and the bounds of
+          // DeclStmt don't cover the attribute.
+
+          // Binary subexpressions
+          {R"cpp(void f() {
+                   int x = 1 + [[2 + 3 + 4]] + 5;
+                 })cpp",
+           R"cpp(void f() {
+                   auto dummy = 2 + 3 + 4; int x = 1 + dummy + 5;
+                 })cpp"},
+          {R"cpp(void f() {
+                   int x = [[1 + 2 + 3]] + 4 + 5;
+                 })cpp",
+           R"cpp(void f() {
+                   auto dummy = 1 + 2 + 3; int x = dummy + 4 + 5;
+                 })cpp"},
+          {R"cpp(void f() {
+                   int x = 1 + 2 + [[3 + 4 + 5]];
+                 })cpp",
+           R"cpp(void f() {
+                   auto dummy = 3 + 4 + 5; int x = 1 + 2 + dummy;
+                 })cpp"},
+          // Non-associative operations have no special support
+          {R"cpp(void f() {
+                   int x = 1 - [[2 - 3 - 4]] - 5;
+                 })cpp",
+           R"cpp(void f() {
+                   auto dummy = 1 - 2 - 3 - 4; int x = dummy - 5;
+                 })cpp"},
+          // A mix of associative operators isn't associative.
+          {R"cpp(void f() {
+                   int x = 0 + 1 * [[2 + 3]] * 4 + 5;
+                 })cpp",
+           R"cpp(void f() {
+                   auto dummy = 1 * 2 + 3 * 4; int x = 0 + dummy + 5;
+                 })cpp"},
+          // Overloaded operators are supported, we assume associativity
+          // as if they were built-in.
+          {R"cpp(struct S {
+                   S(int);
+                 };
+                 S operator+(S, S);
+
+                 void f() {
+                   S x = S(1) + [[S(2) + S(3) + S(4)]] + S(5);
+                 })cpp",
+           R"cpp(struct S {
+                   S(int);
+                 };
+                 S operator+(S, S);
+
+                 void f() {
+                   auto dummy = S(2) + S(3) + S(4); S x = S(1) + dummy + S(5);
+                 })cpp"},
+           // Don't try to analyze across macro boundaries
+           // FIXME: it'd be nice to do this someday (in a safe way)
+          {R"cpp(#define ECHO(X) X
+                 void f() {
+                   int x = 1 + [[ECHO(2 + 3) + 4]] + 5;
+                 })cpp",
+           R"cpp(#define ECHO(X) X
+                 void f() {
+                   auto dummy = 1 + ECHO(2 + 3) + 4; int x = dummy + 5;
+                 })cpp"},
+          {R"cpp(#define ECHO(X) X
+                 void f() {
+                   int x = 1 + [[ECHO(2) + ECHO(3) + 4]] + 5;
+                 })cpp",
+           R"cpp(#define ECHO(X) X
+                 void f() {
+                   auto dummy = 1 + ECHO(2) + ECHO(3) + 4; int x = dummy + 5;
+                 })cpp"},
       };
   for (const auto &IO : InputOutputs) {
     checkTransform(ID, IO.first, IO.second);
@@ -433,9 +558,20 @@ TEST(TweakTest, ExtractVariable) {
 TEST(TweakTest, AnnotateHighlightings) {
   llvm::StringLiteral ID = "AnnotateHighlightings";
   checkAvailable(ID, "^vo^id^ ^f(^) {^}^"); // available everywhere.
+  checkAvailable(ID, "[[int a; int b;]]");
   const char *Input = "void ^f() {}";
   const char *Output = "void /* entity.name.function.cpp */f() {}";
   checkTransform(ID, Input, Output);
+
+  checkTransform(ID,
+  R"cpp(
+[[void f1();
+void f2();]]
+)cpp",
+  R"cpp(
+void /* entity.name.function.cpp */f1();
+void /* entity.name.function.cpp */f2();
+)cpp");
 }
 
 TEST(TweakTest, ExpandMacro) {

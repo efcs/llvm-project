@@ -89,8 +89,11 @@ MipsLegalizerInfo::MipsLegalizerInfo(const MipsSubtarget &ST) {
       .legalFor({s32})
       .clampScalar(0, s32, s32);
 
-  getActionDefinitionsBuilder(G_GEP)
+  getActionDefinitionsBuilder({G_GEP, G_INTTOPTR})
       .legalFor({{p0, s32}});
+
+  getActionDefinitionsBuilder(G_PTRTOINT)
+      .legalFor({{s32, p0}});
 
   getActionDefinitionsBuilder(G_FRAME_INDEX)
       .legalFor({p0});
@@ -152,4 +155,21 @@ bool MipsLegalizerInfo::legalizeCustom(MachineInstr &MI,
   MIRBuilder.setInstr(MI);
 
   return false;
+}
+
+bool MipsLegalizerInfo::legalizeIntrinsic(MachineInstr &MI, MachineRegisterInfo &MRI,
+                                          MachineIRBuilder &MIRBuilder) const {
+  switch (MI.getIntrinsicID()) {
+  case Intrinsic::memcpy:
+  case Intrinsic::memset:
+  case Intrinsic::memmove:
+    if (createMemLibcall(MIRBuilder, MRI, MI) ==
+        LegalizerHelper::UnableToLegalize)
+      return false;
+    MI.eraseFromParent();
+    return true;
+  default:
+    break;
+  }
+  return true;
 }

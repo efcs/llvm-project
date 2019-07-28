@@ -317,6 +317,55 @@ simpleLibcall(MachineInstr &MI, MachineIRBuilder &MIRBuilder, unsigned Size,
                        Args);
 }
 
+LegalizerHelper::LegalizeResult
+llvm::createMemLibcall(MachineIRBuilder &MIRBuilder, MachineRegisterInfo &MRI,
+                       MachineInstr &MI) {
+  assert(MI.getOpcode() == TargetOpcode::G_INTRINSIC_W_SIDE_EFFECTS);
+  auto &Ctx = MIRBuilder.getMF().getFunction().getContext();
+
+  SmallVector<CallLowering::ArgInfo, 3> Args;
+  for (unsigned i = 1; i < MI.getNumOperands(); i++) {
+    Register Reg = MI.getOperand(i).getReg();
+
+    // Need derive an IR type for call lowering.
+    LLT OpLLT = MRI.getType(Reg);
+    Type *OpTy = nullptr;
+    if (OpLLT.isPointer())
+      OpTy = Type::getInt8PtrTy(Ctx, OpLLT.getAddressSpace());
+    else
+      OpTy = IntegerType::get(Ctx, OpLLT.getSizeInBits());
+    Args.push_back({Reg, OpTy});
+  }
+
+  auto &CLI = *MIRBuilder.getMF().getSubtarget().getCallLowering();
+  auto &TLI = *MIRBuilder.getMF().getSubtarget().getTargetLowering();
+  Intrinsic::ID ID = MI.getOperand(0).getIntrinsicID();
+  RTLIB::Libcall RTLibcall;
+  switch (ID) {
+  case Intrinsic::memcpy:
+    RTLibcall = RTLIB::MEMCPY;
+    break;
+  case Intrinsic::memset:
+    RTLibcall = RTLIB::MEMSET;
+    break;
+  case Intrinsic::memmove:
+    RTLibcall = RTLIB::MEMMOVE;
+    break;
+  default:
+    return LegalizerHelper::UnableToLegalize;
+  }
+  const char *Name = TLI.getLibcallName(RTLibcall);
+
+  MIRBuilder.setInstr(MI);
+  MIRBuilder.getMF().getFrameInfo().setHasCalls(true);
+  if (!CLI.lowerCall(MIRBuilder, TLI.getLibcallCallingConv(RTLibcall),
+                     MachineOperand::CreateES(Name),
+                     CallLowering::ArgInfo({0}, Type::getVoidTy(Ctx)), Args))
+    return LegalizerHelper::UnableToLegalize;
+
+  return LegalizerHelper::Legalized;
+}
+
 static RTLIB::Libcall getConvRTLibDesc(unsigned Opcode, Type *ToType,
                                        Type *FromType) {
   auto ToMVT = MVT::getVT(ToType);
@@ -518,6 +567,26 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
     MI.eraseFromParent();
     return Legalized;
   }
+  case TargetOpcode::G_SEXT: {
+    if (TypeIdx != 0)
+      return UnableToLegalize;
+
+    if (NarrowTy.getSizeInBits() != SizeOp0 / 2) {
+      LLVM_DEBUG(dbgs() << "Can't narrow sext to type " << NarrowTy << "\n");
+      return UnableToLegalize;
+    }
+
+    Register SrcReg = MI.getOperand(1).getReg();
+
+    // Shift the sign bit of the low register through the high register.
+    auto ShiftAmt =
+        MIRBuilder.buildConstant(LLT::scalar(64), NarrowTy.getSizeInBits() - 1);
+    auto Shift = MIRBuilder.buildAShr(NarrowTy, SrcReg, ShiftAmt);
+    MIRBuilder.buildMerge(MI.getOperand(0).getReg(), {SrcReg, Shift.getReg(0)});
+    MI.eraseFromParent();
+    return Legalized;
+  }
+
   case TargetOpcode::G_ADD: {
     // FIXME: add support for when SizeOp0 isn't an exact multiple of
     // NarrowSize.
@@ -763,6 +832,7 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
 
     CmpInst::Predicate Pred =
         static_cast<CmpInst::Predicate>(MI.getOperand(1).getPredicate());
+    LLT ResTy = MRI.getType(MI.getOperand(0).getReg());
 
     if (Pred == CmpInst::ICMP_EQ || Pred == CmpInst::ICMP_NE) {
       MachineInstrBuilder XorL = MIRBuilder.buildXor(NarrowTy, LHSL, RHSL);
@@ -771,12 +841,11 @@ LegalizerHelper::LegalizeResult LegalizerHelper::narrowScalar(MachineInstr &MI,
       MachineInstrBuilder Zero = MIRBuilder.buildConstant(NarrowTy, 0);
       MIRBuilder.buildICmp(Pred, MI.getOperand(0).getReg(), Or, Zero);
     } else {
-      const LLT s1 = LLT::scalar(1);
-      MachineInstrBuilder CmpH = MIRBuilder.buildICmp(Pred, s1, LHSH, RHSH);
+      MachineInstrBuilder CmpH = MIRBuilder.buildICmp(Pred, ResTy, LHSH, RHSH);
       MachineInstrBuilder CmpHEQ =
-          MIRBuilder.buildICmp(CmpInst::Predicate::ICMP_EQ, s1, LHSH, RHSH);
+          MIRBuilder.buildICmp(CmpInst::Predicate::ICMP_EQ, ResTy, LHSH, RHSH);
       MachineInstrBuilder CmpLU = MIRBuilder.buildICmp(
-          ICmpInst::getUnsignedPredicate(Pred), s1, LHSL, RHSL);
+          ICmpInst::getUnsignedPredicate(Pred), ResTy, LHSL, RHSL);
       MIRBuilder.buildSelect(MI.getOperand(0).getReg(), CmpHEQ, CmpLU, CmpH);
     }
     Observer.changedInstr(MI);

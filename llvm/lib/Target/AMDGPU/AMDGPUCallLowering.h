@@ -20,6 +20,7 @@
 namespace llvm {
 
 class AMDGPUTargetLowering;
+class MachineInstrBuilder;
 
 class AMDGPUCallLowering: public CallLowering {
   Register lowerParameterPtr(MachineIRBuilder &MIRBuilder, Type *ParamTy,
@@ -29,7 +30,20 @@ class AMDGPUCallLowering: public CallLowering {
                       uint64_t Offset, unsigned Align,
                       Register DstReg) const;
 
- public:
+  /// A function of this type is used to perform value split action.
+  using SplitArgTy = std::function<void(ArrayRef<Register>, LLT, LLT, int)>;
+
+  void splitToValueTypes(const ArgInfo &OrigArgInfo,
+                         SmallVectorImpl<ArgInfo> &SplitArgs,
+                         const DataLayout &DL, MachineRegisterInfo &MRI,
+                         CallingConv::ID CallConv,
+                         SplitArgTy SplitArg) const;
+
+  bool lowerReturnVal(MachineIRBuilder &MIRBuilder,
+                      const Value *Val, ArrayRef<Register> VRegs,
+                      MachineInstrBuilder &Ret) const;
+
+public:
   AMDGPUCallLowering(const AMDGPUTargetLowering &TLI);
 
   bool lowerReturn(MachineIRBuilder &MIRBuilder, const Value *Val,
