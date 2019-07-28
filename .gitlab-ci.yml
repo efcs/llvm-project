@@ -57,7 +57,7 @@ build:llvm:
        "-DCMAKE_CXX_COMPILER=$CXX"
        "-DLLVM_LIT_ARGS=$LLVM_LIT_ARGS"
        $LLVM_PROJECT/llvm
-    - ninja -j $BUILD_JOBS
+    - ninja -v -j $BUILD_JOBS
     - echo "done"
 
 test:
@@ -66,7 +66,7 @@ test:
   script:
       - ls
       - pwd
-      - ninja -C build/ -j $BUILD_JOBS check-all
+      - ninja -C build/ -v -j $BUILD_JOBS check-all
   artifacts:
     when: always
     reports:
