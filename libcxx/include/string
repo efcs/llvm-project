@@ -1013,9 +1013,6 @@ public:
     basic_string& append(const value_type* __s);
     basic_string& append(size_type __n, value_type __c);
 
-    _LIBCPP_INLINE_VISIBILITY
-    void __append_default_init(size_type __n);
-
     template <class _ForwardIterator>
     _LIBCPP_METHOD_TEMPLATE_IMPLICIT_INSTANTIATION_VIS
     basic_string& __append_forward_unsafe(_ForwardIterator, _ForwardIterator);
@@ -1568,7 +1565,7 @@ private:
                                size_type __n_add, const value_type* __p_new_stuff);
 
     _LIBCPP_INLINE_VISIBILITY
-    void __erase_to_end(size_type __pos);
+    void __set_size_and_terminator(size_type __pos);
 
     _LIBCPP_INLINE_VISIBILITY
     void __copy_assign_alloc(const basic_string& __str)
@@ -2429,22 +2426,6 @@ basic_string<_CharT, _Traits, _Allocator>::append(size_type __n, value_type __c)
     return *this;
 }
 
-template <class _CharT, class _Traits, class _Allocator>
-inline void
-basic_string<_CharT, _Traits, _Allocator>::__append_default_init(size_type __n)
-{
-    if (__n)
-    {
-        size_type __cap = capacity();
-        size_type __sz = size();
-        if (__cap - __sz < __n)
-            __grow_by(__cap, __sz + __n - __cap, __sz, __sz, 0);
-        pointer __p = __get_pointer();
-        __sz += __n;
-        __set_size(__sz);
-        traits_type::assign(__p[__sz], value_type());
-    }
-}
 
 template <class _CharT, class _Traits, class _Allocator>
 void
@@ -3075,7 +3056,7 @@ basic_string<_CharT, _Traits, _Allocator>::clear() _NOEXCEPT
 template <class _CharT, class _Traits, class _Allocator>
 inline
 void
-basic_string<_CharT, _Traits, _Allocator>::__erase_to_end(size_type __pos)
+basic_string<_CharT, _Traits, _Allocator>::__set_size_and_terminator(size_type __pos)
 {
     if (__is_long())
     {
@@ -3098,18 +3079,19 @@ basic_string<_CharT, _Traits, _Allocator>::resize(size_type __n, value_type __c)
     if (__n > __sz)
         append(__n - __sz, __c);
     else
-        __erase_to_end(__n);
+        __set_size_and_terminator(__n);
 }
 
 template <class _CharT, class _Traits, class _Allocator>
 inline void
-basic_string<_CharT, _Traits, _Allocator>::__resize_default_init(size_type __n)
+basic_string<_CharT, _Traits, _Allocator>::__resize_default_init(size_type __new_size)
 {
-    size_type __sz = size();
-    if (__n > __sz) {
-       __append_default_init(__n - __sz);
-    } else
-        __erase_to_end(__n);
+    const size_type __cap = capacity();
+    if (__new_size > __cap) {
+          const size_type __sz = size();
+          __grow_by(__cap, __new_size, __sz, __sz, 0);
+    }
+    __set_size_and_terminator(__new_size);
 }
 
 template <class _CharT, class _Traits, class _Allocator>
