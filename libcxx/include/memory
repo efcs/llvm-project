@@ -1112,7 +1112,8 @@ template <> struct __to_address_helper<true> {
 };
 
 template <class _Pointer, bool _Dummy = true>
-using __choose_to_address = __to_address_helper<_IsValidExpansion<__to_address_helper<_Dummy>::template __return_type, _Pointer>::value>;
+using __choose_to_address = __to_address_helper<
+        _IsValidExpansion<__to_address_helper<_Dummy>::template __return_type, _Pointer>::value>;
 
 
 template <class _Tp>
@@ -1160,6 +1161,29 @@ to_address(const _Pointer& __p) _NOEXCEPT
     return _VSTD::__to_address(__p);
 }
 #endif
+
+
+template <class _Tp, class _Desired>
+struct __to_address_test : _IsSame<
+    decltype(std::__to_address(std::declval<_Tp&>())),
+    _Desired
+> {};
+
+template <class _Iter>
+using __is_unwrappable_contiguous_iterator = _And<
+      __is_cpp17_random_access_iterator<_Iter>,
+      __has_contiguous_iterator_concept<_Iter>,
+      __to_address_test<_Iter,
+     typename remove_reference<typename iterator_traits<_Iter>::pointer>::type
+    >
+>;
+
+template <class _Iter, class = _EnableIf<__is_unwrappable_contiguous_iterator<_Iter>::value> >
+typename iterator_traits<_Iter>::pointer
+__unwrap_contiguous(_Iter __it) {
+  static_assert(std::is_pointer<typename iterator_traits<_Iter>::pointer>::value, "");
+  return std::__to_address(__it);
+}
 
 template <class _Tp, class = void>
 struct __has_size_type : false_type {};
