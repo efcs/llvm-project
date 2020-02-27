@@ -12,3 +12,9 @@ services:
       dockerfile: llvm-buildbot-worker.Dockerfile
       target: llvm-buildbot-worker
     image: ericwf/llvm-buildbot-worker:latest
+  llvm-github-actions-worker:
+    build:
+      context: .
+      dockerfile: llvm-github-actions-worker.Dockerfile
+      target: llvm-github-actions-worker
+    image: ericwf/llvm-github-actions-worker:latest

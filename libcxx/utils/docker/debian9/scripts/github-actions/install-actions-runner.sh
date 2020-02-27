@@ -16,7 +16,7 @@ Usage: install-actions-runner.sh [options]
 Install
 Available options:
   -h|--help           show this help message
-  --install-path      the location to install actions-runner to
+  --install           the install prefix to use.
   --version           the package version to install
 EOF
 }
@@ -31,7 +31,7 @@ while [[ $# -gt 0 ]]; do
       VERSION="$1"
       shift
       ;;
-    --install-path)
+    --install)
       shift
       INSTALL_PATH="$1"
       shift
@@ -48,11 +48,6 @@ done
 
 set -x
 
-if [ "$INSTALL_PATH" == "" ]; then
-  echo "--install-path must be specified"
-  show_usage
-  exit 1
-fi
 if [ "$VERSION" == "" ]; then
   echo "--version must be specified"
   show_usage
@@ -65,5 +60,7 @@ cd $INSTALL_PATH
 curl -O -L https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-linux-x64-$VERSION.tar.gz \
   --output actions-runner.tar.gz
 tar xzf ./actions-runner.tar.gz
+
+ls .
 
 echo "Done"
