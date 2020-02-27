@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+#===- libcxx/utils/docker/scripts/install_clang_package.sh -----------------===//
+#
+# Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+# See https://llvm.org/LICENSE.txt for license information.
+# SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+#
+#===-----------------------------------------------------------------------===//
+
+set -e
+
+function show_usage() {
+  cat << EOF
+Usage: install-actions-runner.sh [options]
+
+Install
+Available options:
+  -h|--help           show this help message
+  --install-path      the location to install actions-runner to
+  --version           the package version to install
+EOF
+}
+
+VERSION=""
+INSTALL_PATH=""
+
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --version)
+      shift
+      VERSION="$1"
+      shift
+      ;;
+    --install-path)
+      shift
+      INSTALL_PATH="$1"
+      shift
+      ;;
+    -h|--help)
+      show_usage
+      exit 0
+      ;;
+    *)
+      echo "Unknown option: $1"
+      exit 1
+  esac
+done
+
+set -x
+
+if [ "$INSTALL_PATH" == "" ]; then
+  echo "--install-path must be specified"
+  show_usage
+  exit 1
+fi
+if [ "$VERSION" == "" ]; then
+  echo "--version must be specified"
+  show_usage
+  exit 1
+fi
+
+mkdir $INSTALL_PATH
+cd $INSTALL_PATH
+
+curl -O -L https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-linux-x64-$VERSION.tar.gz \
+  --output actions-runner.tar.gz
+tar xzf ./actions-runner.tar.gz
+
+echo "Done"
