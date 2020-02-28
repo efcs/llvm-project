@@ -10,8 +10,6 @@ jobs:
     runs-on: ubuntu-latest
     steps:
     - uses: efcs/checkout@v2
-    - name: probe
-      run: libcxx/utils/probe.sh
     - name: configure
       run: |
         mkdir build/
