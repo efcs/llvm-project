@@ -58,7 +58,8 @@ mkdir $INSTALL_PATH
 cd $INSTALL_PATH
 
 curl -O -L https://github.com/actions/runner/releases/download/v$VERSION/actions-runner-linux-x64-$VERSION.tar.gz \
-  --output actions-runner.tar.gz
+  --output ./actions-runner.tar.gz
+ls
 tar xzf ./actions-runner.tar.gz
 
 ls .
