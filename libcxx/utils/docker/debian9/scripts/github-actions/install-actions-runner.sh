@@ -62,6 +62,5 @@ DEST_FILE=actions-runner-linux-x64-$VERSION.tar.gz
 curl -O -L https://github.com/actions/runner/releases/download/v$VERSION/$DEST_FILE
 tar xzf $DEST_FILE
 
-ls .
 
 echo "Done"
