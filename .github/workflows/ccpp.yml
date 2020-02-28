@@ -7,21 +7,20 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
     - uses: efcs/checkout@v2
     - name: configure
       run: |
         mkdir build/
         cd build/
-        cmake "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" ../llvm/
+        cmake -GNinja "-DLLVM_ENABLE_PROJECTS=libcxx;libcxxabi" -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++ ../llvm/
     - name: build
       run: |
         cd build/
-        make -j4 cxx
+        ninja cxx
     - name: test
       run: |
         cd build
-        make check-cxx
-
+        ./bin/llvm-lit projects/libcxx/test/
 
