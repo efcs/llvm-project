@@ -18,7 +18,7 @@ jobs:
     - name: build
       run: |
         cd build/
-        ninja cxx cxxabi
+        ninja cxx cxxabi cxx_experimental
     - name: test
       run: |
         cd build
