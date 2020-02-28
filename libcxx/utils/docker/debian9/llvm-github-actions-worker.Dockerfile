@@ -20,4 +20,3 @@ RUN /tmp/install_clang_packages.sh && rm /tmp/install_clang_packages.sh
 ADD scripts/github-actions/install-actions-runner.sh /tmp/
 RUN /tmp/install-actions-runner.sh --install /actions-runner/ --version 2.165.2 && rm /tmp/install-actions-runner.sh
 
-RUN rm -rf /llvm-project/ && git clone --depth=1 https://github.com/llvm/llvm-project.git /llvm-project
