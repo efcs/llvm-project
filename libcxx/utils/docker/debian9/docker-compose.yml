@@ -17,4 +17,6 @@ services:
       context: .
       dockerfile: llvm-github-actions-worker.Dockerfile
       target: llvm-github-actions-worker
+    secrets:
+      github_token
     image: ericwf/llvm-github-actions-worker:latest

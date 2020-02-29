@@ -1,2 +1,2 @@
-/secrets/*
-!/secrets/.*.template
+/secrets/**
+!/secrets/*!.template
