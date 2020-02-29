@@ -17,11 +17,9 @@ services:
       context: .
       dockerfile: llvm-github-actions-worker.Dockerfile
       target: llvm-github-actions-worker
-      configs:
-        - github_runner_token
-    configs:
-      github_runner_token:
-        file: ./secrets/github-token.txt
-      my_other_config:
-        external: true
     image: ericwf/llvm-github-actions-worker:latest
+  configs:
+    - github_runner_token
+configs:
+  github_runner_token:
+  file: ./secrets/github-token.txt
