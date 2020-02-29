@@ -25,3 +25,5 @@ RUN /tmp/install-actions-runner.sh --install /actions-runner/ --version 2.165.2 
 RUN chown -R llvm-github-worker:llvm-github-worker /actions-runner/
 ADD scripts/github-actions/* /scripts
 
+USER llvm-github-worker
+WORKDIR /actions-runner/
