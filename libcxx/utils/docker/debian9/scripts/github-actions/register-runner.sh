@@ -62,6 +62,7 @@ while [[ $# -gt 0 ]]; do
       echo "unknown option: $1"
       show_usage
       exit 1
+      ;;
     *)
       break
   esac
