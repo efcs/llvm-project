@@ -22,6 +22,7 @@ services:
       - github_runner_token
     secrets:
       - github_token
+    env_file: .env
 configs:
   github_runner_token:
     file: ./secrets/github-token.txt
