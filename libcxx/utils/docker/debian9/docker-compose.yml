@@ -22,4 +22,4 @@ services:
       - github_runner_token
 configs:
   github_runner_token:
-  file: ./secrets/github-token.txt
+    file: ./secrets/github-token.txt
