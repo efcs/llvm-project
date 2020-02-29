@@ -20,6 +20,11 @@ services:
     image: ericwf/llvm-github-actions-worker:latest
     configs:
       - github_runner_token
+    secrets:
+      - github_token
 configs:
   github_runner_token:
+    file: ./secrets/github-token.txt
+secrets:
+  github_token:
     file: ./secrets/github-token.txt
