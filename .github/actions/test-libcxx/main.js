@@ -67,6 +67,7 @@ var test_suite_path = path.join(source_path, process.env.INPUT_TEST_SUITE);
 
 var lit_args = '-sv --shuffle --timeout 120 --no-progress-bar';
 lit_args += ' --show-unsupported  --show-xfail --xunit-xml-output /tmp/output.xml ';
+lit_args += ''.concat(' ', '--param=enable-modules=', process.env.INPUT_ENABLE_MODULES);
 if (process.env.INPUT_LIT_ARGS) {
   lit_args += process.env.INPUT_LIT_ARGS;
 }
