@@ -1,0 +1,20 @@
+name: 'Configure libcxx'
+description: >
+  This action is meant to be a very thin wrapper around CMake that can be used
+  to configure the llvm-project.  It will add the minimal set of CMake options
+  necessary to build and test llvm-project.
+inputs:
+  build:
+    description: 'The build directory under test'
+    required: true
+  test_suite:
+    description: 'The test suites to run'
+    required: False
+    default: 'libcxx/test/'
+  lit_args:
+    description: 'Additional lit args'
+    required: false
+    default: ""
+runs:
+  using: 'node12'
+  main: 'main.js'

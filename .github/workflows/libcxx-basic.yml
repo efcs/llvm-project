@@ -12,3 +12,12 @@ jobs:
       with:
         cmake_cache: libcxx/utils/test-configurations/Basic.cmake
         build: build-basic
+    - uses: ./.github/actions/test-libcxx
+      with:
+        build: build-basic
+        test_suite: libcxx/test/
+    - uses: ./github/actions/test-libcxx
+      id: test-libcxxabi
+      with:
+        build: build-basic
+        test_suite: libcxxabi/test
