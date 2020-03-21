@@ -66,11 +66,10 @@ var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD
 fs.mkdirSync(build_path, { recursive : true });
 process.chdir(build_path);
 
-
-var runtimes = process.env.INPUT_RUNTIMES.split(" ");
-var build_targets = '';
+const runtimes = process.env.INPUT_RUNTIMES.split(" ");
+let build_targets = '';
 for  (let rt in runtimes) {
-  var target = ''.concat('projects/', rt, '/all');
+  const target = ''.concat('projects/', runtimes[i], '/all');
   console.log(target);
   build_targets += ' ';
   build_targets += target;
