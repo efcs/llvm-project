@@ -62,7 +62,6 @@ if (!process.env.INPUT_BUILD ) {
 }
 var source_path = path.join(process.env.GITHUB_WORKSPACE, 'llvm');
 var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD);
-var cache_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_CMAKE_CACHE);
 
 fs.mkdirSync(build_path, { recursive : true });
 process.chdir(build_path);
