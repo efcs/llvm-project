@@ -69,9 +69,11 @@ process.chdir(build_path);
 
 var runtimes = process.env.INPUT_RUNTIMES.split(" ");
 var build_targets = '';
-var rt = "";
-for  ( rt in runtimes) {
-  build_targets += ' projects/' + rt + '/all ';
+for  (let rt in runtimes) {
+  var target = ''.concat('projects/', rt, '/all');
+  console.log(target);
+  build_targets += ' ';
+  build_targets += target;
 }
 
 var cmake_args = "";
