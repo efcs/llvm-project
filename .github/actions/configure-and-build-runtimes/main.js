@@ -88,7 +88,7 @@ if (process.env.INPUT_CMAKE_ARGS) {
 }
 
 cmd = 'cmake ' + ' -GNinja ' + cmake_args;
-cmd += '-DLLVM_ENABLE_PROJECTS="' + runtimes.join(";") + '"';
+cmd += ' -DLLVM_ENABLE_PROJECTS="' + runtimes.join(";") + '"';
 cmd += ' ' + cmake_args + ' ' + source_path;
 console.log(`${cmd}`);
 
@@ -97,6 +97,7 @@ p.on('exit', (code, signal) => {
   if (code || signal) {
     handle_errors(code, signal);
   }
+  os.cd
   p = run_command_async('ninja -v -C ' + build_path + ' ' + build_targets);
   p.on('exit', (code, signal) => {
     handle_errors(code, signal);
