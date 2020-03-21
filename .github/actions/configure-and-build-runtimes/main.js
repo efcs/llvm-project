@@ -97,7 +97,6 @@ p.on('exit', (code, signal) => {
   if (code || signal) {
     handle_errors(code, signal);
   }
-  os.cd
   p = run_command_async('ninja -v -C ' + build_path + ' ' + build_targets);
   p.on('exit', (code, signal) => {
     handle_errors(code, signal);
