@@ -65,7 +65,7 @@ var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD
 var cache_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_CMAKE_CACHE);
 
 fs.mkdirSync(build_path, { recursive : true });
-process.chdir(build_path)
+process.chdir(build_path);
 
 var cmake_args = "";
 
@@ -73,7 +73,7 @@ if (process.env.INPUT_EXTRA_CMAKE_ARGS) {
   cmake_args += process.env.INPUT_EXTRA_CMAKE_ARGS;
 }
 
-cmd = 'cmake ' + ' -GNinja ' + cmake_args + ' -C ' + cache_path + ' ' + source_path
+cmd = 'cmake ' + ' -GNinja ' + cmake_args + ' -C ' + cache_path + ' ' + source_path;
 console.log(`${cmd}`);
 
 p = run_command_async(cmd);
