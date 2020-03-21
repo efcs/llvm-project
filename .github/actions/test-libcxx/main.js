@@ -67,7 +67,7 @@ var test_suite_path = path.join(source_path, process.env.INPUT_TEST_SUITE);
 
 var lit_args = '-sv ';
 if (process.env.INPUT_LIT_ARGS) {
-  lit_args += process.env.INPUT_EXTRA_CMAKE_ARGS;
+  lit_args += process.env.INPUT_LIT_ARGS;
 }
 
 cmd = lit_path + ' ' + lit_args + ' ' + test_suite_path;
