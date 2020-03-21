@@ -10,5 +10,5 @@ jobs:
     - uses: efcs/checkout@v2
     - uses: ./.github/actions/configure-libcxx
       with:
-        cmake_cache: libcxx/utils/test-configurations/Default.cmake
+        cmake_cache: libcxx/utils/test-configurations/Basic.cmake
         build: build-basic
