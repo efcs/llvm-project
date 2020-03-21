@@ -1,0 +1,14 @@
+name: libc++ test
+
+on:
+  push:
+
+jobs:
+  test-basic:
+    runs-on: self-hosted
+    steps:
+    - uses: efcs/checkout@v2
+    - uses: ./.github/actions/configure-libcxx
+      with:
+        cmake_cache: llvm-project/libcxx/utils/test-configurations/Default.cmake
+        build: build-basic
