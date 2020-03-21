@@ -17,10 +17,28 @@ jobs:
     - name: 'Test libc++'
       uses: ./.github/actions/test-libcxx
       with:
-        test_suite: libcxxabi/test/
+        test_suite: libcxx/test/
     - name: 'Test C++03'
       uses: ./.github/actions/test-libcxx
       with:
         test_suite: libcxx/test
         lit_args: '--param=std=c++03'
   test-asan:
+    runs-on: self-hosted
+    steps:
+    - uses: efcs/checkout@v2
+    - name: 'Configure and Build'
+      uses: ./.github/actions/configure-and-build-runtimes
+      with:
+        sanitizer: 'Address'
+    - name: 'Test libc++abi'
+      uses: ./.github/actions/test-libcxx
+      with:
+        test_suite: libcxxabi/test
+    - name: 'Test libc++'
+      uses: ./.github/actions/test-libcxx
+      with:
+        test_suite: libcxx/test
+
+
+
