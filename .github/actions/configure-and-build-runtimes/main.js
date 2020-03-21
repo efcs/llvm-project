@@ -68,8 +68,8 @@ process.chdir(build_path);
 
 
 var runtimes = process.env.INPUT_RUNTIMES.split(" ");
-var build_targets = "";
-var rt;
+var build_targets = '';
+var rt = "";
 for  ( rt in runtimes) {
   build_targets += ' projects/' + rt + '/all ';
 }
@@ -96,7 +96,7 @@ p.on('exit', (code, signal) => {
   if (code || signal) {
     handle_errors(code, signal);
   }
-  p = run_command_async('ninja -v -C ' + build_path + build_targets);
+  p = run_command_async('ninja -v -C ' + build_path + ' ' + build_targets);
   p.on('exit', (code, signal) => {
     handle_errors(code, signal);
   });
