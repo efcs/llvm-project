@@ -60,20 +60,21 @@ if (!process.env.INPUT_BUILD ) {
   console.error('not build specified');
   process.exit(1)
 }
-var source_path = path.join(process.env.GITHUB_WORKSPACE, 'llvm-project/llvm');
+var source_path = path.join(process.env.GITHUB_WORKSPACE, 'llvm');
 var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD);
+var cache_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_CMAKE_CACHE);
 
 fs.mkdirSync(build_path, { recursive : true });
 
 var cmake_args = "";
 
-if (process.env.INPUT_CMAKE_ARGS) {
+if (process.env.INPUT_EXTRA_CMAKE_ARGS) {
   cmake_args += process.env.INPUT_EXTRA_CMAKE_ARGS;
 }
 
 cmd = 'cmake ' + ' -GNinja ' + ' -S ' + source_path + ' -B ' + build_path;
-cmd += ' -C ' + process.env.INPUT_CMAKE_CACHE + ' ' + cmake_args;
-console.log(`${cmd}`)
+cmd += ' -C ' + cache_path + ' ' + cmake_args;
+console.log(`${cmd}`);
 
 p = run_command_async(cmd);
 p.on('exit', (code, signal) => {
