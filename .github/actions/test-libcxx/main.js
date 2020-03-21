@@ -60,7 +60,7 @@ if (!process.env.INPUT_BUILD ) {
   console.error('not build specified');
   process.exit(1)
 }
-var source_path = path.join(process.env.GITHUB_WORKSPACE, 'llvm-project/llvm');
+var source_path = path.join(process.env.GITHUB_WORKSPACE);
 var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD);
 var lit_path = path.join(build_path, 'bin', 'llvm-lit');
 var test_suite_path = path.join(source_path, process.env.INPUT_TEST_SUITE);

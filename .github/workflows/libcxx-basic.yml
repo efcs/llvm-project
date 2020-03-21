@@ -4,7 +4,7 @@ on:
   push:
 
 jobs:
-  test-basic:
+  default:
     runs-on: self-hosted
     steps:
     - uses: efcs/checkout@v2
@@ -23,7 +23,7 @@ jobs:
       with:
         test_suite: libcxx/test
         lit_args: '--param=std=c++03'
-  test-asan:
+  asan:
     runs-on: self-hosted
     steps:
     - uses: efcs/checkout@v2
