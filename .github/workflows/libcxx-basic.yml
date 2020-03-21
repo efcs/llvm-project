@@ -8,16 +8,18 @@ jobs:
     runs-on: self-hosted
     steps:
     - uses: efcs/checkout@v2
-    - uses: ./.github/actions/configure-libcxx
+    - name: 'Configure and Build'
+      uses: ./.github/actions/configure-and-build-runtimes
+    - name: 'Test libc++abi'
+      uses: ./.github/actions/test-libcxx
       with:
-        cmake_cache: libcxx/utils/test-configurations/Basic.cmake
-        build: build-basic
-    - uses: ./.github/actions/test-libcxx
+        test_suite: libcxxabi/test/
+    - name: 'Test libc++'
+      uses: ./.github/actions/test-libcxx
       with:
-        build: build-basic
-        test_suite: libcxx/test/
-    - uses: ./github/actions/test-libcxx
-      id: test-libcxxabi
+        test_suite: libcxxabi/test/
+    - name: 'Test C++03'
+      uses: ./.github/actions/test-libcxx
       with:
-        build: build-basic
-        test_suite: libcxxabi/test
+        test_suite: libcxx/test
+        lit_args: '--param=std=c++03'

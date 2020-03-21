@@ -71,7 +71,6 @@ if (process.env.INPUT_LIT_ARGS) {
 }
 
 cmd = lit_path + ' ' + lit_args + ' ' + test_suite_path;
-cmd += ' -C ' + process.env.INPUT_CMAKE_CACHE + ' ' + cmake_args;
 console.log(`${cmd}`);
 
 p = run_command_async(cmd);

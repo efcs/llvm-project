@@ -1,0 +1,36 @@
+name: 'Configure libcxx'
+description: >
+  This action is meant to be a very thin wrapper around CMake that can be used
+  to configure the llvm-project.  It will add the minimal set of CMake options
+  necessary to build and test llvm-project.
+inputs:
+  build:
+    description: 'The build directory to target'
+    required: false
+    default: 'build'
+  runtimes:
+    description: 'The runtimes to configure and build'
+    required: false
+    default: 'libcxx libcxxabi libunwind'
+  cc:
+    description: 'The C compiler'
+    required: false
+    default: 'clang'
+  cxx:
+    description: 'The C++ compiler'
+    required: false
+    default: 'clang++'
+  cxxabi:
+    description: 'The ABI library to target'
+    required: false
+    default: 'default'
+  sanitizer:
+    description: 'The sanitizer to compile with'
+    required: false
+    default: ""
+  cmake_args:
+    description: 'Additional arguments to pass to CMake when configuring'
+    required: false
+runs:
+  using: 'node12'
+  main: 'main.js'

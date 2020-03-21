@@ -67,13 +67,29 @@ var cache_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_CMAKE
 fs.mkdirSync(build_path, { recursive : true });
 process.chdir(build_path);
 
-var cmake_args = "";
 
-if (process.env.INPUT_EXTRA_CMAKE_ARGS) {
-  cmake_args += process.env.INPUT_EXTRA_CMAKE_ARGS;
+var runtimes = process.env.INPUT_RUNTIMES.split(" ");
+var build_targets = "";
+var rt;
+for  ( rt in runtimes) {
+  build_targets += ' projects/' + rt + '/all ';
 }
 
-cmd = 'cmake ' + ' -GNinja ' + cmake_args + ' -C ' + cache_path + ' ' + source_path;
+var cmake_args = "";
+cmake_args += ' -DCMAKE_C_COMPILER=' + process.env.INPUT_CC;
+cmake_args += ' -DCMAKE_CXX_COMPILER=' + process.env.INPUT_CXX;
+cmake_args += ' -DLIBCXX_CXX_ABI=' + process.env.INPUT_CXXABI;
+if (process.env.INPUT_SANITIZER) {
+  cmake_args += ' -DLLVM_USE_SANITIZER=' + process.env.INPUT_SANITIZER;
+}
+
+if (process.env.INPUT_CMAKE_ARGS) {
+  cmake_args += process.env.INPUT_CMAKE_ARGS;
+}
+
+cmd = 'cmake ' + ' -GNinja ' + cmake_args;
+cmd += '-DLLVM_ENABLE_PROJECTS="' + runtimes.join(";") + '"';
+cmd += ' ' + cmake_args + ' ' + source_path;
 console.log(`${cmd}`);
 
 p = run_command_async(cmd);
@@ -81,7 +97,7 @@ p.on('exit', (code, signal) => {
   if (code || signal) {
     handle_errors(code, signal);
   }
-  p = run_command_async('ninja -v -C ' + build_path + ' projects/libcxx/all projects/libcxxabi/all');
+  p = run_command_async('ninja -v -C ' + build_path + build_targets);
   p.on('exit', (code, signal) => {
     handle_errors(code, signal);
   });

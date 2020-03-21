@@ -6,7 +6,8 @@ description: >
 inputs:
   build:
     description: 'The build directory under test'
-    required: true
+    required: false
+    default: 'build'
   test_suite:
     description: 'The test suites to run'
     required: False
