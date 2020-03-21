@@ -65,7 +65,8 @@ var build_path = path.join(process.env.GITHUB_WORKSPACE, process.env.INPUT_BUILD
 var lit_path = path.join(build_path, 'bin', 'llvm-lit');
 var test_suite_path = path.join(source_path, process.env.INPUT_TEST_SUITE);
 
-var lit_args = '-sv ';
+var lit_args = '-sv --shuffle --timeout 120 --no-progress-bar';
+lit_args += ' --show-unsupported  --show-xfail --xunit-xml-output /tmp/output.xml ';
 if (process.env.INPUT_LIT_ARGS) {
   lit_args += process.env.INPUT_LIT_ARGS;
 }

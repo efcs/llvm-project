@@ -12,6 +12,10 @@ inputs:
     description: 'The test suites to run'
     required: False
     default: 'libcxx/test/'
+  enable_modules:
+    description: 'Run the test suite with modules enabled'
+    required: False
+    default: '0'
   lit_args:
     description: 'Additional lit args'
     required: false
