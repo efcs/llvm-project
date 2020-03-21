@@ -23,7 +23,6 @@ jobs:
       uses: ./.github/actions/test-libcxx
       with:
         test_suite: libcxx/test
-        enable_modules: true
         lit_args: '--param=std=c++03'
   asan:
     runs-on: self-hosted
