@@ -69,7 +69,7 @@ process.chdir(build_path);
 const runtimes = process.env.INPUT_RUNTIMES.split(" ");
 let build_targets = '';
 for  (let rt in runtimes) {
-  const target = ''.concat('projects/', runtimes[i], '/all');
+  const target = ''.concat('projects/', runtimes[rt], '/all');
   console.log(target);
   build_targets += ' ';
   build_targets += target;
