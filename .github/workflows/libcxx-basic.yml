@@ -1,11 +1,11 @@
-name: libc++ test
+name: libcxx test
 
 on:
   push:
 
 jobs:
   default:
-    runs-on: []self-hosted, test-label]
+    runs-on: [self-hosted, test-label]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
