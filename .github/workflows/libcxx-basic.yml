@@ -5,7 +5,7 @@ on:
 
 jobs:
   default:
-    runs-on: [self-hosted, test-label]
+    runs-on: [self-hosted, a, b]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
