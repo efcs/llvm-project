@@ -2,6 +2,8 @@ name: libcxx test
 
 on:
   push:
+    branches:
+    - master
 
 jobs:
   default:
