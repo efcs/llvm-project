@@ -1,0 +1,13 @@
+name: External trigger
+
+on:
+  repository_dispatch:
+    types: external_test
+
+jobs:
+  success:
+    runs-on: ubuntu-latest
+    steps:
+    - name: hurray
+      run: |
+        echo "Success!"
