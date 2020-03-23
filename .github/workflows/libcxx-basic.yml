@@ -5,7 +5,7 @@ on:
 
 jobs:
   default:
-    runs-on: [self-hosted, a, b]
+    runs-on: [self-hosted, libcxx-builder]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
@@ -44,7 +44,7 @@ jobs:
         enable_modules: true
         lit_args: '--param=std=c++17'
   asan:
-    runs-on: [self-hosted, a, b]
+    runs-on: [self-hosted, libcxx-builder]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
@@ -61,7 +61,7 @@ jobs:
         test_suite: libcxx/test
         enable_modules: true
   msan:
-    runs-on: [self-hosted, test-label]
+    runs-on: [self-hosted, libcxx-builder]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
@@ -78,7 +78,7 @@ jobs:
         test_suite: libcxx/test
         enable_modules: true
   ubsan:
-    runs-on: [self-hosted, test-label]
+    runs-on: [self-hosted, libcxx-builder]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
