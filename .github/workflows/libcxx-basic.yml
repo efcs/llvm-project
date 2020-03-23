@@ -44,7 +44,7 @@ jobs:
         enable_modules: true
         lit_args: '--param=std=c++17'
   asan:
-    runs-on: [self-hosted, test-label]
+    runs-on: [self-hosted, a, b]
     steps:
     - uses: efcs/checkout@v2
     - name: 'Configure and Build'
