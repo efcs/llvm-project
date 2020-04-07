@@ -1,0 +1,30 @@
+name: Trigger Libc++ precommits
+
+on:
+  push:
+    branches:
+    - 'phab-diff-*'
+    paths:
+    - 'libcxx/**'
+    - 'libcxxabi/**'
+    - 'libunwind/**'
+
+
+jobs:
+  trigger-precommits:
+    runs-on: [ubuntu-latest]
+    steps:
+    - name: Dump GitHub context
+      env:
+        GITHUB_CONTEXT: ${{ toJson(github) }}
+      run: echo "$GITHUB_CONTEXT"
+    - uses: libcxx/actions/dispatch@master
+      with:
+        event_type: build_request
+        repository: libcxx/actions
+        token: ${{ secrets.libcxx_precommits_key }}
+        client_payload: |
+          {
+            "repository": "${{ github.repository }}",
+            "ref": "${{ github.ref }}"
+          }
