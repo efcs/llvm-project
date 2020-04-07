@@ -25,6 +25,6 @@ jobs:
         token: ${{ secrets.libcxx_precommits_key }}
         client_payload: |
           {
-            "repository": "llvm-premerge-tests/llvm-project",
+            "repository": "${{ github.repository }}",
             "ref": "${{ github.ref }}"
           }
