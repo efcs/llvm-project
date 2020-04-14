@@ -1,7 +1,0 @@
-add_subdirectory(BasicOrcV2CBindings)
-add_subdirectory(LLJITDumpObjects)
-add_subdirectory(LLJITWithCustomObjectLinkingLayer)
-add_subdirectory(LLJITWithGDBRegistrationListener)
-add_subdirectory(LLJITWithLazyReexports)
-add_subdirectory(LLJITWithObjectCache)
-add_subdirectory(LLJITWithObjectLinkingLayerPlugin)

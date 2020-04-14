@@ -552,50 +552,7 @@ function(cxx_add_warning_flags target)
   target_add_compile_flags_if_supported(${target} PRIVATE -Wall -Wextra -W -Wwrite-strings
                                                           -Wno-unused-parameter -Wno-long-long
                                                           -Werror=return-type -Wextra-semi)
-  if ("${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
-    target_add_compile_flags_if_supported(${target} PRIVATE
-      -Wno-user-defined-literals
-      -Wno-covered-switch-default
-      -Wno-ignored-attributes # FIXME: Caused by _LIBCPP_NODEBUG_TYPE not being supported on older clangs
-    )
-    if (LIBCXX_TARGETING_CLANG_CL)
-      target_add_compile_flags_if_supported(${target} PRIVATE
-        -Wno-c++98-compat
-        -Wno-c++98-compat-pedantic
-        -Wno-c++11-compat
-        -Wno-undef
-        -Wno-reserved-id-macro
-        -Wno-gnu-include-next
-        -Wno-gcc-compat # For ignoring "'diagnose_if' is a clang extension" warnings
-        -Wno-zero-as-null-pointer-constant # FIXME: Remove this and fix all occurrences.
-        -Wno-deprecated-dynamic-exception-spec # For auto_ptr
-        -Wno-sign-conversion
-        -Wno-old-style-cast
-        -Wno-deprecated # FIXME: Remove this and fix all occurrences.
-        -Wno-shift-sign-overflow # FIXME: Why do we need this with clang-cl but not clang?
-        -Wno-double-promotion # FIXME: remove me
-      )
-    endif()
-  elseif("${CMAKE_CXX_COMPILER_ID}" MATCHES "GNU")
-    target_add_compile_flags_if_supported(${target} PRIVATE
-      -Wno-literal-suffix
-      -Wno-c++14-compat
-      -Wno-noexcept-type)
-  endif()
-  if (LIBCXX_ENABLE_WERROR)
-    target_add_compile_flags_if_supported(${target} PRIVATE -Werror)
-    target_add_compile_flags_if_supported(${target} PRIVATE -WX)
-  else()
-    # TODO(EricWF) Remove this. We shouldn't be suppressing errors when -Werror is
-    # added elsewhere.
-    target_add_compile_flags_if_supported(${target} PRIVATE -Wno-error)
-  endif()
-  if (LIBCXX_ENABLE_PEDANTIC)
-    target_add_compile_flags_if_supported(${target} PRIVATE -pedantic)
-  endif()
-  if (LIBCXX_DISABLE_MACRO_CONFLICT_WARNINGS)
-    target_compile_definitions(${target} PRIVATE -D_LIBCPP_DISABLE_MACRO_CONFLICT_WARNINGS)
-  endif()
+
 endfunction()
 
 # Exception flags =============================================================
