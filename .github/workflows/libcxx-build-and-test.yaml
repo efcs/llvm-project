@@ -43,7 +43,7 @@ env:
 
 jobs:
   android:
-    runs-on: libcxx-runners-android
+    runs-on: android-runners
     continue-on-error: false
     steps:
       - uses: actions/checkout@v4
