@@ -35,4 +35,16 @@ services:
         ANDROID_CLANG_PREBUILTS_COMMIT: 5186d132c99aa75dc25207c392e3ea5b93d0107e
         ANDROID_SYSROOT_BID: 10957860
         <<: *compiler_versions
+  android-actions-builder:
+    image: ghcr.io/libcxx/android-actions-builder:testing
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: android-actions-builder
+      args:
+        BASE_IMAGE: ghcr.io/actions/actions-runner:latest
+        ANDROID_CLANG_VERSION: r498229b
+        ANDROID_CLANG_PREBUILTS_COMMIT: 5186d132c99aa75dc25207c392e3ea5b93d0107e
+        ANDROID_SYSROOT_BID: 10957860
+        <<: *compiler_versions
 

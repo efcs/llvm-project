@@ -42,8 +42,30 @@ env:
 
 
 jobs:
+  android:
+    runs-on: libcxx-runners-android
+    continue-on-error: false
+    steps:
+      - uses: actions/checkout@v4
+      - name: android-test
+        run: libcxx/utils/ci/run-buildbot android-ndk-33-goog-x86_64
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          ENABLE_CLANG_TIDY: ${{ matrix.clang_tidy }}
+      - uses: actions/upload-artifact@v3
+        if: always()  # Upload artifacts even if the build or test suite fails
+        with:
+          name: ${{ matrix.config }}-results
+          path: |
+            **/test-results.xml
+            **/*.abilist
+            **/CMakeError.log
+            **/CMakeOutput.log
+            **/crash_diagnostics/*
   stage1:
     runs-on: libcxx-runners-16
+    requires: [ android ]
     continue-on-error: false
     strategy:
       fail-fast: true

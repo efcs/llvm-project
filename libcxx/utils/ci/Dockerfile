@@ -165,6 +165,9 @@ RUN <<EOF
     rm /tmp/install-cmake.sh
 EOF
 
+
+
+
 # ===----------------------------------------------------------------------===##
 #                       Android Buildkite Image
 # ===----------------------------------------------------------------------===##
@@ -218,18 +221,6 @@ RUN <<EOF
   rm ndk_platform.tar.bz2
 EOF
 
-# Install Docker
-RUN <<EOF
-  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
-  sh /tmp/get-docker.sh
-  rm /tmp/get-docker.sh
-
-  # Install Docker. Mark the binary setuid so it can be run without prefixing it
-  # with sudo. Adding the container user to the docker group doesn't work because
-  # /var/run/docker.sock is owned by the host's docker GID, not the container's
-  # docker GID.
-  chmod u+s /usr/bin/docker
-EOF
 
 # ===----------------------------------------------------------------------===##
 #                    Buildkite Builder Image
@@ -245,6 +236,7 @@ RUN sudo useradd --create-home libcxx-builder
 USER libcxx-builder
 WORKDIR /home/libcxx-builder
 
+
 # Install the Buildkite agent and dependencies. This must be done as non-root
 # for the Buildkite agent to be installed in a path where we can find it.
 RUN <<EOF
@@ -256,8 +248,6 @@ RUN <<EOF
     >> /home/libcxx-builder/.buildkite-agent/buildkite-agent.cfg
 EOF
 
-USER libcxx-builder
-WORKDIR /home/libcxx-builder
 
 ENV PATH="${PATH}:/home/libcxx-builder/.buildkite-agent/bin"
 
@@ -273,6 +263,19 @@ FROM buildkite-builder AS android-buildkite-builder
 
 COPY --from=android-builder-base /opt/android /opt/android
 COPY ./vendor/android/container-setup.sh /opt/android/container-setup.sh
+
+# Install Docker
+RUN <<EOF
+  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  sudo sh /tmp/get-docker.sh
+  rm /tmp/get-docker.sh
+
+  # Install Docker. Mark the binary setuid so it can be run without prefixing it
+  # with sudo. Adding the container user to the docker group doesn't work because
+  # /var/run/docker.sock is owned by the host's docker GID, not the container's
+  # docker GID.
+  sudo chmod u+s /usr/bin/docker
+EOF
 
 ENV PATH="/opt/android/sdk/platform-tools:${PATH}"
 
@@ -298,4 +301,45 @@ WORKDIR /home/runner
 USER runner
 
 
+# ===----------------------------------------------------------------------===##
+#                    Android Buildkite Builder Image
+# ===----------------------------------------------------------------------===##
+#
+# IMAGE: ghcr.io/libcxx/android-actions-builder.
+#
+FROM builder-base AS android-actions-builder
 
+COPY --from=android-builder-base /opt/android /opt/android
+COPY ./vendor/android/container-setup.sh /opt/android/container-setup.sh
+
+# Install Docker
+RUN <<EOF
+  curl -fsSL https://get.docker.com -o /tmp/get-docker.sh
+  sudo sh /tmp/get-docker.sh
+  rm /tmp/get-docker.sh
+
+  # Install Docker. Mark the binary setuid so it can be run without prefixing it
+  # with sudo. Adding the container user to the docker group doesn't work because
+  # /var/run/docker.sock is owned by the host's docker GID, not the container's
+  # docker GID.
+  sudo chmod u+s /usr/bin/docker
+EOF
+
+ENV PATH="/opt/android/sdk/platform-tools:${PATH}"
+
+COPY <<EOF /start.sh
+#!/usr/bin/env bash
+set -x
+set -e
+
+/opt/android/container-setup.sh
+/home/runner/run.sh
+EOF
+
+RUN sudo chmod +x /start.sh
+
+WORKDIR /home/runner
+USER runner
+
+# Modify the Buildkite agent cmdline to do Android setup stuff first.
+CMD /start-script.sh
