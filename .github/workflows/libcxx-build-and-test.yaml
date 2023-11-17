@@ -65,7 +65,7 @@ jobs:
             **/crash_diagnostics/*
   stage1:
     runs-on: libcxx-runners-16
-    requires: [ android ]
+    needs: [ android ]
     continue-on-error: false
     strategy:
       fail-fast: true
