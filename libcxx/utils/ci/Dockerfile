@@ -298,6 +298,14 @@ FROM builder-base AS actions-builder
 # while still providing reproducability.
 RUN curl -s https://raw.githubusercontent.com/nektos/act/master/install.sh | sudo bash
 
+# Install the latest version of the gcloud for the actions builders
+RUN <<EOF
+  curl https://packages.cloud.google.com/apt/doc/apt-key.gpg | sudo gpg --dearmor -o /usr/share/keyrings/cloud.google.gpg
+  echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | sudo tee -a /etc/apt/sources.list.d/google-cloud-sdk.list
+  sudo apt-get update && sudo apt-get install google-cloud-cli -y
+  sudo rm -rf /var/lib/apt/lists/*
+EOF
+
 WORKDIR /home/runner
 USER runner
 
