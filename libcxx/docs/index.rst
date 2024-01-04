@@ -40,6 +40,7 @@ Getting Started with libc++
    BuildingLibcxx
    TestingLibcxx
    Contributing
+   PolicyDocs
    ImplementationDefinedBehavior
    Modules
    Hardening
@@ -174,6 +175,14 @@ This list contains known issues with libc++
 A full list of currently open libc++ bugs can be `found here`__.
 
 .. __:  https://github.com/llvm/llvm-project/labels/libc%2B%2B
+
+Policy Documents
+================
+
+.. toctree::
+   :maxdepth: 1
+
+   PolicyDocs
 
 
 Design Documents
