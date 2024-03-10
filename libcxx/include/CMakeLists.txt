@@ -440,6 +440,7 @@ set(files
   __fwd/pair.h
   __fwd/span.h
   __fwd/sstream.h
+  __fwd/stdmodule.h
   __fwd/streambuf.h
   __fwd/string.h
   __fwd/string_view.h
@@ -562,6 +563,8 @@ set(files
   __memory_resource/pool_options.h
   __memory_resource/synchronized_pool_resource.h
   __memory_resource/unsynchronized_pool_resource.h
+  __modules/std.cppm
+  __modules/std.compat.cppm
   __mutex/lock_guard.h
   __mutex/mutex.h
   __mutex/once_flag.h
@@ -1075,6 +1078,8 @@ if (LIBCXX_INSTALL_HEADERS)
     DESTINATION "${LIBCXX_INSTALL_INCLUDE_DIR}"
     PERMISSIONS OWNER_READ OWNER_WRITE GROUP_READ WORLD_READ
     COMPONENT cxx-headers)
+
+  install(FILES ${})
 
   if (NOT CMAKE_CONFIGURATION_TYPES)
     add_custom_target(install-cxx-headers
