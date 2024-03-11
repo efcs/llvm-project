@@ -12,21 +12,10 @@ WRAP_HEADER = '''
 #include <__config>
 #include <version>
 
-@import std.core;
+import std.compat;
 
 #endif
 '''
-
-def wrap_header(header_path, output_path, module_name):
-    with open(header_path, 'r') as file:
-        header = file.read()
-
-    header = header.replace('#pragma once', '')
-    header = header.replace('#ifndef', '#ifndef ' + module_name.upper() + '_H')
-    header = header.replace('#define', '#define ' + module_name.upper() + '_H')
-
-    with open(output_path, 'w') as file:
-        file.write(header)
 
 def main():
   parser = argparse.ArgumentParser(description='Generate module header wrappers')
@@ -34,7 +23,7 @@ def main():
   parser.add_argument('--output-path', '-o', required=True, type=str, help='The path to the output directory')
   parser.add_argument('--module-name', '-m', required=False, default='std', choices=('std', 'std.compat'))
   args = parser.parse_args()
-  textual_headers = [Path(p) for p in ['__config', 'cassert', '__config_site', 'version']]
+  textual_headers = [Path(p) for p in ['__config', 'cassert', 'cstdio', '__availability', 'cerrno', 'version']]
   wrapped_headers = []
   cxx_isystem = Path(args.cxx_isystem)
   assert cxx_isystem.is_dir(), f'cxx-isystem is not a directory: {cxx_isystem}'
@@ -42,22 +31,18 @@ def main():
   if not out_path.exists():
     out_path.mkdir()
   assert out_path.is_dir(), f'output-path is not a directory: {out_path}'
-  textual_headers = [p for p in textual_headers if (cxx_isystem / p).is_file()]
+  textual_headers = [Path(p) for p in textual_headers]
   gather_headers = cxx_isystem.glob('*')
   for f in gather_headers:
     if not f.is_file():
       continue
+    if f.name.startswith('__'):
+      continue
     if f.suffix == '.h':
-      if f.stem in textual_headers:
-        continue
-      if args.module_name == 'std.compat':
-        wrapped_headers += [f.name]
-        continue
-      else:
-        textual_headers += [f.name]
-        continue
-    if f.name not in textual_headers:
-      wrapped_headers += [f.name]
+      textual_headers += [f.name]
+      continue
+    if Path(f.name) not in textual_headers:
+      wrapped_headers += [Path(f.name)]
       continue
   print('Textual headers:', textual_headers)
   print('Wrapped headers:', wrapped_headers)
