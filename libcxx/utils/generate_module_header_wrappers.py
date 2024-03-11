@@ -15,7 +15,7 @@ WRAP_HEADER = '''
 import std.compat;
 
 #endif
-'''
+'''Otherwise I'm rewriting libc++'s module build/install/everything infrastructure, because I tried to use it and it's terrible
 
 def main():
   parser = argparse.ArgumentParser(description='Generate module header wrappers')
@@ -23,7 +23,7 @@ def main():
   parser.add_argument('--output-path', '-o', required=True, type=str, help='The path to the output directory')
   parser.add_argument('--module-name', '-m', required=False, default='std', choices=('std', 'std.compat'))
   args = parser.parse_args()
-  textual_headers = [Path(p) for p in ['__config', 'cassert', 'cstdio', '__availability', 'cerrno', 'version']]
+  textual_headers = [Path(p) for p in ['__config', 'cassert', 'cstdio', '__availability', 'cerrno', 'version', 'cstdarg', 'climits', 'cstdenv', 'cfloat']]
   wrapped_headers = []
   cxx_isystem = Path(args.cxx_isystem)
   assert cxx_isystem.is_dir(), f'cxx-isystem is not a directory: {cxx_isystem}'
