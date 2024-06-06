@@ -199,7 +199,7 @@ struct Frame {
   GlobalValue::GUID Function;
   // The symbol name for the function. Only populated in the Frame by the reader
   // if requested during initialization. This field should not be serialized.
-  std::optional<std::string> SymbolName;
+  std::unique_ptr<std::string> SymbolName;
   // The source line offset of the call from the beginning of parent function.
   uint32_t LineOffset;
   // The source column number of the call to help distinguish multiple calls
@@ -210,7 +210,9 @@ struct Frame {
 
   Frame(const Frame &Other) {
     Function = Other.Function;
-    SymbolName = Other.SymbolName;
+    SymbolName = Other.SymbolName
+                     ? std::make_unique<std::string>(*Other.SymbolName)
+                     : nullptr;
     LineOffset = Other.LineOffset;
     Column = Other.Column;
     IsInlineFrame = Other.IsInlineFrame;
@@ -228,7 +230,9 @@ struct Frame {
 
   Frame &operator=(const Frame &Other) {
     Function = Other.Function;
-    SymbolName = Other.SymbolName;
+    SymbolName = Other.SymbolName
+                     ? std::make_unique<std::string>(*Other.SymbolName)
+                     : nullptr;
     LineOffset = Other.LineOffset;
     Column = Other.Column;
     IsInlineFrame = Other.IsInlineFrame;
@@ -236,6 +240,17 @@ struct Frame {
   }
 
   bool operator!=(const Frame &Other) const { return !operator==(Other); }
+
+  bool hasSymbolName() const { return !!SymbolName; }
+
+  StringRef getSymbolName() const {
+    assert(hasSymbolName());
+    return *SymbolName;
+  }
+
+  std::string getSymbolNameOr(StringRef Alt) const {
+    return std::string(hasSymbolName() ? getSymbolName() : Alt);
+  }
 
   // Write the contents of the frame to the ostream \p OS.
   void serialize(raw_ostream &OS) const {
@@ -279,7 +294,7 @@ struct Frame {
   void printYAML(raw_ostream &OS) const {
     OS << "      -\n"
        << "        Function: " << Function << "\n"
-       << "        SymbolName: " << SymbolName.value_or("<None>") << "\n"
+       << "        SymbolName: " << getSymbolNameOr("<None>") << "\n"
        << "        LineOffset: " << LineOffset << "\n"
        << "        Column: " << Column << "\n"
        << "        Inline: " << IsInlineFrame << "\n";
