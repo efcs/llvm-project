@@ -6297,6 +6297,36 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
+static bool EvaluatePreContracts(const FunctionDecl* Callee, EvalInfo& Info) {
+  for (ContractStmt *S : Callee->getPreContracts()) {
+    Expr *E = S->getCond();
+    APSInt Desired;
+    if (!EvaluateInteger(E, Desired, Info)){
+      return false;
+    }
+    if (!Desired) {
+      Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info) {
+  for (ContractStmt *S : Callee->getPostContracts()) {
+    Expr *E = S->getCond();
+    APSInt Desired;
+    if (!EvaluateInteger(E, Desired, Info)){
+      return false;
+    }
+    if (!Desired) {
+      Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+      return false;
+    }
+  }
+  return true;
+}
+
 /// Evaluate a function call.
 static bool HandleFunctionCall(SourceLocation CallLoc,
                                const FunctionDecl *Callee, const LValue *This,
@@ -6342,8 +6372,14 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
+  if (!EvaluatePreContracts(Callee, Info))
+    return false;
+
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
+  if (!EvaluatePostContracts(Callee, Info))
+    return false;
+
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
       return true;
@@ -15601,6 +15637,17 @@ public:
     case Builtin::BI__builtin_operator_delete:
       return HandleOperatorDeleteCall(Info, E);
 
+    case Builtin::BI__builtin_contract_assert: {
+      APSInt Desired;
+      if (!EvaluateInteger(E->getArg(0), Desired, Info)){
+        return false;
+      }
+      if (!Desired) {
+        Info.CCEDiag(E->getArg(0), diag::note_constexpr_contract_failure);
+        return false;
+      }
+      return true;
+    }
     default:
       return false;
     }

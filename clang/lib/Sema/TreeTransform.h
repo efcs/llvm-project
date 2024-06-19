@@ -1603,6 +1603,14 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -8572,6 +8580,20 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   // Always rebuild; we don't know if this needs to be injected into a new
   // context or if the promise type has changed.
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
+}
+
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+  ExprResult OperandResult = getDerived().TransformExpr(S->getCond());
+  if (OperandResult.isInvalid())
+    return StmtError();
+
+  // Always rebuild; we don't know if this needs to be injected into a new
+  // context or if the promise type has changed.
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), OperandResult.get());
 }
 
 // Objective-C Statements.

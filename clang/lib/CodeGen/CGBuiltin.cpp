@@ -3343,6 +3343,11 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
     Builder.CreateCall(FnAssume, ArgValue);
     return RValue::get(nullptr);
   }
+  case Builtin::BI__builtin_contract_assert: {
+    EmitCXXContractCheck(E->getArg(0));
+    EmitCXXContractImply(E->getArg(0));
+    return RValue::get(nullptr);
+  }
   case Builtin::BI__builtin_assume_separate_storage: {
     const Expr *Arg0 = E->getArg(0);
     const Expr *Arg1 = E->getArg(1);

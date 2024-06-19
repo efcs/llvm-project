@@ -2723,6 +2723,29 @@ public:
   //
   //
 
+  /// \name C++ Contracts
+  /// Implementations are in SemaContract.cpp
+  ///@{
+
+public:
+  StmtResult ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond);
+  StmtResult ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond);
+  StmtResult ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
+                                     DeclStmt *ResultNameDecl = nullptr);
+
+  ExprResult ActOnContractAssertCondition(Expr *Cond);
+
+  StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
+                               Expr *Cond, DeclStmt *ResultNameDecl = nullptr);
+
+  ///@}
+
+  //
+  //
+  // -------------------------------------------------------------------------
+  //
+  //
+
   /// \name C++ Scope Specifiers
   /// Implementations are in SemaCXXScopeSpec.cpp
   ///@{
