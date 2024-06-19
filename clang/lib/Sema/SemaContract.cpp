@@ -66,6 +66,7 @@ StmtResult Sema::ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
 
   return BuildContractStmt(ContractKind::Assert, KeywordLoc, Cond, nullptr);
 }
+
 StmtResult Sema::ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
   ExprResult CheckedCond = ActOnContractAssertCondition(Cond);
   if (CheckedCond.isInvalid())
