@@ -336,6 +336,53 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   return llvm::DebugLoc();
 }
 
+void CodeGenFunction::EmitCXXContractCheck(const Expr* Expr) {
+  llvm::Value *ArgValue = EmitScalarExpr(Expr);
+  llvm::BasicBlock *Begin = Builder.GetInsertBlock();
+  llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
+  llvm::BasicBlock *Violation = createBasicBlock("contract_assert_violation", this->CurFn);
+
+  Builder.SetInsertPoint(Begin);
+  Builder.CreateCondBr(ArgValue, End, Violation);
+
+  Builder.SetInsertPoint(Violation);
+
+/*
+  SourceRange range = Expr->getSourceRange();
+  PresumedLoc PLoc = Ctx.getSourceManager().getPresumedLoc(range->getBegin());
+  clang::StringLiteral* Filename = PLoc->getFilename();
+  llvm::Value* LineNo = PLoc->getLine();
+  clang::StringLiteral* ExpressionText = range.print(os, Ctx.getSourceManager());
+*/
+  const char *VLibCallName =
+      "_ZNSt9contracts41invoke_default_contract_violation_handlerEv"; // const
+                                                                      // char*
+  CallArgList Args;
+/*
+  Args.add(EmitLoadOfLValue(EmitStringLiteralLValue(Filename), Expr->getExprLoc()), getContext().VoidPtrTy);
+  Args.add(RValue::get(LineNo), getContext().getSizeType());
+  Args.add(EmitLoadOfLValue(EmitStringLiteralLValue(ExpressionText), Expr->getExprLoc()), getContext().VoidPtrTy);
+*/
+  const CGFunctionInfo &VFuncInfo = CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, {});
+  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
+  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, VLibCallName);
+  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+
+  llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+  TrapCall->setDoesNotReturn();
+  TrapCall->setDoesNotThrow();
+  Builder.CreateUnreachable();
+  Builder.ClearInsertionPoint();
+
+  Builder.SetInsertPoint(End);
+}
+
+void CodeGenFunction::EmitCXXContractImply(const Expr* expr) {
+  llvm::Value *ArgValue = EmitScalarExpr(expr);
+  llvm::Function *FnAssume = CGM.getIntrinsic(llvm::Intrinsic::assume);
+  Builder.CreateCall(FnAssume, ArgValue);
+}
+
 static void EmitIfUsed(CodeGenFunction &CGF, llvm::BasicBlock *BB) {
   if (!BB) return;
   if (!BB->use_empty()) {
@@ -1481,6 +1528,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
+  // FIXME(EricWF): I don't think this should go here.
+  for (ContractStmt *S : FD->getPreContracts())
+    EmitContractStmt(*S);
+
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
     llvm::append_range(FnArgs, FD->parameters());
@@ -1555,6 +1606,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
+
+  // FIXME(EricWF): I don't think this should go here.
+  // Also we'll need to figure out how to reference the return value
+  for (ContractStmt *S : FD->getPostContracts())
+    EmitContractStmt(*S);
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());

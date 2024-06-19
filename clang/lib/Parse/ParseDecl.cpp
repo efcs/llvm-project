@@ -2288,6 +2288,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   if (Tok.is(tok::kw_requires))
     ParseTrailingRequiresClause(D);
 
+  MaybeParseFunctionContractSpecifierSeq(D);
+
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
   // These will be parsed in ParseFunctionDefinition or ParseLexedAttrList.
@@ -2537,6 +2539,10 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       //    init-declarator:
       //	      declarator initializer[opt]
       //        declarator requires-clause
+
+      // FIXME(EricWF): Is this the correct place?
+      MaybeParseFunctionContractSpecifierSeq(D);
+
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClause(D);
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);

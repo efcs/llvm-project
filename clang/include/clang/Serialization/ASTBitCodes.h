@@ -1953,6 +1953,9 @@ enum StmtCode {
   EXPR_COYIELD,
   EXPR_DEPENDENT_COAWAIT,
 
+  // contracts
+  STMT_CXX_CONTRACT,
+
   // FixedPointLiteral
   EXPR_FIXEDPOINT_LITERAL,
 

@@ -524,6 +524,105 @@ public:
   }
 };
 
+enum class ContractKind { Pre, Post, Assert };
+
+class ContractStmt final : public Stmt,
+                           private llvm::TrailingObjects<ContractStmt, Stmt *> {
+  friend class ASTStmtReader;
+  friend TrailingObjects;
+
+  enum { ResultNameDeclOffset = 0, ConditionOffset = 1, Count = 2 };
+
+public:
+  // These types correspond to the three C++ 'await_suspend' return variants
+
+private:
+  unsigned condOffset() const {
+    return ResultNameDeclOffset + ContractAssertBits.HasResultName;
+  }
+
+  Stmt **getSubStmts() { return getTrailingObjects<Stmt *>(); }
+
+  Stmt *const *getSubStmts() const { return getTrailingObjects<Stmt *>(); }
+
+  SourceLocation KeywordLoc;
+
+public:
+  ContractStmt(ContractKind CK, SourceLocation KeywordLoc, Expr *Condition)
+      : Stmt(ContractStmtClass), KeywordLoc(KeywordLoc) {
+    ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
+    ContractAssertBits.HasResultName = false;
+  }
+
+  ContractStmt(EmptyShell Empty, ContractKind Kind, bool HasResultName = false)
+      : Stmt(ContractStmtClass, Empty) {
+    ContractAssertBits.ContractKind = static_cast<unsigned>(Kind);
+    ContractAssertBits.HasResultName = HasResultName;
+  }
+
+  static ContractStmt *Create(const ASTContext &C, ContractKind Kind,
+                              SourceLocation KeywordLoc, Expr *Condition,
+                              DeclStmt *ResultNameDecl = nullptr);
+
+  static ContractStmt *CreateEmpty(const ASTContext &C, ContractKind Kind,
+                                   bool HasResultName = false);
+
+  ContractKind getContractKind() const {
+    return static_cast<ContractKind>(ContractAssertBits.ContractKind);
+  }
+  void setContractKind(ContractKind CK) {
+    ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
+  }
+
+  bool hasResultNameDecl() const { return ContractAssertBits.HasResultName; }
+
+  DeclStmt *getResultNameDecl() const {
+    return hasResultNameDecl()
+               ? static_cast<DeclStmt *>(
+                     getTrailingObjects<Stmt *>()[ResultNameDeclOffset])
+               : nullptr;
+  }
+
+  void setResultNameDecl(DeclStmt *D) {
+    assert(hasResultNameDecl() && "no result name decl");
+    getTrailingObjects<Stmt *>()[ResultNameDeclOffset] = D;
+  }
+
+  void setCondition(Expr *E) {
+    getTrailingObjects<Stmt *>()[ConditionOffset] = E;
+  }
+
+  Expr *getCond() {
+    return reinterpret_cast<Expr *>(getTrailingObjects<Stmt *>()[condOffset()]);
+  }
+
+  const Expr *getCond() const {
+    return reinterpret_cast<Expr *>(getTrailingObjects<Stmt *>()[condOffset()]);
+  }
+
+  void setCond(Expr *Cond) {
+    getTrailingObjects<Stmt *>()[condOffset()] = reinterpret_cast<Stmt *>(Cond);
+  }
+
+  SourceLocation getKeywordLoc() const { return KeywordLoc; }
+  SourceLocation getBeginLoc() const LLVM_READONLY { return KeywordLoc; }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    return getCond()->getEndLoc();
+  }
+
+  child_range children() {
+    return child_range(getSubStmts(), getSubStmts() + condOffset() + 1);
+  }
+
+  const_child_range children() const {
+    return const_child_range(getSubStmts(), getSubStmts() + condOffset() + 1);
+  }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == ContractStmtClass;
+  }
+};
+
 }  // end namespace clang
 
 #endif

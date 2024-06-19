@@ -651,7 +651,12 @@ CXCursor cxcursor::MakeCXCursor(const Stmt *S, const Decl *Parent,
     K = CXCursor_CXXParenListInitExpr;
     break;
 
-  case Stmt::MSDependentExistsStmtClass:
+  // FIXME(EricWF): Add support for the following Stmt classes.
+  case Stmt::ContractStmtClass:
+    K = CXCursor_UnexposedStmt;
+  break
+
+      case Stmt::MSDependentExistsStmtClass:
     K = CXCursor_UnexposedStmt;
     break;
   case Stmt::OMPCanonicalLoopClass:

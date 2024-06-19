@@ -1,0 +1,67 @@
+#ifndef _LIBCPP_CONTRACTS
+#define _LIBCPP_CONTRACTS
+
+#include <__config>
+#include <version>
+#include <source_location>
+
+namespace std::contracts {
+
+enum class assertion_kind : unsigned char {
+  __unknown = 0,
+  prec = 1,
+  postc = 2,
+  assert = 3
+};
+using _AssertKind = assertion_kind;
+enum class evaluation_semantic : unsigned char {
+  __unknown = 0,
+  enforce = 1,
+  observe = 2
+};
+using _EvaluationSemantic = evaluation_semantic;
+enum class detection_mode : unsigned char {
+  __unknown = 0,
+  predicate_false = 1,
+  evaluation_exception = 2
+};
+using _DetectionMode = detection_mode;
+
+class contract_violation {
+// no user−accessible constructor
+public:
+  // cannot be copied or moved
+  contract_violation(const contract_violation&) = delete;
+  // cannot be assigned to
+  contract_violation& operator=(const contract_violation&) = delete;
+  ~contract_violation() = default;
+  const char* comment() const noexcept { return __comment_; }
+
+  _DetectionMode detection_mode() const noexcept { return __detection_mode_; }
+  assertion_kind kind() const noexcept { return __kind_; }
+  source_location location() const noexcept { return __location_; }
+  evaluation_semantic semantic() const noexcept { return __semantic_;}
+
+
+  contract_violation(_DetectionMode __dm = _DetectionMode::__unknown, _AssertKind __k = _AssertKind::__unknown, _EvaluationSemantic __es = _EvaluationSemantic::__unknown, const char* __c = nullptr,
+    source_location __loc = std::source_location::current()) noexcept
+    : __detection_mode_(__dm), __kind_(__k), __semantic_(__es), __comment_(__c), __location_(__loc) {}
+
+    _DetectionMode __detection_mode_;
+    _AssertKind __kind_;
+    _EvaluationSemantic __semantic_;
+    const char* __comment_;
+    source_location __location_;
+};
+
+
+
+_LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler(const contract_violation&) noexcept;
+
+_LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler();
+
+} // namespace std::contracts
+
+_LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&) noexcept;
+
+#endif // _LIBCPP_CONTRACTS

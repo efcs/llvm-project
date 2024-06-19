@@ -169,6 +169,10 @@ class Parser : public CodeCompletionHandler {
   mutable IdentifierInfo *Ident_import;
   mutable IdentifierInfo *Ident_module;
 
+  // C++2c(?) contextual keywords.
+  mutable IdentifierInfo *Ident_pre;
+  mutable IdentifierInfo *Ident_post;
+
   // C++ type trait keywords that can be reverted to identifiers and still be
   // used as type traits.
   llvm::SmallDenseMap<IdentifierInfo *, tok::TokenKind> RevertibleTypeTraits;
@@ -2102,6 +2106,26 @@ private:
 
   ExprResult ParseRequiresExpression();
   void ParseTrailingRequiresClause(Declarator &D);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Contracts
+  /*
+    ExceptionSpecificationType Parser::tryParseExceptionSpecification(
+      bool Delayed, SourceRange &SpecificationRange,
+      SmallVectorImpl<ParsedType> &DynamicExceptions,
+      SmallVectorImpl<SourceRange> &DynamicExceptionRanges,
+      ExprResult &NoexceptExpr, CachedTokens *&) {
+  */
+  enum class ContractKeyword { None, Pre, Post };
+  ContractKeyword isContractSpecifier(const Token &Tok) const;
+  ContractKeyword isContractSpecifier() const {
+    return isContractSpecifier(Tok);
+  }
+
+  StmtResult ParseContractAssertStatement();
+  void MaybeParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
+  StmtResult ParseFunctionContractSpecifier(Declarator &DeclaratorInfo);
+  void ParsePostContract(Declarator &DeclaratorInfo);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.

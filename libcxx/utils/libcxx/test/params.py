@@ -73,7 +73,7 @@ _warningFlags = [
     "-Wno-self-move",
 ]
 
-_allStandards = ["c++03", "c++11", "c++14", "c++17", "c++20", "c++23", "c++26"]
+_allStandards = ["c++03", "c++11", "c++14", "c++17", "c++20", "c++23", "c++26", "c++2c"]
 
 
 def getStdFlag(cfg, std):

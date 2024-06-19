@@ -343,6 +343,11 @@ Retry:
     SemiError = "co_return";
     break;
 
+  case tok::kw_contract_assert: // C++20 contract-assert-statement
+    Res = ParseContractAssertStatement();
+    SemiError = "contract_assert";
+    break;
+
   case tok::kw_asm: {
     for (const ParsedAttr &AL : CXX11Attrs)
       // Could be relaxed if asm-related regular keyword attributes are
@@ -2419,6 +2424,52 @@ StmtResult Parser::ParseContinueStatement() {
 StmtResult Parser::ParseBreakStatement() {
   SourceLocation BreakLoc = ConsumeToken();  // eat the 'break'.
   return Actions.ActOnBreakStmt(BreakLoc, getCurScope());
+}
+
+/// ParseContractAssertStatement
+///
+///  assertion-statement:
+///     'contract_assert' attribute-specifier-seq[opt] '('
+///     conditional-expression ')' ';'
+///
+StmtResult Parser::ParseContractAssertStatement() {
+  assert((Tok.is(tok::kw_contract_assert)) &&
+         "Not a contract asssert statement");
+  SourceLocation KeywordLoc = ConsumeToken(); // eat the 'contract_assert'.
+
+  // FIXME(EricWF): This seems really worg.
+  ParsedAttributes attrs(AttrFactory);
+  MaybeParseCXX11Attributes(attrs);
+
+  if (Tok.isNot(tok::l_paren)) {
+    Diag(Tok, diag::err_expected_lparen_after) << "contract_assert";
+    SkipUntil(tok::semi);
+    return StmtError();
+  }
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  T.consumeOpen();
+
+  SourceLocation Start = Tok.getLocation();
+
+  ExprResult Cond = ParseConditionalExpression();
+  if (Cond.isUsable()) {
+    Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
+                                             /*RecoverUncorrectedTypos=*/true);
+  } else {
+    if (!Tok.is(tok::r_paren))
+      SkipUntil(tok::semi);
+    Cond = Actions.CreateRecoveryExpr(
+        Start, Start == Tok.getLocation() ? Start : PrevTokLocation, {},
+        Actions.getASTContext().BoolTy);
+  }
+
+  T.consumeClose();
+
+  if (Cond.isInvalid())
+    return StmtError();
+
+  return Actions.ActOnContractAssert(KeywordLoc, Cond.get());
 }
 
 /// ParseReturnStatement
