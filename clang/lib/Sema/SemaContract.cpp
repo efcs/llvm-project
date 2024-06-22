@@ -50,7 +50,12 @@ using namespace clang;
 using namespace sema;
 
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond) {
-  return PerformContextuallyConvertToBool(Cond);
+  assert(Cond);
+  ExprResult E = PerformContextuallyConvertToBool(Cond);
+  if (E.isInvalid()) {
+    return E;
+  }
+  return ActOnFinishFullExpr(E.get(), /*DiscardedValue=*/false);
 }
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
@@ -63,7 +68,7 @@ StmtResult Sema::ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
   if (CheckedCond.isInvalid())
     return StmtError();
   Cond = CheckedCond.get();
-
+  assert(Cond);
   return BuildContractStmt(ContractKind::Assert, KeywordLoc, Cond, nullptr);
 }
 
@@ -79,12 +84,13 @@ StmtResult Sema::ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
 StmtResult Sema::ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
                                          DeclStmt *ResultNameDecl) {
   assert(ResultNameDecl == nullptr && "Result name decl not supported yet");
+  assert(Cond);
 
   ExprResult CheckedCond = ActOnContractAssertCondition(Cond);
   if (CheckedCond.isInvalid())
     return StmtError();
   Cond = CheckedCond.get();
-
+  assert(Cond);
   return BuildContractStmt(ContractKind::Post, KeywordLoc, Cond,
                            ResultNameDecl);
 }

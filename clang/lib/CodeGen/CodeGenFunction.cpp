@@ -354,9 +354,8 @@ void CodeGenFunction::EmitCXXContractCheck(const Expr* Expr) {
   llvm::Value* LineNo = PLoc->getLine();
   clang::StringLiteral* ExpressionText = range.print(os, Ctx.getSourceManager());
 */
-  const char *VLibCallName =
-      "_ZNSt9contracts41invoke_default_contract_violation_handlerEv"; // const
-                                                                      // char*
+  const char *VLibCallName = "_ZNSt9contracts41invoke_default_contract_"
+                             "violation_handlerEv"; // void(void)
   CallArgList Args;
 /*
   Args.add(EmitLoadOfLValue(EmitStringLiteralLValue(Filename), Expr->getExprLoc()), getContext().VoidPtrTy);
@@ -1529,8 +1528,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // FIXME(EricWF): I don't think this should go here.
-  for (ContractStmt *S : FD->getPreContracts())
+  for (ContractStmt *S : FD->getContracts()) {
+    if (S->getContractKind() != ContractKind::Pre)
+      continue;
     EmitContractStmt(*S);
+  }
 
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
@@ -1609,8 +1611,11 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
 
   // FIXME(EricWF): I don't think this should go here.
   // Also we'll need to figure out how to reference the return value
-  for (ContractStmt *S : FD->getPostContracts())
+  for (ContractStmt *S : FD->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
     EmitContractStmt(*S);
+  }
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());

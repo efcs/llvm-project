@@ -531,10 +531,7 @@ class ContractStmt final : public Stmt,
   friend class ASTStmtReader;
   friend TrailingObjects;
 
-  enum { ResultNameDeclOffset = 0, ConditionOffset = 1, Count = 2 };
-
-public:
-  // These types correspond to the three C++ 'await_suspend' return variants
+  enum { ResultNameDeclOffset = 0, Count = 1 };
 
 private:
   unsigned condOffset() const {
@@ -552,6 +549,7 @@ public:
       : Stmt(ContractStmtClass), KeywordLoc(KeywordLoc) {
     ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
     ContractAssertBits.HasResultName = false;
+    setCondition(Condition);
   }
 
   ContractStmt(EmptyShell Empty, ContractKind Kind, bool HasResultName = false)
@@ -588,9 +586,7 @@ public:
     getTrailingObjects<Stmt *>()[ResultNameDeclOffset] = D;
   }
 
-  void setCondition(Expr *E) {
-    getTrailingObjects<Stmt *>()[ConditionOffset] = E;
-  }
+  void setCondition(Expr *E) { getTrailingObjects<Stmt *>()[condOffset()] = E; }
 
   Expr *getCond() {
     return reinterpret_cast<Expr *>(getTrailingObjects<Stmt *>()[condOffset()]);

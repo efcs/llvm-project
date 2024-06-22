@@ -2021,7 +2021,7 @@ void DeclaratorDecl::setTrailingRequiresClause(Expr *TrailingRequiresClause) {
   getExtInfo()->TrailingRequiresClause = TrailingRequiresClause;
 }
 
-void DeclaratorDecl::setPreContracts(SmallVector<ContractStmt *> PreContracts) {
+void DeclaratorDecl::setContracts(SmallVector<ContractStmt *> Contracts) {
   // Make sure the extended decl info is allocated.
   if (!hasExtInfo()) {
     // Save (non-extended) type source info pointer.
@@ -2032,22 +2032,7 @@ void DeclaratorDecl::setPreContracts(SmallVector<ContractStmt *> PreContracts) {
     getExtInfo()->TInfo = savedTInfo;
   }
   // Set requires clause info.
-  getExtInfo()->PreContracts = PreContracts;
-}
-
-void DeclaratorDecl::setPostContracts(
-    SmallVector<ContractStmt *> PostContracts) {
-  // Make sure the extended decl info is allocated.
-  if (!hasExtInfo()) {
-    // Save (non-extended) type source info pointer.
-    auto *savedTInfo = DeclInfo.get<TypeSourceInfo*>();
-    // Allocate external info struct.
-    DeclInfo = new (getASTContext()) ExtInfo;
-    // Restore savedTInfo into (extended) decl info.
-    getExtInfo()->TInfo = savedTInfo;
-  }
-  // Set requires clause info.
-  getExtInfo()->PostContracts = PostContracts;
+  getExtInfo()->Contracts = Contracts;
 }
 
 void DeclaratorDecl::setTemplateParameterListsInfo(
@@ -3066,8 +3051,7 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            bool UsesFPIntrin, bool isInlineSpecified,
                            ConstexprSpecKind ConstexprKind,
                            Expr *TrailingRequiresClause,
-                           SmallVector<ContractStmt *> PreContracts,
-                           SmallVector<ContractStmt *> PostContracts)
+                           SmallVector<ContractStmt *> Contracts)
     : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                      StartLoc),
       DeclContext(DK), redeclarable_base(C), Body(), ODRHash(0),
@@ -3103,8 +3087,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
   FunctionDeclBits.FriendConstraintRefersToEnclosingTemplate = false;
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
-  setPreContracts(PreContracts);
-  setPostContracts(PostContracts);
+  // FIXME(EricWF): Make this conditional?
+  setContracts(Contracts);
 }
 
 void FunctionDecl::getNameForDiagnostic(
@@ -5427,11 +5411,10 @@ FunctionDecl *FunctionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
     bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-    Expr *TrailingRequiresClause, SmallVector<ContractStmt *> PreContracts,
-    SmallVector<ContractStmt *> PostContracts) {
+    Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts) {
   FunctionDecl *New = new (C, DC) FunctionDecl(
       Function, C, DC, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
-      isInlineSpecified, ConstexprKind, TrailingRequiresClause, PreContracts, PostContracts);
+      isInlineSpecified, ConstexprKind, TrailingRequiresClause, Contracts);
   New->setHasWrittenPrototype(hasWrittenPrototype);
   return New;
 }
