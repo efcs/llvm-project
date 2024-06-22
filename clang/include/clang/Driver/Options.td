@@ -1661,6 +1661,29 @@ defm auto_import : BoolFOption<"auto-import",
 def offload_EQ : CommaJoined<["--"], "offload=">, Flags<[NoXarchOption]>,
   HelpText<"Specify comma-separated list of offloading target triples (CUDA and HIP only)">;
 
+// C++ Contracts
+defm fcontracts : BoolFOption<"contracts",
+  LangOpts<"Contracts">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable support for C++ Contracts">,
+  NegFlag<SetFalse>>;
+
+def fcontracts_eval_mode : Joined<["-"], "fcontracts_evaluation=">,
+  HelpText<"Specify contract evaluation mode. The default value is 'ignore'.">,
+  Values<"0,1,2">,
+  Visibility<[ClangOption, CC1Option]>,
+  NormalizedValuesScope<"LangOptions::ContractEvalMode">,
+  NormalizedValues<["Ignore", "Observe", "Enforce"]>,
+  MarshallingInfoEnum<LangOpts<"ContractEvaluation">, "Ignore">;
+
+def fcontracts_impl_strategy : Joined<["-"], "fcontracts_strategy=">,
+  HelpText<"Specify contract implementation strategy. The default value is 'callee'.">,
+  Values<"0,1,2">,
+  Visibility<[ClangOption, CC1Option]>,
+  NormalizedValuesScope<"LangOptions::ContractImplStrategy">,
+  NormalizedValues<["Callee", "Both", "Split"]>,
+  MarshallingInfoEnum<LangOpts<"ContractStrategy">, "Callee">;
+
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",
   LangOpts<"Coroutines">, Default<cpp20.KeyPath>,

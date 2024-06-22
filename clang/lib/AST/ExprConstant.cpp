@@ -6294,6 +6294,39 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
+static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
+  const Expr *E = S->getCond();
+  APSInt Desired;
+  if (!EvaluateInteger(E, Desired, Info)) {
+    return false;
+  }
+  if (!Desired) {
+    Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+    return false;
+  }
+  return true;
+}
+
+static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
+  for (ContractStmt *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Pre)
+      continue;
+    if (!EvaluateContract(S, Info))
+      return false;
+  }
+  return true;
+}
+
+static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info) {
+  for (ContractStmt *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    if (!EvaluateContract(S, Info))
+      return false;
+  }
+  return true;
+}
+
 /// Evaluate a function call.
 static bool HandleFunctionCall(SourceLocation CallLoc,
                                const FunctionDecl *Callee, const LValue *This,
@@ -6339,8 +6372,14 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
+  if (!EvaluatePreContracts(Callee, Info))
+    return false;
+
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
+  if (!EvaluatePostContracts(Callee, Info))
+    return false;
+
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
       return true;

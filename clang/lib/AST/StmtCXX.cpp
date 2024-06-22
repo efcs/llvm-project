@@ -126,3 +126,23 @@ CoroutineBodyStmt::CoroutineBodyStmt(CoroutineBodyStmt::CtorArgs const &Args)
   std::copy(Args.ParamMoves.begin(), Args.ParamMoves.end(),
             const_cast<Stmt **>(getParamMoves().data()));
 }
+
+ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
+                                        bool HasResultName) {
+  void *Mem = C.Allocate(totalSizeToAlloc<Stmt *>(1 + HasResultName),
+                         alignof(ContractStmt));
+  return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName);
+}
+
+ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
+                                   SourceLocation KeywordLoc, Expr *Condition,
+                                   DeclStmt *ResultNameDecl) {
+  assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
+         "Only a postcondition can have a result name declaration");
+  auto *S = CreateEmpty(C, Kind, ResultNameDecl != nullptr);
+  S->KeywordLoc = KeywordLoc;
+  S->setCondition(Condition);
+  if (ResultNameDecl)
+    S->setResultNameDecl(ResultNameDecl);
+  return S;
+}

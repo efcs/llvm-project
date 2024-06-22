@@ -2301,6 +2301,8 @@ void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitContractStmt(const ContractStmt *S) { VisitStmt(S); }
+
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
   VisitExpr(E);
 }

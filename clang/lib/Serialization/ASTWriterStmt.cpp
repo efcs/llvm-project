@@ -465,6 +465,22 @@ void ASTStmtWriter::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
   Code = serialization::EXPR_DEPENDENT_COAWAIT;
 }
 
+void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
+  VisitStmt(S);
+
+  CurrentPackingBits.updateBits();
+  CurrentPackingBits.addBits(S->ContractAssertBits.ContractKind,
+                             /*BitsWidth=*/2);
+  CurrentPackingBits.addBit(S->ContractAssertBits.HasResultName);
+
+  Record.AddSourceLocation(S->getKeywordLoc());
+  Record.AddStmt(S->getCond());
+  if (S->hasResultNameDecl())
+    Record.AddStmt(S->getResultNameDecl());
+
+  Code = serialization::STMT_CXX_CONTRACT;
+}
+
 static void
 addConstraintSatisfaction(ASTRecordWriter &Record,
                           const ASTConstraintSatisfaction &Satisfaction) {

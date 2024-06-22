@@ -74,6 +74,7 @@ enum class CXXNewInitializationStyle;
 enum class PredefinedIdentKind;
 enum class SourceLocIdentKind;
 enum class StringLiteralKind;
+enum class ContractKind;
 
 //===----------------------------------------------------------------------===//
 // AST classes for statements.
@@ -849,6 +850,21 @@ protected:
     SourceLocation RParenLoc;
   };
 
+  class ContractAssertBitfields {
+    friend class ASTStmtReader;
+    friend class ASTStmtWriter;
+    friend class ContractStmt;
+
+    LLVM_PREFERRED_TYPE(StmtBitfields)
+    unsigned : NumStmtBits;
+
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned HasResultName : 1;
+
+    LLVM_PREFERRED_TYPE(ContractKind)
+    unsigned ContractKind : 2;
+  };
+
   class CXXNewExprBitfields {
     friend class ASTStmtReader;
     friend class ASTStmtWriter;
@@ -1265,6 +1281,9 @@ protected:
 
     // C++ Coroutines expressions
     CoawaitExprBitfields CoawaitBits;
+
+    // C++ contracts
+    ContractAssertBitfields ContractAssertBits;
 
     // Obj-C Expressions
     ObjCIndirectCopyRestoreExprBitfields ObjCIndirectCopyRestoreExprBits;

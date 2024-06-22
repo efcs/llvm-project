@@ -18,6 +18,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/Stmt.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtVisitor.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
@@ -167,6 +168,10 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     break;
   case Stmt::CoreturnStmtClass:
     EmitCoreturnStmt(cast<CoreturnStmt>(*S));
+    break;
+  case Stmt::ContractStmtClass:
+    assert(S && isa<ContractStmt>(S) && "Expected ContractStmt");
+    EmitContractStmt(cast<ContractStmt>(*S));
     break;
   case Stmt::CapturedStmtClass: {
     const CapturedStmt *CS = cast<CapturedStmt>(S);
@@ -1453,6 +1458,15 @@ static bool isSwiftAsyncCallee(const CallExpr *CE) {
     return false;
   }
   return calleeType->getCallConv() == CallingConv::CC_SwiftAsync;
+}
+
+void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
+  // Emit the contract expression.
+  const Expr *expr = S.getCond();
+  EmitCXXContractCheck(expr);
+  // TODO(EricWF): This call doesn't reuse the evaluation of the expression
+  // for the check.
+  EmitCXXContractImply(expr);
 }
 
 /// EmitReturnStmt - Note that due to GCC extensions, this can have an operand

@@ -1824,7 +1824,8 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OpenACCComputeConstructClass:
     case Stmt::OpenACCLoopConstructClass:
     case Stmt::OMPUnrollDirectiveClass:
-    case Stmt::OMPMetaDirectiveClass: {
+    case Stmt::OMPMetaDirectiveClass:
+    case Stmt::ContractStmtClass: { // FIXME(EricWF): Do something here
       const ExplodedNode *node = Bldr.generateSink(S, Pred, Pred->getState());
       Engine.addAbortedBlock(node, currBldrCtx->getBlock());
       break;

@@ -1,0 +1,15 @@
+* Parse result name in post contracts
+  * auto declared functions.
+  * templates.
+  * Late parsing in general
+* Diagnose
+* Test parsing failures
+* What happens when pre/post throws from a noexcept function? Can we even callee-emit contracts?
+* Start constification
+* Check 'this' access in pre/post
+* Codegen:
+  * Make it work
+
+* Required headers?
+  <contracts>
+  <source_location>
