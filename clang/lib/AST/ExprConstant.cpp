@@ -6297,32 +6297,35 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
-static bool EvaluatePreContracts(const FunctionDecl* Callee, EvalInfo& Info) {
-  for (ContractStmt *S : Callee->getPreContracts()) {
-    Expr *E = S->getCond();
-    APSInt Desired;
-    if (!EvaluateInteger(E, Desired, Info)){
+static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
+  const Expr *E = S->getCond();
+  APSInt Desired;
+  if (!EvaluateInteger(E, Desired, Info)) {
+    return false;
+  }
+  if (!Desired) {
+    Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+    return false;
+  }
+  return true;
+}
+
+static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
+  for (ContractStmt *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Pre)
+      continue;
+    if (!EvaluateContract(S, Info))
       return false;
-    }
-    if (!Desired) {
-      Info.CCEDiag(E, diag::note_constexpr_contract_failure);
-      return false;
-    }
   }
   return true;
 }
 
 static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info) {
-  for (ContractStmt *S : Callee->getPostContracts()) {
-    Expr *E = S->getCond();
-    APSInt Desired;
-    if (!EvaluateInteger(E, Desired, Info)){
+  for (ContractStmt *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    if (!EvaluateContract(S, Info))
       return false;
-    }
-    if (!Desired) {
-      Info.CCEDiag(E, diag::note_constexpr_contract_failure);
-      return false;
-    }
   }
   return true;
 }
@@ -15637,17 +15640,6 @@ public:
     case Builtin::BI__builtin_operator_delete:
       return HandleOperatorDeleteCall(Info, E);
 
-    case Builtin::BI__builtin_contract_assert: {
-      APSInt Desired;
-      if (!EvaluateInteger(E->getArg(0), Desired, Info)){
-        return false;
-      }
-      if (!Desired) {
-        Info.CCEDiag(E->getArg(0), diag::note_constexpr_contract_failure);
-        return false;
-      }
-      return true;
-    }
     default:
       return false;
     }

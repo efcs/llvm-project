@@ -775,8 +775,7 @@ class DeclaratorDecl : public ValueDecl {
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
     Expr *TrailingRequiresClause = nullptr;
-    SmallVector<ContractStmt *> PreContracts = {};
-    SmallVector<ContractStmt *> PostContracts = {};
+    SmallVector<ContractStmt *> Contracts = {};
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -856,21 +855,15 @@ public:
                         : nullptr;
   }
 
-  SmallVector<ContractStmt *> getPreContracts() const {
-    if (hasExtInfo()) return getExtInfo()->PreContracts;
-    return {};
-  }
-
-  SmallVector<ContractStmt *> getPostContracts() const {
-    if (hasExtInfo()) return getExtInfo()->PostContracts;
+  SmallVector<ContractStmt *> getContracts() const {
+    if (hasExtInfo())
+      return getExtInfo()->Contracts;
     return {};
   }
 
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
 
-  void setPreContracts(SmallVector<ContractStmt *> PreContracts);
-
-  void setPostContracts(SmallVector<ContractStmt *> PostContracts);
+  void setContracts(SmallVector<ContractStmt *> Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2145,8 +2138,7 @@ protected:
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
                Expr *TrailingRequiresClause = nullptr,
-               SmallVector<ContractStmt *> PreContracts = {},
-               SmallVector<ContractStmt *> PostContracts = {});
+               SmallVector<ContractStmt *> Contracts = {});
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2183,13 +2175,13 @@ public:
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
          Expr *TrailingRequiresClause = nullptr,
-         SmallVector<ContractStmt *> PreContracts = {},
-         SmallVector<ContractStmt *> PostContracts = {}) {
+         SmallVector<ContractStmt *> Contracts = {}) {
+
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
                                 UsesFPIntrin, isInlineSpecified,
                                 hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause, PreContracts, PostContracts);
+                                TrailingRequiresClause, Contracts);
   }
 
   static FunctionDecl *
@@ -2197,8 +2189,7 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause, SmallVector<ContractStmt *> PreContracts,
-         SmallVector<ContractStmt *> PostContracts);
+         Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 

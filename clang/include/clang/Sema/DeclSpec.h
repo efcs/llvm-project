@@ -1971,11 +1971,8 @@ private:
   /// requires-clause, or null if no such clause was specified.
   Expr *TrailingRequiresClause;
 
-  /// \brief All pre contracts specified by the function declaration
-  SmallVector<ContractStmt *> PreContracts;
-
-  /// \brief All post contracts specified by the function declaration
-  SmallVector<ContractStmt *> PostContracts;
+  /// \brief All pre and post contracts specified by the function declaration
+  SmallVector<ContractStmt *> Contracts;
 
   /// If this declarator declares a template, its template parameter lists.
   ArrayRef<TemplateParameterList *> TemplateParameterLists;
@@ -2648,18 +2645,10 @@ public:
   }
 
   /// \brief Add a pre contract for this declarator
-  void addPreContract(ContractStmt *TRC) { PreContracts.push_back(TRC); }
+  void addContract(ContractStmt *TRC) { Contracts.push_back(TRC); }
 
   /// \brief Get all pre contracts for this declarator
-  const SmallVector<ContractStmt *> &getPreContracts() { return PreContracts; }
-
-  /// \brief Add a post contract for this declarator
-  void addPostContract(ContractStmt *TRC) { PostContracts.push_back(TRC); }
-
-  /// \brief Get all post contracts for this declarator
-  const SmallVector<ContractStmt *> &getPostContracts() {
-    return PostContracts;
-  }
+  const SmallVector<ContractStmt *> &getContracts() { return Contracts; }
 
   /// Sets the template parameter lists that preceded the declarator.
   void setTemplateParameterLists(ArrayRef<TemplateParameterList *> TPLs) {

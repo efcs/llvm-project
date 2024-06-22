@@ -4350,12 +4350,7 @@ void Parser::MaybeParseFunctionContractSpecifierSeq(
   while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
     StmtResult Contract = ParseFunctionContractSpecifier(DeclaratorInfo);
     if (Contract.isUsable()) {
-      auto *CS = Contract.getAs<ContractStmt>();
-      if (CKK == ContractKeyword::Pre) {
-        DeclaratorInfo.addPreContract(CS);
-      } else {
-        DeclaratorInfo.addPostContract(CS);
-      }
+      DeclaratorInfo.addContract(Contract.getAs<ContractStmt>());
     }
   }
 }
@@ -4396,7 +4391,8 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
-
+    (void)Id;
+    (void)IdLoc;
     // FIXME(ericwf): Actually build the result name introducer
   }
 
@@ -4456,48 +4452,49 @@ void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
   // As we have to support the "auto f() post (r : r > 42) {...}" case, we cannot parse here
   // the return type is not guaranteed to be known until after the function body parses
 
-/*
-    if (Tok.isNot(tok::identifier)) {
-      Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
-      return;
-    }
+  /*
+      if (Tok.isNot(tok::identifier)) {
+        Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
+        return;
+      }
 
-    ParsingDeclSpec DS(*this);
+      ParsingDeclSpec DS(*this);
 
-    ParsedTemplateInfo TemplateInfo;
-    DeclSpecContext DSContext = getDeclSpecContextFromDeclaratorContext(DeclaratorContext::Block);
-    ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);
-    
-    ParsedAttributes LocalAttrs(AttrFactory);
-    ParsingDeclarator D(*this, DS, LocalAttrs, DeclaratorContext::Block);
+      ParsedTemplateInfo TemplateInfo;
+      DeclSpecContext DSContext =
+     getDeclSpecContextFromDeclaratorContext(DeclaratorContext::Block);
+      ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);
 
-    D.setObjectType(getAsFunction().getReturnType());
-    IdentifierInfo *Id = Tok.getIdentifierInfo();
-    SourceLocation IdLoc = ConsumeToken();
-    D.setIdentifier(Id, IdLoc);
+      ParsedAttributes LocalAttrs(AttrFactory);
+      ParsingDeclarator D(*this, DS, LocalAttrs, DeclaratorContext::Block);
 
-    Decl* ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
-    Actions.ActOnUninitializedDecl(ThisDecl);
-    Actions.FinalizeDeclaration(ThisDecl);
-    D.complete(ThisDecl);
-    if (Tok.isNot(tok::colon)) {
-      Diag(Tok.getLocation(), diag::err_expected) << tok::colon;
-      return;
-    }
+      D.setObjectType(getAsFunction().getReturnType());
+      IdentifierInfo *Id = Tok.getIdentifierInfo();
+      SourceLocation IdLoc = ConsumeToken();
+      D.setIdentifier(Id, IdLoc);
 
-    ExprResult Expr = ParseExpression();
-    if (Expr.isInvalid()) {
-      Diag(Tok.getLocation(), diag::err_invalid_pcs);
-      return;
-    }
-    DeclaratorInfo.addPostContract(Expr.get());
-*/
+      Decl* ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
+      Actions.ActOnUninitializedDecl(ThisDecl);
+      Actions.FinalizeDeclaration(ThisDecl);
+      D.complete(ThisDecl);
+      if (Tok.isNot(tok::colon)) {
+        Diag(Tok.getLocation(), diag::err_expected) << tok::colon;
+        return;
+      }
+
+      ExprResult Expr = ParseExpression();
+      if (Expr.isInvalid()) {
+        Diag(Tok.getLocation(), diag::err_invalid_pcs);
+        return;
+      }
+      DeclaratorInfo.addContract(Expr.get());
+  */
   ExprResult Expr = ParseExpression();
   if (Expr.isInvalid()) {
     Diag(Tok.getLocation(), diag::err_invalid_pcs);
     return;
   }
-  // DeclaratorInfo.addPostContract(Expr.get());
+  // DeclaratorInfo.addContract(Expr.get());
 
   if (Tok.isNot(tok::r_paren)) {
     Diag(Tok.getLocation(), diag::err_expected) << tok::r_paren;

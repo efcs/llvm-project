@@ -2624,12 +2624,6 @@ def ContractViolation : Builtin {
   let Attributes = [NoThrow, NoReturn, Constexpr];
 }
 
-def ContractAssert : Builtin {
-  let Spellings = ["__builtin_contract_assert"];
-  let Attributes = [NoThrow, Constexpr];
-
-  let Prototype = "void(bool)";
-}
 
 // C99 library functions
 // C99 stdarg.h

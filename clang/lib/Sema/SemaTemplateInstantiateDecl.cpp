@@ -2155,8 +2155,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  SmallVector<ContractStmt *> PreContracts = D->getPreContracts();
-  SmallVector<ContractStmt *> PostContracts = D->getPostContracts();
+  SmallVector<ContractStmt *> Contracts = D->getContracts();
 
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
@@ -2194,7 +2193,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         SemaRef.Context, DC, D->getInnerLocStart(), NameInfo, T, TInfo,
         D->getCanonicalDecl()->getStorageClass(), D->UsesFPIntrin(),
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
-        TrailingRequiresClause, PreContracts, PostContracts);
+        TrailingRequiresClause, Contracts);
     Function->setFriendConstraintRefersToEnclosingTemplate(
         D->FriendConstraintRefersToEnclosingTemplate());
     Function->setRangeEnd(D->getSourceRange().getEnd());
