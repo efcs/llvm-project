@@ -4397,6 +4397,34 @@ public:
 /// into a diagnostic with <<.
 const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                       AccessSpecifier AS);
+                                      
+
+/// A result name introduces in a post condition. For instance, given:
+///
+///   int foo() post(r : r > 0);
+///
+/// Where `r` refers to the value returned by the function
+class ResultNameDecl : public ValueDecl {
+
+  ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id, QualType T)
+      : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T) {}
+
+  void anchor() override;
+
+public:
+  friend class ASTDeclReader;
+
+  static ResultNameDecl *Create(ASTContext &C, DeclContext *DC,
+                             SourceLocation IdLoc, IdentifierInfo *Id,
+                             QualType T);
+  static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
+
+  using ValueDecl::getDeclName;
+  using ValueDecl::setType;
+
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Decl::ResultName; }
+};
 
 } // namespace clang
 

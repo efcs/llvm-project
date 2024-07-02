@@ -170,7 +170,6 @@ void CodeGenFunction::EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs) {
     EmitCoreturnStmt(cast<CoreturnStmt>(*S));
     break;
   case Stmt::ContractStmtClass:
-    assert(S && isa<ContractStmt>(S) && "Expected ContractStmt");
     EmitContractStmt(cast<ContractStmt>(*S));
     break;
   case Stmt::CapturedStmtClass: {
@@ -1460,14 +1459,6 @@ static bool isSwiftAsyncCallee(const CallExpr *CE) {
   return calleeType->getCallConv() == CallingConv::CC_SwiftAsync;
 }
 
-void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
-  // Emit the contract expression.
-  const Expr *expr = S.getCond();
-  EmitCXXContractCheck(expr);
-  // TODO(EricWF): This call doesn't reuse the evaluation of the expression
-  // for the check.
-  EmitCXXContractImply(expr);
-}
 
 /// EmitReturnStmt - Note that due to GCC extensions, this can have an operand
 /// if the function returns void, or may be missing one if the function returns

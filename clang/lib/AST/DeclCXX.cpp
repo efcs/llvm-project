@@ -3568,3 +3568,14 @@ const StreamingDiagnostic &clang::operator<<(const StreamingDiagnostic &DB,
                                              AccessSpecifier AS) {
   return DB << getAccessName(AS);
 }
+
+ResultNameDecl *ResultNameDecl::Create(ASTContext &C, DeclContext *DC,
+              SourceLocation IdLoc, IdentifierInfo *Id, QualType T) {
+  return new (C, DC) ResultNameDecl(DC, IdLoc, Id, T);
+}
+
+ResultNameDecl *ResultNameDecl::CreateDeserialized(ASTContext &C, GlobalDeclID ID) {
+  return new (C, ID) ResultNameDecl(nullptr, SourceLocation(), nullptr, QualType());
+}
+
+void ResultNameDecl::anchor() {}

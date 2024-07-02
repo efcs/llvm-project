@@ -2147,6 +2147,8 @@ DEF_TRAVERSE_DECL(BindingDecl, {
     TRY_TO(TraverseStmt(D->getBinding()));
 })
 
+DEF_TRAVERSE_DECL(ResultNameDecl, {})
+
 DEF_TRAVERSE_DECL(MSPropertyDecl, { TRY_TO(TraverseDeclaratorHelper(D)); })
 
 DEF_TRAVERSE_DECL(MSGuidDecl, {})

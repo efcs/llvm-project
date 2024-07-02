@@ -2732,6 +2732,12 @@ public:
   StmtResult ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond);
   StmtResult ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
                                      DeclStmt *ResultNameDecl = nullptr);
+  StmtResult BuildResultNameDecl(DeclContext* DC, SourceLocation Loc, IdentifierInfo *Id, QualType T);
+  void ActOnStartContracts(Scope *S, Declarator& D);
+  StmtResult ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
+                                      SourceLocation IDLoc,
+                                      IdentifierInfo *II);
+
 
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 

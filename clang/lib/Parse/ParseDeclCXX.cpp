@@ -4325,8 +4325,7 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
   return Exceptions.empty() ? EST_DynamicNone : EST_Dynamic;
 }
 /// ParseFunctionContractSpecifierSeq - Parse a series of pre/post contracts on
-/// a
-///     function declaration.
+/// a function declaration.
 ///
 ///   function-contract-specifier-seq :
 ///       function-contract-specifier function-contract-specifier-seq
@@ -4353,6 +4352,57 @@ void Parser::MaybeParseFunctionContractSpecifierSeq(
       DeclaratorInfo.addContract(Contract.getAs<ContractStmt>());
     }
   }
+}
+
+void Parser::MaybeLateParseFunctionContractSpecifierSeq(
+    Declarator &DeclaratorInfo) {
+  ContractKeyword CKK;
+  while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
+    CachedTokens Toks;
+    if (!LateParseFunctionContractSpecifier(DeclaratorInfo, Toks)) {
+      return;
+    }
+
+    DeclaratorInfo.addLateParsedContract(Toks);
+  }
+}
+
+bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens& Toks) {
+  auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
+    switch (isContractSpecifier(Tok)) {
+    case ContractKeyword::Pre:
+      return std::make_pair(ContractKind::Pre, "pre");
+    case ContractKeyword::Post:
+      return std::make_pair(ContractKind::Post, "post");
+    default:
+      llvm_unreachable("unhandled case");
+    }
+  }();
+
+    // Consume and cache the starting token.
+  Token StartTok = Tok;
+  SourceRange ContractRange = SourceRange(ConsumeToken());
+
+    // Check for a '('.
+  if (!Tok.is(tok::l_paren)) {
+      // If this is a bare 'noexcept', we're done.
+
+    Diag(Tok, diag::err_expected_lparen_after) << CKStr;
+    return false;
+  }
+
+    // Cache the tokens for the exception-specification.
+
+  Toks.push_back(StartTok);  // 'throw' or 'noexcept'
+  Toks.push_back(Tok);       // '('
+  ContractRange.setEnd(ConsumeParen()); // '('
+
+  ConsumeAndStoreUntil(tok::r_paren, Toks,
+                         /*StopAtSemi=*/true,
+                         /*ConsumeFinalToken=*/true);
+  ContractRange.setEnd(Toks.back().getLocation());
+  return true;
+
 }
 
 StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
@@ -4383,6 +4433,22 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
     return StmtError();
   }
 
+  ParseScope ParamScope(this, Scope::DeclScope |
+                                  Scope::FunctionDeclarationScope |
+                                  Scope::FunctionPrototypeScope |
+                                  Scope::PostConditionScope);
+
+  std::optional<Sema::CXXThisScopeRAII> ThisScope;
+  InitCXXThisScopeForDeclaratorIfRelevant(DeclaratorInfo, DeclaratorInfo.getDeclSpec(), ThisScope);
+
+  DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
+
+  for (unsigned i = 0; i != FTI.NumParams; ++i) {
+    ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
+    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
+  }
+
+  DeclStmt *ResultNameStmt = nullptr;
   if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
     if (CK != ContractKind::Post) {
       // Only post contracts can have a result name
@@ -4391,22 +4457,34 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
-    (void)Id;
-    (void)IdLoc;
-    // FIXME(ericwf): Actually build the result name introducer
+
+    //ImplicitParamDecl *D = ImplicitParamDecl::Create(Actions.getASTContext(), nullptr, IdLoc, Id, QualType(),
+    //Id, /* Type here*/nullptr,  ImplicitParamDecl::Other);
+   // NamedDecl *ND = NameDecl::Create(Actions.getASTContext(), Id, IdLoc);
+    SourceLocation ColonLoc = ConsumeToken();
+    ((void)ColonLoc);
+
+    auto& DI = DeclaratorInfo;
+    auto &DS = DI.getDeclSpec();
+    DeclSpec RetNameDS(AttrFactory);
+    ParsedAttributes DeclAttrs(AttrFactory);
+
+    assert(DI.isFunctionDeclarator());
+    if (auto DeclRep = DS.getRepAsDecl(); DeclRep != nullptr) {
+      DeclRep->dumpColor();
+      assert(false);
+    }
+    ParsedType ParsedResultType = DS.getRepAsType();
+    ParsedResultType.get().dump();
+
+
+    StmtResult RNStmt = Actions.ActOnResultNameDeclarator(getCurScope(), DeclaratorInfo, IdLoc, Id);
+    if (RNStmt.isUsable())
+        ResultNameStmt = cast<DeclStmt>(RNStmt.get());
   }
 
   SourceLocation Start = Tok.getLocation();
 
-  ParseScope ParamScope(this, Scope::DeclScope |
-                                  Scope::FunctionDeclarationScope |
-                                  Scope::FunctionPrototypeScope);
-
-  DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
-  for (unsigned i = 0; i != FTI.NumParams; ++i) {
-    ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
-    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
-  }
 
   ExprResult Cond = ParseConditionalExpression();
   if (Cond.isUsable()) {
@@ -4425,10 +4503,12 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   if (CK == ContractKind::Pre) {
     return Actions.ActOnPreContractAssert(KeywordLoc, Cond.get());
   } else {
-    return Actions.ActOnPostContractAssert(KeywordLoc, Cond.get());
+    return Actions.ActOnPostContractAssert(KeywordLoc, Cond.get(),
+                                           ResultNameStmt);
   }
 }
 
+/*
 void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
   ConsumeToken();
 
@@ -4452,7 +4532,7 @@ void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
   // As we have to support the "auto f() post (r : r > 42) {...}" case, we cannot parse here
   // the return type is not guaranteed to be known until after the function body parses
 
-  /*
+
       if (Tok.isNot(tok::identifier)) {
         Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
         return;
@@ -4488,7 +4568,7 @@ void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
         return;
       }
       DeclaratorInfo.addContract(Expr.get());
-  */
+
   ExprResult Expr = ParseExpression();
   if (Expr.isInvalid()) {
     Diag(Tok.getLocation(), diag::err_invalid_pcs);
@@ -4502,6 +4582,7 @@ void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
   }
   ConsumeParen();
 }
+*/
 
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style
 /// function declaration.

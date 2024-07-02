@@ -49,8 +49,10 @@
 using namespace clang;
 using namespace sema;
 
-ExprResult Sema::ActOnContractAssertCondition(Expr *Cond) {
-  assert(Cond);
+ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
+  if (Cond->isTypeDependent())
+    return Cond;
+
   ExprResult E = PerformContextuallyConvertToBool(Cond);
   if (E.isInvalid()) {
     return E;
@@ -58,25 +60,21 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond) {
   return ActOnFinishFullExpr(E.get(), /*DiscardedValue=*/false);
 }
 
+
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    Expr *Cond, DeclStmt *ResultNameDecl) {
-  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, ResultNameDecl);
+  ExprResult E = ActOnContractAssertCondition(Cond);
+  if (E.isInvalid())
+    return StmtError();
+
+  return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl);
 }
 
 StmtResult Sema::ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
-  ExprResult CheckedCond = ActOnContractAssertCondition(Cond);
-  if (CheckedCond.isInvalid())
-    return StmtError();
-  Cond = CheckedCond.get();
-  assert(Cond);
   return BuildContractStmt(ContractKind::Assert, KeywordLoc, Cond, nullptr);
 }
 
 StmtResult Sema::ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
-  ExprResult CheckedCond = ActOnContractAssertCondition(Cond);
-  if (CheckedCond.isInvalid())
-    return StmtError();
-  Cond = CheckedCond.get();
 
   return BuildContractStmt(ContractKind::Pre, KeywordLoc, Cond, nullptr);
 }
@@ -86,11 +84,86 @@ StmtResult Sema::ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
   assert(ResultNameDecl == nullptr && "Result name decl not supported yet");
   assert(Cond);
 
-  ExprResult CheckedCond = ActOnContractAssertCondition(Cond);
-  if (CheckedCond.isInvalid())
-    return StmtError();
-  Cond = CheckedCond.get();
-  assert(Cond);
   return BuildContractStmt(ContractKind::Post, KeywordLoc, Cond,
                            ResultNameDecl);
+}
+
+void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
+  if (!D.isFunctionDeclarator())
+    return;
+  auto &FTI = D.getFunctionTypeInfo();
+  if (!FTI.Params)
+    return;
+  for (auto &Param : ArrayRef<DeclaratorChunk::ParamInfo>(FTI.Params,
+                                                          FTI.NumParams)) {
+    auto *ParamDecl = cast<NamedDecl>(Param.Param);
+    if (ParamDecl->getDeclName())
+      PushOnScopeChains(ParamDecl, S, /*AddToContext=*/false);
+  }
+}
+
+
+/// ActOnParamDeclarator - Called from Parser::ParseFunctionDeclarator()
+/// to introduce parameters into function prototype scope.
+StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
+                                      SourceLocation IDLoc,
+                                      IdentifierInfo *II)  {
+  const DeclSpec &DS = FuncDecl.getDeclSpec();
+
+
+  DiagnoseFunctionSpecifiers(DS);
+
+  //CheckFunctionOrTemplateParamDeclarator(S, D);
+
+  TypeSourceInfo *TInfo = GetTypeForDeclarator(FuncDecl);
+  QualType parmDeclType = TInfo->getType();
+
+  // Check for redeclaration of parameters, e.g. int foo(int x, int x);
+  if (II) {
+    LookupResult R(*this, II, IDLoc, LookupOrdinaryName,
+                   RedeclarationKind::ForVisibleRedeclaration); // FIXME(EricWF)
+    LookupName(R, S);
+    if (!R.empty()) {
+      NamedDecl *PrevDecl = *R.begin();
+      if (R.isSingleResult() && PrevDecl->isTemplateParameter()) {
+        // Maybe we will complain about the shadowed template parameter.
+        //DiagnoseTemplateParameterShadow(D.getIdentifierLoc(), PrevDecl);
+        // Just pretend that we didn't see the previous declaration.
+        PrevDecl = nullptr;
+      }
+      // FIXME(EricWF): Diagnose lookup conflicts with lambda captures and parameter declarations.
+      if (auto* PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
+        Diag(IDLoc, diag::err_param_redefinition) << II; // FIXME(EricWF): Change the diagnostic here.
+        Diag(PVD->getLocation(), diag::note_previous_declaration);
+      } else if (auto *CD = dyn_cast<CapturedDecl>(PrevDecl)) {
+        Diag(IDLoc, diag::err_redefinition_different_kind) << II;
+        Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
+      }
+    }
+  }
+
+  // Temporarily put parameter variables in the translation unit, not
+  // the enclosing context.  This prevents them from accidentally
+  // looking like class members in C++.
+  CurContext->dumpDeclContext();
+  ResultNameDecl *New =
+      ResultNameDecl::Create(Context, CurContext,
+                     IDLoc, II, parmDeclType);
+
+  if (FuncDecl.isInvalidType())
+    New->setInvalidDecl();
+
+  //CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
+  assert(S->isPostConditionScope());
+  assert(S->isFunctionPrototypeScope());
+  assert(S->getFunctionPrototypeDepth() >= 1);
+  //New->setScopeInfo(S->getFunctionPrototypeDepth() - 1,
+  //                  S->getNextFunctionPrototypeIndex());
+
+  // Add the parameter declaration into this scope.
+  S->AddDecl(New);
+  if (II)
+    IdResolver.AddDecl(New);
+
+  return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
 }

@@ -2125,7 +2125,9 @@ private:
   StmtResult ParseContractAssertStatement();
   void MaybeParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
   StmtResult ParseFunctionContractSpecifier(Declarator &DeclaratorInfo);
-  void ParsePostContract(Declarator &DeclaratorInfo);
+  void MaybeLateParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
+  bool LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens & ContractToks);
+
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
