@@ -3228,6 +3228,13 @@ def Unavailable : InheritableAttr {
   let MeaningfulToClassTemplateDefinition = 1;
 }
 
+def ContractGroup : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_group">];
+  let Args = [ StringArgument<"Group">];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
 def DiagnoseIf : InheritableAttr {
   // Does not have a [[]] spelling because this attribute requires the ability
   // to parse function arguments but the attribute is not written in the type

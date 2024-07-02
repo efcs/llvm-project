@@ -336,7 +336,11 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   return llvm::DebugLoc();
 }
 
-void CodeGenFunction::EmitCXXContractCheck(const Expr* Expr) {
+
+void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
+  // Emit the contract expression.
+  const Expr *Expr = S.getCond();
+
   llvm::Value *ArgValue = EmitScalarExpr(Expr);
   llvm::BasicBlock *Begin = Builder.GetInsertBlock();
   llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
@@ -374,13 +378,12 @@ void CodeGenFunction::EmitCXXContractCheck(const Expr* Expr) {
   Builder.ClearInsertionPoint();
 
   Builder.SetInsertPoint(End);
-}
 
-void CodeGenFunction::EmitCXXContractImply(const Expr* expr) {
-  llvm::Value *ArgValue = EmitScalarExpr(expr);
+  // FIXME(EricWF): Maybe don't create the assume if the contract check is ignored.
   llvm::Function *FnAssume = CGM.getIntrinsic(llvm::Intrinsic::assume);
   Builder.CreateCall(FnAssume, ArgValue);
 }
+
 
 static void EmitIfUsed(CodeGenFunction &CGF, llvm::BasicBlock *BB) {
   if (!BB) return;

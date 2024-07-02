@@ -2542,7 +2542,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
       // FIXME(EricWF): Is this the correct place?
       MaybeParseFunctionContractSpecifierSeq(D);
-
+      assert(false);
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClause(D);
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
@@ -2565,6 +2565,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     if (!isDeclarationSpecifier(ImplicitTypenameContext::No))
       SkipMalformedDecl();
   }
+  assert(D.getContracts().empty());
 
   return Actions.FinalizeDeclaratorGroup(getCurScope(), DS, DeclsInGroup);
 }
@@ -7163,8 +7164,10 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
         Actions.ActOnStartFunctionDeclarationDeclarator(D,
                                                         TemplateParameterDepth);
       ParseFunctionDeclarator(D, attrs, T, IsAmbiguous);
-      if (IsFunctionDeclaration)
+      if (IsFunctionDeclaration) {
+        assert(D.getContracts().empty());
         Actions.ActOnFinishFunctionDeclarationDeclarator(D);
+      }
       PrototypeScope.Exit();
     } else if (Tok.is(tok::l_square)) {
       ParseBracketDeclarator(D);
@@ -7652,6 +7655,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
                     LocalEndLoc, D, TrailingReturnType, TrailingReturnTypeLoc,
                     &DS),
                 std::move(FnAttrs), EndLoc);
+    assert(D.getContracts().empty());
 }
 
 /// ParseRefQualifier - Parses a member function ref-qualifier. Returns

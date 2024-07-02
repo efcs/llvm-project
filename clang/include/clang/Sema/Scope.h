@@ -162,6 +162,9 @@ public:
 
     /// This is a scope of friend declaration.
     FriendScope = 0x40000000,
+
+    /// The scope introduced by a post condition on a function declaration
+    PostConditionScope = 0x80000000,
   };
 
 private:
@@ -561,6 +564,10 @@ public:
   /// continue statements embedded into it.
   bool isContinueScope() const {
     return getFlags() & ScopeFlags::ContinueScope;
+  }
+
+  bool isPostConditionScope() const {
+    return getFlags() & ScopeFlags::PostConditionScope;
   }
 
   /// Determine whether this scope is a C++ 'try' block.

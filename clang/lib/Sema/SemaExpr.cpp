@@ -3406,6 +3406,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     }
     [[fallthrough]];
 
+
   case Decl::ImplicitParam:
   case Decl::ParmVar: {
     // These are always l-values.
@@ -3423,6 +3424,11 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
     break;
   }
+
+  case Decl::ResultName: // FIXME(EricWF): Is this even close to correct?
+    valueKind = VK_LValue;
+    type = type.getNonReferenceType();
+    break;
 
   case Decl::Binding:
     // These are always lvalues.

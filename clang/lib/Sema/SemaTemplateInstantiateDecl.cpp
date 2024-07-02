@@ -2901,6 +2901,10 @@ Decl *TemplateDeclInstantiator::VisitCXXConversionDecl(CXXConversionDecl *D) {
   return VisitCXXMethodDecl(D);
 }
 
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+    llvm_unreachable("Shouldnt be instantiated");
+}
+
 Decl *TemplateDeclInstantiator::VisitParmVarDecl(ParmVarDecl *D) {
   return SemaRef.SubstParmVarDecl(D, TemplateArgs, /*indexAdjustment*/ 0,
                                   std::nullopt,
