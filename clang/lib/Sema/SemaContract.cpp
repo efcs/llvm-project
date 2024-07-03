@@ -81,9 +81,8 @@ StmtResult Sema::ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
 
 StmtResult Sema::ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
                                          DeclStmt *ResultNameDecl) {
-  assert(ResultNameDecl == nullptr && "Result name decl not supported yet");
-  assert(Cond);
 
+  assert(Cond);
   return BuildContractStmt(ContractKind::Post, KeywordLoc, Cond,
                            ResultNameDecl);
 }
@@ -103,20 +102,32 @@ void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
 }
 
 
-/// ActOnParamDeclarator - Called from Parser::ParseFunctionDeclarator()
+/// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
 /// to introduce parameters into function prototype scope.
 StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
                                       SourceLocation IDLoc,
                                       IdentifierInfo *II)  {
-  const DeclSpec &DS = FuncDecl.getDeclSpec();
-
-
-  DiagnoseFunctionSpecifiers(DS);
-
+  assert(S && S->isPostConditionScope() && "Invalid scope for result name");
+  assert(II && "ResultName requires an identifier");
   //CheckFunctionOrTemplateParamDeclarator(S, D);
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(FuncDecl);
-  QualType parmDeclType = TInfo->getType();
+  assert(TInfo && "no type from declarator in ActOnParamDeclarator");
+  QualType FuncType = TInfo->getType();
+  assert(FuncType->isFunctionType());
+  auto *FT = FuncType->getAs<FunctionType>();
+  assert(FT && "FunctionType is null");
+  QualType RetType = FT->getReturnType();
+
+  if (RetType->isVoidType())  {
+    Diag(IDLoc, diag::err_void_result_name) << II;
+    return StmtError();
+  }
+
+  if (RetType->isUndeducedAutoType()) {
+    Diag(IDLoc, diag::err_ericwf_unimplemented) << "Undeduced Auto Result Name";
+  }
+
 
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   if (II) {
@@ -133,11 +144,13 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
       }
       // FIXME(EricWF): Diagnose lookup conflicts with lambda captures and parameter declarations.
       if (auto* PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_param_redefinition) << II; // FIXME(EricWF): Change the diagnostic here.
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II; // FIXME(EricWF): Change the diagnostic here.
         Diag(PVD->getLocation(), diag::note_previous_declaration);
       } else if (auto *CD = dyn_cast<CapturedDecl>(PrevDecl)) {
         Diag(IDLoc, diag::err_redefinition_different_kind) << II;
         Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
+      } else {
+        Diag(IDLoc, diag::err_ericwf_fixme) << "Add A Diagnostic Here";
       }
     }
   }
@@ -145,10 +158,9 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
   // Temporarily put parameter variables in the translation unit, not
   // the enclosing context.  This prevents them from accidentally
   // looking like class members in C++.
-  CurContext->dumpDeclContext();
-  ResultNameDecl *New =
-      ResultNameDecl::Create(Context, CurContext,
-                     IDLoc, II, parmDeclType);
+
+  auto *New = ResultNameDecl::Create(Context, CurContext,
+                     IDLoc, II, RetType);
 
   if (FuncDecl.isInvalidType())
     New->setInvalidDecl();
@@ -162,8 +174,7 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
 
   // Add the parameter declaration into this scope.
   S->AddDecl(New);
-  if (II)
-    IdResolver.AddDecl(New);
+  IdResolver.AddDecl(New);
 
   return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
 }

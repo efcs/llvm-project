@@ -1103,6 +1103,7 @@ bool Decl::AccessDeclContextCheck() const {
       // FIXME: a ParmVarDecl can have ClassTemplateSpecialization
       // as DeclContext (?).
       isa<ParmVarDecl>(this) ||
+      isa<ResultNameDecl>(this) ||
       // FIXME: a ClassTemplateSpecialization or CXXRecordDecl can have
       // AS_none as access specifier.
       isa<CXXRecordDecl>(this) || isa<LifetimeExtendedTemporaryDecl>(this))

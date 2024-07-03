@@ -22,6 +22,7 @@
 namespace clang {
 
 class VarDecl;
+class ResultNameDecl;
 
 /// CXXCatchStmt - This represents a C++ catch block.
 ///
@@ -574,12 +575,14 @@ public:
 
   bool hasResultNameDecl() const { return ContractAssertBits.HasResultName; }
 
-  DeclStmt *getResultNameDecl() const {
+  DeclStmt *getResultNameDeclStmt() const {
     return hasResultNameDecl()
                ? static_cast<DeclStmt *>(
                      getTrailingObjects<Stmt *>()[ResultNameDeclOffset])
                : nullptr;
   }
+
+  ResultNameDecl *getResultNameDecl() const;
 
   void setResultNameDecl(DeclStmt *D) {
     assert(hasResultNameDecl() && "no result name decl");

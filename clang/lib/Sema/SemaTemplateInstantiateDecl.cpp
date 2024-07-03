@@ -5201,6 +5201,20 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
           InstantiateDefaultCtorDefaultArgs(Ctor);
         }
       }
+      // If the function has contracts, instantiate them now
+      SmallVector<ContractStmt*> Contracts = Function->getContracts();
+      if (!Contracts.empty()) {
+        SmallVector<ContractStmt*> NewContracts;
+        for (auto *C : Contracts) {
+          StmtResult NewStmt = SubstStmt(C, TemplateArgs);
+          if (NewStmt.isInvalid()) {
+            Function->setInvalidDecl();
+          } else {
+            NewContracts.push_back(NewStmt.getAs<ContractStmt>());
+          }
+        }
+        Function->setContracts(NewContracts);
+      }
 
       // Instantiate the function body.
       Body = SubstStmt(Pattern, TemplateArgs);

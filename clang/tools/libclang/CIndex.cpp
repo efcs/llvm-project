@@ -7017,6 +7017,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::LifetimeExtendedTemporary:
   case Decl::RequiresExprBody:
   case Decl::UnresolvedUsingIfExists:
+  case Decl::ResultName:
     return C;
 
   // Declaration kinds that don't make any sense here, but are

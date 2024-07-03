@@ -2390,6 +2390,7 @@ public:
 
 public:
   StmtResult ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond);
+
   StmtResult ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond);
   StmtResult ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
                                      DeclStmt *ResultNameDecl = nullptr);
