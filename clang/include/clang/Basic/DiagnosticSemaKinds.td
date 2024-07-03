@@ -11879,6 +11879,28 @@ def err_coroutine_return_type : Error<
 >;
 } // end of coroutines issue category
 
+let CategoryName = "Contract Issue" in {
+def err_ericwf_unimplemented : Error<
+  "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
+>;
+def warn_ericwf_unimplemented : Warning<
+  "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
+>;
+
+def err_ericwf_fixme : Error<
+  "woops... FIXME(EricWF): %0"
+>;
+def warn_ericwf_fixme : Warning<
+  "woops... FIXME(EricWF): %0"
+>;
+def err_result_name_shadows_param : Error<
+  "declaration of result name %0 shadows parameter">;
+def err_void_result_name : Error<
+  "result name %0 cannot be used with a void return type">;
+def err_deduced_auto_result_name_without_body : Error<
+  "result name on function with deduced return type requires a body">;
+
+} // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;

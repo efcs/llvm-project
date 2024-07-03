@@ -11,7 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/StmtCXX.h"
-
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/ASTContext.h"
 
 using namespace clang;
@@ -145,4 +145,10 @@ ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
   if (ResultNameDecl)
     S->setResultNameDecl(ResultNameDecl);
   return S;
+}
+
+ResultNameDecl *ContractStmt::getResultNameDecl() const {
+  DeclStmt* D = getResultNameDeclStmt();
+  assert(D);
+  return cast<ResultNameDecl>(D->getSingleDecl());
 }

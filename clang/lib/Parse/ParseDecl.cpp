@@ -2593,7 +2593,6 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     if (!isDeclarationSpecifier(ImplicitTypenameContext::No))
       SkipMalformedDecl();
   }
-  assert(D.getContracts().empty());
 
   return Actions.FinalizeDeclaratorGroup(getCurScope(), DS, DeclsInGroup);
 }
@@ -7192,6 +7191,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
         Actions.ActOnStartFunctionDeclarationDeclarator(D,
                                                         TemplateParameterDepth);
       ParseFunctionDeclarator(D, attrs, T, IsAmbiguous);
+      assert(D.getContracts().empty());
       if (IsFunctionDeclaration) {
         assert(D.getContracts().empty());
         Actions.ActOnFinishFunctionDeclarationDeclarator(D);

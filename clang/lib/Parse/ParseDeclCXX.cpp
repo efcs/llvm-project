@@ -4404,6 +4404,7 @@ bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, Cach
   return true;
 
 }
+#pragma clang diagnostic ignored "-Wunused-variable"
 
 StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
@@ -4434,7 +4435,7 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   }
 
   ParseScope ParamScope(this, Scope::DeclScope |
-                                  Scope::FunctionDeclarationScope |
+                                 // Scope::FunctionDeclarationScope |
                                   Scope::FunctionPrototypeScope |
                                   Scope::PostConditionScope);
 
@@ -4458,35 +4459,19 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
 
-    //ImplicitParamDecl *D = ImplicitParamDecl::Create(Actions.getASTContext(), nullptr, IdLoc, Id, QualType(),
-    //Id, /* Type here*/nullptr,  ImplicitParamDecl::Other);
-   // NamedDecl *ND = NameDecl::Create(Actions.getASTContext(), Id, IdLoc);
     SourceLocation ColonLoc = ConsumeToken();
     ((void)ColonLoc);
-
-    auto& DI = DeclaratorInfo;
-    auto &DS = DI.getDeclSpec();
-    DeclSpec RetNameDS(AttrFactory);
-    ParsedAttributes DeclAttrs(AttrFactory);
-
-    assert(DI.isFunctionDeclarator());
-    if (auto DeclRep = DS.getRepAsDecl(); DeclRep != nullptr) {
-      DeclRep->dumpColor();
-      assert(false);
-    }
-    ParsedType ParsedResultType = DS.getRepAsType();
-    ParsedResultType.get().dump();
-
 
     StmtResult RNStmt = Actions.ActOnResultNameDeclarator(getCurScope(), DeclaratorInfo, IdLoc, Id);
     if (RNStmt.isUsable())
         ResultNameStmt = cast<DeclStmt>(RNStmt.get());
+    else
+      return StmtError();
   }
 
   SourceLocation Start = Tok.getLocation();
-
-
   ExprResult Cond = ParseConditionalExpression();
+
   if (Cond.isUsable()) {
     Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
                                              /*RecoverUncorrectedTypos=*/true);
@@ -4507,82 +4492,6 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
                                            ResultNameStmt);
   }
 }
-
-/*
-void Parser::ParsePostContract(Declarator &DeclaratorInfo) {
-  ConsumeToken();
-
-  ParseScope ParamScope(this, Scope::DeclScope | 
-                                  Scope::FunctionDeclarationScope |
-                                  Scope::FunctionPrototypeScope);
-
-  DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
-  for (unsigned i = 0; i != FTI.NumParams; ++i) {
-    ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
-    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
-  }
-
-  if (Tok.isNot(tok::l_paren)) {
-    Diag(Tok.getLocation(), diag::err_expected) << tok::l_paren;
-    return;
-  }
-  ConsumeParen();
-
-  // Post contracts start with <identifier> colon <expression>
-  // As we have to support the "auto f() post (r : r > 42) {...}" case, we cannot parse here
-  // the return type is not guaranteed to be known until after the function body parses
-
-
-      if (Tok.isNot(tok::identifier)) {
-        Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
-        return;
-      }
-
-      ParsingDeclSpec DS(*this);
-
-      ParsedTemplateInfo TemplateInfo;
-      DeclSpecContext DSContext =
-     getDeclSpecContextFromDeclaratorContext(DeclaratorContext::Block);
-      ParseDeclarationSpecifiers(DS, TemplateInfo, AS_none, DSContext);
-
-      ParsedAttributes LocalAttrs(AttrFactory);
-      ParsingDeclarator D(*this, DS, LocalAttrs, DeclaratorContext::Block);
-
-      D.setObjectType(getAsFunction().getReturnType());
-      IdentifierInfo *Id = Tok.getIdentifierInfo();
-      SourceLocation IdLoc = ConsumeToken();
-      D.setIdentifier(Id, IdLoc);
-
-      Decl* ThisDecl = Actions.ActOnDeclarator(getCurScope(), D);
-      Actions.ActOnUninitializedDecl(ThisDecl);
-      Actions.FinalizeDeclaration(ThisDecl);
-      D.complete(ThisDecl);
-      if (Tok.isNot(tok::colon)) {
-        Diag(Tok.getLocation(), diag::err_expected) << tok::colon;
-        return;
-      }
-
-      ExprResult Expr = ParseExpression();
-      if (Expr.isInvalid()) {
-        Diag(Tok.getLocation(), diag::err_invalid_pcs);
-        return;
-      }
-      DeclaratorInfo.addContract(Expr.get());
-
-  ExprResult Expr = ParseExpression();
-  if (Expr.isInvalid()) {
-    Diag(Tok.getLocation(), diag::err_invalid_pcs);
-    return;
-  }
-  // DeclaratorInfo.addContract(Expr.get());
-
-  if (Tok.isNot(tok::r_paren)) {
-    Diag(Tok.getLocation(), diag::err_expected) << tok::r_paren;
-    return;
-  }
-  ConsumeParen();
-}
-*/
 
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style
 /// function declaration.

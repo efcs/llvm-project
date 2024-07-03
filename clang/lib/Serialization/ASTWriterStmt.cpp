@@ -477,7 +477,7 @@ void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
   Record.AddSourceLocation(S->getKeywordLoc());
   Record.AddStmt(S->getCond());
   if (S->hasResultNameDecl())
-    Record.AddStmt(S->getResultNameDecl());
+    Record.AddStmt(S->getResultNameDeclStmt());
 
   Code = serialization::STMT_CXX_CONTRACT;
 }
