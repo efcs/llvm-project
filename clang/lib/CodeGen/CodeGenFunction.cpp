@@ -35,6 +35,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/DataLayout.h"
@@ -48,6 +49,7 @@
 #include "llvm/Support/xxhash.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "clang/Lex/Lexer.h"
 #include <optional>
 
 using namespace clang;
@@ -337,6 +339,79 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
 }
 
 
+
+void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
+    ContractViolationDetection ViolationDetectionMode) {
+  auto &SM = getContext().getSourceManager();
+  auto &Ctx = getContext();
+
+  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc() : S.getCond()->getBeginLoc();
+  auto End = S.getCond()->getEndLoc();
+  CharSourceRange ExprRange = Lexer::getAsCharRange(SourceRange(Begin, End), SM, Ctx.getLangOpts());
+  std::string AssertStr = Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
+  // FIXME(EricWF): We don't track the closing parenthesis in the source range.
+
+
+  unsigned ContractKindValue = [&]() {
+    switch (S.getContractKind()) {
+        case ContractKind::Pre:
+          return 1;
+        case ContractKind::Post:
+          return 2;
+        case ContractKind::Assert:
+          return 3;
+    }
+    llvm_unreachable("unhandled ContractKind");
+  }();
+
+
+  unsigned EvalSemantic = [&]() -> unsigned{
+    using EST = LangOptions::ContractEvaluationSemantic;
+    switch (getLangOpts().ContractEvalSemantic) {
+    case EST::Ignore:
+      assert(false && "unimplemented");
+    case EST::Enforce:
+      return 1;
+    case EST::Observe:
+      return 2;
+    case EST::QuickEnforce:
+      assert(false && "unimplemented");
+    }
+    llvm_unreachable("unhandled ContractEvaluationSemantic");
+  }();
+
+  unsigned DetectionMode = static_cast<unsigned>(ViolationDetectionMode);
+
+  const SourceLocation Location = S.getCond()->getBeginLoc();
+
+  std::string Filename = [&]() -> std::string  {
+    PresumedLoc PLoc = SM.getPresumedLoc(Location);
+    return PLoc.getFilename();
+  }();
+
+  auto UnsignedTy = getContext().UnsignedIntTy;
+  auto VoidPtrTy = getContext().VoidPtrTy;
+  std::pair<llvm::Constant *, QualType> Constants[] = {
+      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy},
+      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy},
+      {llvm::ConstantInt::get(Int32Ty, DetectionMode), UnsignedTy},
+      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy},
+      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy},
+      {CGM.EmitAnnotationLineNo(Location), UnsignedTy}
+  };
+
+  CallArgList Args;
+  for (auto [Const, Ty] : Constants) {
+    Args.add(RValue::get(Const), Ty);
+  }
+
+  const CGFunctionInfo &VFuncInfo = CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
+  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
+  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation");
+
+  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+}
+
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   // Emit the contract expression.
   const Expr *Expr = S.getCond();
@@ -351,25 +426,8 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
   Builder.SetInsertPoint(Violation);
 
-/*
-  SourceRange range = Expr->getSourceRange();
-  PresumedLoc PLoc = Ctx.getSourceManager().getPresumedLoc(range->getBegin());
-  clang::StringLiteral* Filename = PLoc->getFilename();
-  llvm::Value* LineNo = PLoc->getLine();
-  clang::StringLiteral* ExpressionText = range.print(os, Ctx.getSourceManager());
-*/
-  const char *VLibCallName = "_ZNSt9contracts41invoke_default_contract_"
-                             "violation_handlerEv"; // void(void)
-  CallArgList Args;
-/*
-  Args.add(EmitLoadOfLValue(EmitStringLiteralLValue(Filename), Expr->getExprLoc()), getContext().VoidPtrTy);
-  Args.add(RValue::get(LineNo), getContext().getSizeType());
-  Args.add(EmitLoadOfLValue(EmitStringLiteralLValue(ExpressionText), Expr->getExprLoc()), getContext().VoidPtrTy);
-*/
-  const CGFunctionInfo &VFuncInfo = CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, {});
-  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, VLibCallName);
-  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+  EmitHandleContractViolationCall(S, ContractViolationDetection::PredicateFailed);
+
 
   llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
   TrapCall->setDoesNotReturn();

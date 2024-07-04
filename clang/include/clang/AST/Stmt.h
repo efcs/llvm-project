@@ -709,7 +709,7 @@ protected:
     /// The kind of source location builtin represented by the SourceLocExpr.
     /// Ex. __builtin_LINE, __builtin_FUNCTION, etc.
     LLVM_PREFERRED_TYPE(SourceLocIdentKind)
-    unsigned Kind : 3;
+    unsigned Kind : 4;
   };
 
   class StmtExprBitfields {

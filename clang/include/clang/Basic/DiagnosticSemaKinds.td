@@ -11823,6 +11823,9 @@ def err_coroutine_return_type : Error<
 >;
 } // end of coroutines issue category
 
+def select_contract_kind : TextSubstitution<
+  "%select{pre|post|contract_assert}0">;
+
 let CategoryName = "Contract Issue" in {
 def err_ericwf_unimplemented : Error<
   "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
@@ -11843,6 +11846,8 @@ def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
 def err_deduced_auto_result_name_without_body : Error<
   "result name on function with deduced return type requires a body">;
+def err_result_name_not_allowed : Error<
+  "result name %0 not allowed outside of post condition specifier">;
 
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {

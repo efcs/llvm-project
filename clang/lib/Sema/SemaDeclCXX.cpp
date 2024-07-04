@@ -10796,6 +10796,7 @@ void Sema::ActOnFinishDelayedCXXMethodDeclaration(Scope *S, Decl *MethodD) {
   AdjustDeclIfTemplate(MethodD);
 
   FunctionDecl *Method = cast<FunctionDecl>(MethodD);
+  assert(Method->getContracts().empty());
 
   // Now that we have our default arguments, check the constructor
   // again. It could produce additional diagnostics or affect whether

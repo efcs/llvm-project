@@ -7793,6 +7793,9 @@ static Decl *getPredefinedDecl(ASTContext &Context, PredefinedDeclIDs ID) {
 
   case PREDEF_DECL_TYPE_PACK_ELEMENT_ID:
     return Context.getTypePackElementDecl();
+
+  case PREDEF_DECL_BUILTIN_SOURCE_LOCATION_IMPL_T_ID:
+    return Context.getBuiltinSourceLocImplRecord();
   }
   llvm_unreachable("PredefinedDeclIDs unknown enum value");
 }

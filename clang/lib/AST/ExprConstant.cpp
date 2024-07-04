@@ -549,6 +549,11 @@ namespace {
     /// initializer expression we're evaluating, if any.
     CurrentSourceLocExprScope CurSourceLocExprScope;
 
+    /// The return value of the function call used as the value of a ResultNameDecl
+    /// in a post contract assert.
+    const APValue *ReturnValue = nullptr;
+    const LValue *ReturnValueSlot = nullptr;
+
     // Note that we intentionally use std::map here so that references to
     // values are stable.
     typedef std::pair<const void *, unsigned> MapKeyTy;
@@ -1067,6 +1072,23 @@ namespace {
         return false;
       }
       return true;
+    }
+
+    std::pair<CallStackFrame *, unsigned>
+    tryGetReturnValue() {
+      // We will eventually hit BottomFrame, which has Index 1, so Frame can't
+      // be null in this loop.
+      unsigned Depth = CallStackDepth;
+      CallStackFrame *Frame = CurrentCall;
+      while (Frame) {
+        if (Frame->ReturnValue)
+          break;
+        Frame = Frame->Caller;
+        --Depth;
+      }
+      if (Frame)
+        return {Frame, Depth};
+      return {nullptr, 0};
     }
 
     std::pair<CallStackFrame *, unsigned>
@@ -4977,6 +4999,10 @@ static bool EvaluateDecl(EvalInfo &Info, const Decl *D) {
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     OK &= EvaluateVarDecl(Info, VD);
 
+  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D)) {
+    assert(false);
+  }
+
   if (const DecompositionDecl *DD = dyn_cast<DecompositionDecl>(D))
     for (auto *BD : DD->bindings())
       if (auto *VD = BD->getHoldingVar())
@@ -5016,6 +5042,8 @@ struct StmtResult {
   /// The location containing the result, if any (used to support RVO).
   const LValue *Slot;
 };
+
+
 
 struct TempVersionRAII {
   CallStackFrame &Frame;
@@ -6317,7 +6345,29 @@ static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
   return true;
 }
 
-static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info) {
+struct ReturnValueRAIIGuard {
+    CallStackFrame *Frame;
+    ReturnValueRAIIGuard(CallStackFrame *F, StmtResult *Result)
+      : Frame(F) {
+        assert(Result);
+        assert(Frame && !Frame->ReturnValue && "Already have a return value");
+        Frame->ReturnValue = &Result->Value;
+        Frame->ReturnValueSlot = Result->Slot;
+      }
+    ~ReturnValueRAIIGuard() {
+        assert(Frame->ReturnValue);
+        Frame->ReturnValue = nullptr;
+        Frame->ReturnValueSlot = nullptr;
+    }
+
+};
+
+static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info, StmtResult& Ret, CallStackFrame& Frame) {
+  assert(Info.CurrentCall);
+  assert(&Frame == Info.CurrentCall && "Mismatched call stack frame");
+
+  ReturnValueRAIIGuard Guard(&Frame, &Ret);
+  assert(Info.CurrentCall->ReturnValue);
   for (ContractStmt *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
       continue;
@@ -6377,15 +6427,15 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
-  if (!EvaluatePostContracts(Callee, Info))
-    return false;
 
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return true;
+      return EvaluatePostContracts(Callee, Info, Ret, Frame);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
-  return ESR == ESR_Returned;
+  if (ESR == ESR_Returned)
+    return EvaluatePostContracts(Callee, Info, Ret, Frame);
+  return false;
 }
 
 /// Evaluate a constructor call.
@@ -8512,6 +8562,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E);
   bool VisitDeclRefExpr(const DeclRefExpr *E);
+  bool VisitResultNameDecl(const ResultNameDecl *E);
   bool VisitPredefinedExpr(const PredefinedExpr *E) { return Success(E); }
   bool VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
@@ -8625,6 +8676,23 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   if (isa<FunctionDecl, MSGuidDecl, TemplateParamObjectDecl,
           UnnamedGlobalConstantDecl>(D))
     return Success(cast<ValueDecl>(D));
+  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D)) {
+    if (Info.checkingPotentialConstantExpression())
+      return false;
+    auto [Frame, Index] = Info.tryGetReturnValue();
+    if (!Frame)
+      return Error(E);
+
+    assert(Frame->ReturnValue &&
+           "ResultNameDecl without a return value");
+    Frame->ReturnValue->dump();
+    llvm::errs().flush();
+
+    assert(Frame->ReturnValue->isLValue() &&
+           "ResultNameDecl with a non-lvalue return value");
+
+    return Success(Frame->ReturnValue->getLValueBase());
+  }
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     return VisitVarDecl(E, VD);
   if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
@@ -8632,6 +8700,24 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   return Error(E);
 }
 
+bool LValueExprEvaluator::VisitResultNameDecl(const ResultNameDecl *E) {
+  E->dumpColor();
+  assert(false);
+  if (Info.checkingPotentialConstantExpression())
+    return false;
+  auto [Frame, Index] = Info.tryGetReturnValue();
+  assert(Frame);
+
+  assert(Frame->ReturnValue &&
+         "ResultNameDecl without a return value");
+  Frame->ReturnValue->dump();
+  llvm::errs().flush();
+
+  assert(Frame->ReturnValue->isLValue() &&
+         "ResultNameDecl with a non-lvalue return value");
+
+  return Success(Frame->ReturnValue->getLValueBase());
+}
 
 bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
 

@@ -1662,27 +1662,27 @@ def offload_EQ : CommaJoined<["--"], "offload=">, Flags<[NoXarchOption]>,
   HelpText<"Specify comma-separated list of offloading target triples (CUDA and HIP only)">;
 
 // C++ Contracts
-defm fcontracts : BoolFOption<"contracts",
+defm contracts : BoolFOption<"contracts",
   LangOpts<"Contracts">, DefaultFalse,
-  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+  PosFlag<SetTrue, [], [ClangOption, CC1Option, CLOption],
           "Enable support for C++ Contracts">,
   NegFlag<SetFalse>>;
 
-def fcontracts_eval_mode : Joined<["-"], "fcontracts_evaluation=">,
-  HelpText<"Specify contract evaluation mode. The default value is 'ignore'.">,
-  Values<"0,1,2">,
-  Visibility<[ClangOption, CC1Option]>,
-  NormalizedValuesScope<"LangOptions::ContractEvalMode">,
-  NormalizedValues<["Ignore", "Observe", "Enforce"]>,
-  MarshallingInfoEnum<LangOpts<"ContractEvaluation">, "Ignore">;
 
-def fcontracts_impl_strategy : Joined<["-"], "fcontracts_strategy=">,
-  HelpText<"Specify contract implementation strategy. The default value is 'callee'.">,
-  Values<"0,1,2">,
+def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-semantic=">,
+  HelpText<"Specify contract evaluation semantic. The default value is 'enforce'.">,
+  Values<"ignore,enforce,observe,quick_enforce">,
   Visibility<[ClangOption, CC1Option]>,
-  NormalizedValuesScope<"LangOptions::ContractImplStrategy">,
-  NormalizedValues<["Callee", "Both", "Split"]>,
-  MarshallingInfoEnum<LangOpts<"ContractStrategy">, "Callee">;
+  NormalizedValuesScope<"LangOptions::ContractEvaluationSemantic">,
+  NormalizedValues<["Ignore", "Enforce", "Observe", "QuickEnforce"]>,
+  MarshallingInfoEnum<LangOpts<"ContractEvalSemantic">, "Enforce">;
+
+def fclang_contract_groups_EQ : CommaJoined<["-"], "fcontract-groups=">,
+  Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Clang extension. Enable or disable contracts by group. The argument is a comma-separated "
+           "sequence of one or more group names, each prefixed by '+' or '-'.">,
+  MarshallingInfoStringVector<LangOpts<"ClangContractGroups">>;
+
 
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",

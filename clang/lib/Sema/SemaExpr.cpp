@@ -3267,6 +3267,21 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
                                                         SourceLocation loc,
                                                         ValueDecl *var);
 
+/// [basic.contract.general]
+/// Within the predicate of a contract assertion, id-expressions referring to variables
+/// with automatic storage duration are const ([expr.prim.id.unqual])
+static bool shouldAdjustTypeForContractConstification(Sema &S, const ValueDecl *VD) {
+
+  if (!S.getCurScope()->isContractAssertScope())
+    return false;
+
+  if (auto Var = dyn_cast<VarDecl>(VD)) {
+    return Var->isLocalVarDeclOrParm();
+  }
+
+  return false;
+}
+
 /// Complete semantic analysis for a reference to the given declaration.
 ExprResult Sema::BuildDeclarationNameExpr(
     const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
@@ -3420,6 +3435,10 @@ ExprResult Sema::BuildDeclarationNameExpr(
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
+      else {
+        if (shouldAdjustTypeForContractConstification(*this, VD))
+          type = type.withConst();
+      }
     }
 
     break;
@@ -3427,7 +3446,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
   case Decl::ResultName: // FIXME(EricWF): Is this even close to correct?
     valueKind = VK_LValue;
-    type = type.getNonReferenceType();
+    type = type.getNonReferenceType().withConst();
     break;
 
   case Decl::Binding:
@@ -16672,7 +16691,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
   case SourceLocIdentKind::Column:
     ResultTy = Context.UnsignedIntTy;
     break;
-  case SourceLocIdentKind::SourceLocStruct:
+  case SourceLocIdentKind::SourceLocStruct: {
     if (!StdSourceLocationImplDecl) {
       StdSourceLocationImplDecl =
           LookupStdSourceLocationImpl(*this, BuiltinLoc);
@@ -16681,6 +16700,11 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
     }
     ResultTy = Context.getPointerType(
         Context.getRecordType(StdSourceLocationImplDecl).withConst());
+    break;
+  }
+  case SourceLocIdentKind::BuiltinSourceLocStruct:
+    ResultTy = Context.getPointerType(
+        Context.getRecordType(cast<RecordDecl>(Context.getBuiltinSourceLocImplRecord())).withConst());
     break;
   }
 
@@ -19466,7 +19490,7 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
 ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
   // Check whether the operand is or contains an object of non-trivial C union
-  // type.
+  // type.f
   if (E->getType().isVolatileQualified() &&
       (E->getType().hasNonTrivialToPrimitiveDestructCUnion() ||
        E->getType().hasNonTrivialToPrimitiveCopyCUnion()))

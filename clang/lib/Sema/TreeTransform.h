@@ -8537,6 +8537,7 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
 
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
   ExprResult OperandResult = getDerived().TransformExpr(S->getCond());
   if (OperandResult.isInvalid())
     return StmtError();

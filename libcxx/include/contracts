@@ -9,8 +9,8 @@ namespace std::contracts {
 
 enum class assertion_kind : unsigned char {
   __unknown = 0,
-  prec = 1,
-  postc = 2,
+  pre = 1,
+  post = 2,
   assert = 3
 };
 using _AssertKind = assertion_kind;
@@ -35,33 +35,49 @@ public:
   // cannot be assigned to
   contract_violation& operator=(const contract_violation&) = delete;
   ~contract_violation() = default;
-  const char* comment() const noexcept { return __comment_; }
+  const char* comment() const noexcept { return __info_.__comment_; }
 
-  _DetectionMode detection_mode() const noexcept { return __detection_mode_; }
-  assertion_kind kind() const noexcept { return __kind_; }
-  source_location location() const noexcept { return __location_; }
-  evaluation_semantic semantic() const noexcept { return __semantic_;}
+  _DetectionMode detection_mode() const noexcept { return __info_.__detection_mode_; }
+  assertion_kind kind() const noexcept { return __info_.__kind_; }
+  const char* file_name() const noexcept { return __info_.__file_name_; }
+  unsigned line() const noexcept { return __info_.__line_; }
+
+  evaluation_semantic semantic() const noexcept { return __info_.__semantic_;}
 
 
-  contract_violation(_DetectionMode __dm = _DetectionMode::__unknown, _AssertKind __k = _AssertKind::__unknown, _EvaluationSemantic __es = _EvaluationSemantic::__unknown, const char* __c = nullptr,
-    source_location __loc = std::source_location::current()) noexcept
-    : __detection_mode_(__dm), __kind_(__k), __semantic_(__es), __comment_(__c), __location_(__loc) {}
+    struct _Info {
+        _AssertKind __kind_;
+        _EvaluationSemantic __semantic_;
+        _DetectionMode __detection_mode_;
 
-    _DetectionMode __detection_mode_;
-    _AssertKind __kind_;
-    _EvaluationSemantic __semantic_;
-    const char* __comment_;
-    source_location __location_;
+        const char* __comment_;
+        const char* __file_name_;
+        const char* __function_name_;
+        unsigned __line_;
+    };
+
+  contract_violation(_Info __info) noexcept
+      : __info_(__info) {}
+
+
+  _Info __info_;
 };
 
 
 
 _LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler(const contract_violation&) noexcept;
 
-_LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler();
 
 } // namespace std::contracts
 
 _LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&) noexcept;
+
+
+extern "C" {
+_LIBCPP_EXPORTED_FROM_ABI
+void __handle_contract_violation(unsigned kind, unsigned eval_semantic,
+unsigned detection_mode, const char* comment, const char* file, unsigned line);
+}
+
 
 #endif // _LIBCPP_CONTRACTS
