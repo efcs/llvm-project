@@ -4399,12 +4399,15 @@ const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                       AccessSpecifier AS);
                                       
 
+class MaterializedResultNameDecl;
+
 /// A result name introduces in a post condition. For instance, given:
 ///
 ///   int foo() post(r : r > 0);
 ///
 /// Where `r` refers to the value returned by the function
 class ResultNameDecl : public ValueDecl {
+  MaterializedResultNameDecl *MaterializedDecl = nullptr;
 
   ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id, QualType T)
       : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T) {}
@@ -4422,10 +4425,59 @@ public:
   using ValueDecl::getDeclName;
   using ValueDecl::setType;
 
+  void setMaterializedResultNameDecl(MaterializedResultNameDecl *D) {
+
+  }
+
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
 };
 
+/*
+class MaterializedResultNameDecl final
+    : public VarDecl,
+      private llvm::TrailingObjects<MaterializedResultNameDecl, ResultNameDecl *> {
+  /// The number of BindingDecl*s following this object.
+  unsigned NumBindings;
+
+  MaterializedResultNameDecl(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
+                    SourceLocation LSquareLoc, QualType T,
+                    TypeSourceInfo *TInfo, StorageClass SC,
+                    ArrayRef<ResultNameDecl *> Bindings)
+      : VarDecl(Decomposition, C, DC, StartLoc, LSquareLoc, nullptr, T, TInfo,
+                SC),
+        NumBindings(Bindings.size()) {
+    std::uninitialized_copy(Bindings.begin(), Bindings.end(),
+                            getTrailingObjects<ResultNameDecl *>());
+    for (auto *B : Bindings)
+      B->setDecomposedDecl(this);
+  }
+
+  void anchor() override;
+
+public:
+  friend class ASTDeclReader;
+  friend TrailingObjects;
+
+  static MaterializedResultNameDecl *Create(ASTContext &C, DeclContext *DC,
+                                   SourceLocation StartLoc,
+                                   SourceLocation LSquareLoc,
+                                   QualType T, TypeSourceInfo *TInfo,
+                                   StorageClass S,
+                                   ArrayRef<BindingDecl *> Bindings);
+  static MaterializedResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID,
+                                               unsigned NumBindings);
+
+  ArrayRef<BindingDecl *> bindings() const {
+    return llvm::ArrayRef(getTrailingObjects<BindingDecl *>(), NumBindings);
+  }
+
+  void printName(raw_ostream &OS, const PrintingPolicy &Policy) const override;
+
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Decomposition; }
+};
+*/
 } // namespace clang
 
 #endif // LLVM_CLANG_AST_DECLCXX_H

@@ -7246,6 +7246,22 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-faligned-allocation");
   }
 
+  if (Arg *A = Args.getLastArg(options::OPT_fcontracts, options::OPT_fno_contracts)) {
+    [&]() {
+      if (A->getOption().matches(options::OPT_fno_contracts)) {
+        CmdArgs.push_back("-fno-contracts");
+        return;
+      }
+      CmdArgs.push_back("-fcontracts");
+      if ((A = Args.getLastArg(options::OPT_fcontract_evaluation_semantic_EQ))) {
+        CmdArgs.push_back(Args.MakeArgString(
+            Twine("-fcontract-evaluation-semantic=") + A->getValue()));
+      }
+    }();
+
+
+  }
+
   // The default new alignment can be specified using a dedicated option or via
   // a GCC-compatible option that also turns on aligned allocation.
   if (Arg *A = Args.getLastArg(options::OPT_fnew_alignment_EQ,

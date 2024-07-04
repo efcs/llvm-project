@@ -2570,7 +2570,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
       // FIXME(EricWF): Is this the correct place?
       MaybeParseFunctionContractSpecifierSeq(D);
-      assert(false);
+
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClause(D);
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);

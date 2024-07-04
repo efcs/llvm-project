@@ -4421,7 +4421,7 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   ConsumeToken();
 
   if (Tok.isNot(tok::l_paren)) {
-    Diag(Tok, diag::err_expected_lparen_after) << "contract_assert";
+    Diag(Tok, diag::err_expected_lparen_after) << CKStr;
     SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma,
                tok::l_paren},
               StopAtSemi | StopBeforeMatch);
@@ -4434,10 +4434,12 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
     return StmtError();
   }
 
-  ParseScope ParamScope(this, Scope::DeclScope |
-                                 // Scope::FunctionDeclarationScope |
+  // Don't include the Scope::FunctionDeclarationScope, since it puts the
+  // result name introducer into wrong scope, allowing it to be referenced
+  // outside of the postcondition.
+  ParseScope ContractScope(this, Scope::DeclScope |
                                   Scope::FunctionPrototypeScope |
-                                  Scope::PostConditionScope);
+                                  Scope::ContractAssertScope);
 
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
   InitCXXThisScopeForDeclaratorIfRelevant(DeclaratorInfo, DeclaratorInfo.getDeclSpec(), ThisScope);
@@ -4451,10 +4453,7 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
   DeclStmt *ResultNameStmt = nullptr;
   if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
-    if (CK != ContractKind::Post) {
-      // Only post contracts can have a result name
-      Diag(Tok.getLocation(), diag::err_expected) << tok::identifier;
-    }
+    // Let this parse for non-post contracts. We'll diagnose it later.
 
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
@@ -4485,12 +4484,7 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
   T.consumeClose();
 
-  if (CK == ContractKind::Pre) {
-    return Actions.ActOnPreContractAssert(KeywordLoc, Cond.get());
-  } else {
-    return Actions.ActOnPostContractAssert(KeywordLoc, Cond.get(),
-                                           ResultNameStmt);
-  }
+  return Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), ResultNameStmt);
 }
 
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style

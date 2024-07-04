@@ -2437,6 +2437,9 @@ StmtResult Parser::ParseContractAssertStatement() {
          "Not a contract asssert statement");
   SourceLocation KeywordLoc = ConsumeToken(); // eat the 'contract_assert'.
 
+  // Adjust the scope for the purposes of constification.
+  EnterContractAssertScopeRAII EnterCAS(getCurScope());
+
   // FIXME(EricWF): This seems really worg.
   ParsedAttributes attrs(AttrFactory);
   MaybeParseCXX11Attributes(attrs);
@@ -2453,6 +2456,7 @@ StmtResult Parser::ParseContractAssertStatement() {
   SourceLocation Start = Tok.getLocation();
 
   ExprResult Cond = ParseConditionalExpression();
+
   if (Cond.isUsable()) {
     Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
                                              /*RecoverUncorrectedTypos=*/true);
@@ -2469,7 +2473,9 @@ StmtResult Parser::ParseContractAssertStatement() {
   if (Cond.isInvalid())
     return StmtError();
 
-  return Actions.ActOnContractAssert(KeywordLoc, Cond.get());
+  return Actions.ActOnContractAssert(ContractKind::Assert, KeywordLoc, Cond.get());
+
+
 }
 
 /// ParseReturnStatement

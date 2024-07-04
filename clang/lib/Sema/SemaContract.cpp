@@ -50,6 +50,7 @@ using namespace clang;
 using namespace sema;
 
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
+  //assert(getCurScope()->isContractAssertScope() && "Incorrect scope for contract assert");
   if (Cond->isTypeDependent())
     return Cond;
 
@@ -63,6 +64,8 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    Expr *Cond, DeclStmt *ResultNameDecl) {
+  assert((CK == ContractKind::Post || ResultNameDecl == nullptr) &&
+         "ResultNameDecl only allowed for postconditions");
   ExprResult E = ActOnContractAssertCondition(Cond);
   if (E.isInvalid())
     return StmtError();
@@ -70,23 +73,28 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
   return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl);
 }
 
-StmtResult Sema::ActOnContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
-  return BuildContractStmt(ContractKind::Assert, KeywordLoc, Cond, nullptr);
+static ResultNameDecl *extractResultName(DeclStmt *DS) {
+  assert(DS && DS->isSingleDecl() && "Expected a single declaration");
+  auto *D = DS->getSingleDecl();
+  return cast<ResultNameDecl>(D);
 }
 
-StmtResult Sema::ActOnPreContractAssert(SourceLocation KeywordLoc, Expr *Cond) {
+StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc, Expr *Cond,
+  DeclStmt *ResultNameDecl) {
+  if (CK != ContractKind::Post && ResultNameDecl) {
+        auto RND = extractResultName(ResultNameDecl);
+        auto *II = RND->getDeclName().getAsIdentifierInfo();
+        assert(II && "ResultName requires an identifier");
 
-  return BuildContractStmt(ContractKind::Pre, KeywordLoc, Cond, nullptr);
+        Diag(RND->getBeginLoc(), diag::err_result_name_not_allowed)
+                << II;
+        return StmtError();
+  }
+  return BuildContractStmt(CK, KeywordLoc, Cond, ResultNameDecl);
 }
 
-StmtResult Sema::ActOnPostContractAssert(SourceLocation KeywordLoc, Expr *Cond,
-                                         DeclStmt *ResultNameDecl) {
-
-  assert(Cond);
-  return BuildContractStmt(ContractKind::Post, KeywordLoc, Cond,
-                           ResultNameDecl);
-}
-
+/* FIXME(EricWF): Is this needed?
+ *
 void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
   if (!D.isFunctionDeclarator())
     return;
@@ -97,27 +105,23 @@ void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
                                                           FTI.NumParams)) {
     auto *ParamDecl = cast<NamedDecl>(Param.Param);
     if (ParamDecl->getDeclName())
-      PushOnScopeChains(ParamDecl, S, /*AddToContext=*/false);
+      PushOnScopeChains(ParamDecl, S, false);//AddToContext=false);
   }
 }
-
+*/
 
 /// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
 /// to introduce parameters into function prototype scope.
 StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
                                       SourceLocation IDLoc,
                                       IdentifierInfo *II)  {
-  assert(S && S->isPostConditionScope() && "Invalid scope for result name");
+  assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
   //CheckFunctionOrTemplateParamDeclarator(S, D);
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(FuncDecl);
-  assert(TInfo && "no type from declarator in ActOnParamDeclarator");
-  QualType FuncType = TInfo->getType();
-  assert(FuncType->isFunctionType());
-  auto *FT = FuncType->getAs<FunctionType>();
-  assert(FT && "FunctionType is null");
-  QualType RetType = FT->getReturnType();
+  assert(TInfo && TInfo->getType()->isFunctionType() && "no type from declarator in ActOnParamDeclarator");
+  QualType RetType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
 
   if (RetType->isVoidType())  {
     Diag(IDLoc, diag::err_void_result_name) << II;
@@ -166,7 +170,7 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
     New->setInvalidDecl();
 
   //CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
-  assert(S->isPostConditionScope());
+  assert(S->isContractAssertScope());
   assert(S->isFunctionPrototypeScope());
   assert(S->getFunctionPrototypeDepth() >= 1);
   //New->setScopeInfo(S->getFunctionPrototypeDepth() - 1,

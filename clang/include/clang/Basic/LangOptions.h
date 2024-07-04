@@ -443,34 +443,28 @@ public:
 
   /// Contract evaluation mode. Determines whether to check contracts, and 
   // whether contract failures cause compile errors.
-  enum class ContractEvalMode {
+  enum class ContractEvaluationSemantic {
     // Contracts are parsed, syntax checked and type checked, but never evaluated.
+    // FIXME(EricWF): This doesn't yet map to an actual enumerator in
+    //  std::contracts::evaluation_semantic
     Ignore = 0,
-
-    // Contracts are run, and failures are reported, but contract failures do not
-    // logically stop execution of the program, nor can the compiler assume 
-    // contracts are true for optimizing.
-    Observe = 1,
 
     // Contracts are run, failures are reported, and when a contract fails the 
     // program is terminated. The compiler can assume after contracts statements 
     // that the contracts hold.
-    Enforce = 2,
+    Enforce = 1,
+
+    // Contracts are run, and failures are reported, but contract failures do not
+    // logically stop execution of the program, nor can the compiler assume
+    // contracts are true for optimizing.
+    Observe = 2,
+
+    // Contracts are run, failures cause an immediate trap
+    // FIXME(EricWF): This doesn't yet map to an actual enumerator in
+    //  std::contracts::evaluation_semantic
+    QuickEnforce = 3,
   };
 
-  /// Determines the strategy to implement contract evaluation
-  enum class ContractImplStrategy {
-    // Contracts are checked after entering and before exiting a function.
-    Callee = 0,
-    
-    // Precontracts are checked before making a function call and after entering the function
-    // Postcontracts are checked before returning from a function, and after returning from a function call.
-    Both = 1,
-
-    // Precontracts are checked before making a function call, postcontracts 
-    // are checked before returning from a function call.
-    Split = 2,
-  };
 
   // Define simple language options (with no accessors).
 #define LANGOPT(Name, Bits, Default, Description) unsigned Name : Bits;
@@ -587,10 +581,11 @@ public:
   GPUDefaultStreamKind GPUDefaultStream;
 
   /// C++ contracts evaluation mode
-  ContractEvalMode ContractEvaluation;
+  ContractEvaluationSemantic ContractEvalSemantic;
 
-  /// C++ contracts implementation strategy
-  ContractImplStrategy ContractStrategy;
+  /// A List of + or - prefixed contract groups to enable or disable
+  /// FIXME(EricWF): Implement this
+  std::vector<std::string> ClangContractGroups;
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;
