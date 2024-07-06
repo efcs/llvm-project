@@ -890,6 +890,10 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
       // tag types, so we include them in the tag namespace.
       return IDNS_Ordinary | IDNS_Tag;
 
+    // FIXME(EricWF): IDK if this is correct
+    case ResultName:
+      return IDNS_Ordinary | IDNS_Tag;
+
     case ObjCCompatibleAlias:
     case ObjCInterface:
       return IDNS_Ordinary | IDNS_Type;
@@ -1099,6 +1103,7 @@ bool Decl::AccessDeclContextCheck() const {
       // FIXME: a ParmVarDecl can have ClassTemplateSpecialization
       // as DeclContext (?).
       isa<ParmVarDecl>(this) ||
+      isa<ResultNameDecl>(this) ||
       // FIXME: a ClassTemplateSpecialization or CXXRecordDecl can have
       // AS_none as access specifier.
       isa<CXXRecordDecl>(this) || isa<LifetimeExtendedTemporaryDecl>(this))

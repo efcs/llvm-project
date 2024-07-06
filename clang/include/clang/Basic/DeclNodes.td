@@ -38,6 +38,7 @@ def Named : DeclNode<Decl, "named declarations", 1>;
     def UnresolvedUsingValue : DeclNode<Value>;
     def IndirectField : DeclNode<Value>;
     def Binding : DeclNode<Value>;
+    def ResultName : DeclNode<Value>;
     def OMPDeclareReduction : DeclNode<Value>, DeclContext;
     def OMPDeclareMapper : DeclNode<Value>, DeclContext;
     def MSGuid : DeclNode<Value>;

@@ -9214,6 +9214,49 @@ CreateSystemZBuiltinVaListDecl(const ASTContext *Context) {
   return Context->buildImplicitTypedef(VaListTagArrayType, "__builtin_va_list");
 }
 
+static TypedefDecl *CreateBuiltinSourceLocImplDecl(const ASTContext *Context) {
+  RecordDecl *SourceLocImplDecl = Context->buildImplicitRecord("__builtin_source_location_impl_type");
+  SourceLocImplDecl->startDefinition();
+
+
+  const size_t NumFields = 4;
+  QualType FieldTypes[NumFields];
+  const char *FieldNames[NumFields];
+
+  QualType ConstStrLiteralTy = Context->getPointerType(Context->getConstType(Context->CharTy));;
+
+
+  FieldTypes[0] = ConstStrLiteralTy;
+  FieldNames[0] = "_M_file_name";
+
+  FieldTypes[1] = ConstStrLiteralTy;
+  FieldNames[1] = "_M_function_name";
+
+  FieldTypes[2] = Context->UnsignedIntTy;
+  FieldNames[2] = "_M_line";
+
+  FieldTypes[3] = Context->UnsignedIntTy;
+  FieldNames[3] = "_M_column";
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), SourceLocImplDecl, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldNames[i]), FieldTypes[i],
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    SourceLocImplDecl->addDecl(Field);
+  }
+  SourceLocImplDecl->completeDefinition();
+  Context->BuiltinSourceLocImplRecordDecl = SourceLocImplDecl;
+  QualType SourceLocImplTy = Context->getRecordType(SourceLocImplDecl);
+
+
+  return Context->buildImplicitTypedef(SourceLocImplTy, "__builtin_source_loc_impl_t");
+}
+
 static TypedefDecl *CreateHexagonBuiltinVaListDecl(const ASTContext *Context) {
   // typedef struct __va_list_tag {
   RecordDecl *VaListTagDecl;
@@ -9300,6 +9343,23 @@ TypedefDecl *ASTContext::getBuiltinVaListDecl() const {
   return BuiltinVaListDecl;
 }
 
+TypedefDecl *ASTContext::getBuiltinSourceLocImplDecl() const {
+  if (!BuiltinSourceLocImplDecl) {
+    BuiltinSourceLocImplDecl = CreateBuiltinSourceLocImplDecl(this);
+    assert(BuiltinSourceLocImplDecl->isImplicit());
+  }
+
+  return BuiltinSourceLocImplDecl;
+}
+
+Decl *ASTContext::getBuiltinSourceLocImplRecord() const {
+  if (!BuiltinSourceLocImplDecl)
+    (void)getBuiltinSourceLocImplDecl();
+
+  assert(BuiltinSourceLocImplRecordDecl);
+  return BuiltinSourceLocImplRecordDecl;
+}
+
 Decl *ASTContext::getVaListTagDecl() const {
   // Force the creation of VaListTagDecl by building the __builtin_va_list
   // declaration.
@@ -9308,6 +9368,7 @@ Decl *ASTContext::getVaListTagDecl() const {
 
   return VaListTagDecl;
 }
+
 
 TypedefDecl *ASTContext::getBuiltinMSVaListDecl() const {
   if (!BuiltinMSVaListDecl)

@@ -15,6 +15,7 @@
 #define LLVM_CLANG_BASIC_LANGOPTIONS_H
 
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/ObjCRuntime.h"
@@ -441,6 +442,8 @@ public:
     CX_None
   };
 
+  using ContractEvaluationSemantic = clang::ContractEvaluationSemantic;
+
   // Define simple language options (with no accessors).
 #define LANGOPT(Name, Bits, Default, Description) unsigned Name : Bits;
 #define ENUM_LANGOPT(Name, Type, Bits, Default, Description)
@@ -530,6 +533,10 @@ public:
   /// A prefix map for __FILE__, __BASE_FILE__ and __builtin_FILE().
   std::map<std::string, std::string, std::greater<std::string>> MacroPrefixMap;
 
+  /// A map from a "contract group" or "contract subgroup" to the value
+  /// indicating whether the group is enabled or disabled from the command line.
+  std::unordered_map<std::string, bool> EnabledContractGroups;
+
   /// Triples of the OpenMP targets that the host code codegen should
   /// take into account in order to generate accurate offloading descriptors.
   std::vector<llvm::Triple> OMPTargetTriples;
@@ -554,6 +561,13 @@ public:
 
   /// The default stream kind used for HIP kernel launching.
   GPUDefaultStreamKind GPUDefaultStream;
+
+  /// C++ contracts evaluation mode
+  ContractEvaluationSemantic ContractEvalSemantic;
+
+  /// A list of options pretaining to c++ contracts and clang attributes about
+  /// them.
+  ContractOptions ContractOptions;
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

@@ -2155,6 +2155,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
+  SmallVector<ContractStmt *> Contracts = D->getContracts();
 
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
@@ -2192,7 +2193,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         SemaRef.Context, DC, D->getInnerLocStart(), NameInfo, T, TInfo,
         D->getCanonicalDecl()->getStorageClass(), D->UsesFPIntrin(),
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Function->setFriendConstraintRefersToEnclosingTemplate(
         D->FriendConstraintRefersToEnclosingTemplate());
     Function->setRangeEnd(D->getSourceRange().getEnd());
@@ -2888,6 +2889,10 @@ Decl *TemplateDeclInstantiator::VisitCXXDestructorDecl(CXXDestructorDecl *D) {
 
 Decl *TemplateDeclInstantiator::VisitCXXConversionDecl(CXXConversionDecl *D) {
   return VisitCXXMethodDecl(D);
+}
+
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+    llvm_unreachable("Shouldnt be instantiated");
 }
 
 Decl *TemplateDeclInstantiator::VisitParmVarDecl(ParmVarDecl *D) {
@@ -5158,6 +5163,20 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
             Ctor->isDefaultConstructor()) {
           InstantiateDefaultCtorDefaultArgs(Ctor);
         }
+      }
+      // If the function has contracts, instantiate them now
+      SmallVector<ContractStmt*> Contracts = Function->getContracts();
+      if (!Contracts.empty()) {
+        SmallVector<ContractStmt*> NewContracts;
+        for (auto *C : Contracts) {
+          StmtResult NewStmt = SubstStmt(C, TemplateArgs);
+          if (NewStmt.isInvalid()) {
+            Function->setInvalidDecl();
+          } else {
+            NewContracts.push_back(NewStmt.getAs<ContractStmt>());
+          }
+        }
+        Function->setContracts(NewContracts);
       }
 
       // Instantiate the function body.

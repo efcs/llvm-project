@@ -360,6 +360,10 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// __builtin_va_list type.
   mutable TypedefDecl *BuiltinVaListDecl = nullptr;
 
+  /// The typedef for the predefined __builtin_source_loc_impl_type
+  /// type.
+  mutable TypedefDecl *BuiltinSourceLocImplDecl = nullptr;
+
   /// The typedef for the predefined \c __builtin_ms_va_list type.
   mutable TypedefDecl *BuiltinMSVaListDecl = nullptr;
 
@@ -1172,6 +1176,9 @@ public:
   // Decl used to help define __builtin_va_list for some targets.
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
+
+  // The implicit record decl __builtin_source_loc_impl_type
+  mutable Decl *BuiltinSourceLocImplRecordDecl = nullptr;
 
   // Implicitly-declared type 'struct _GUID'.
   mutable TagDecl *MSGuidTagDecl = nullptr;
@@ -2180,6 +2187,20 @@ public:
     assert(MSGuidTagDecl && "asked for GUID type but MS extensions disabled");
     return getTagDeclType(MSGuidTagDecl);
   }
+
+  /// Retrieve the C type declaration corresponding to the predefined
+  /// \c __builtin_source_loc_impl_t type.
+  TypedefDecl *getBuiltinSourceLocImplDecl() const;
+
+  /// Retrieve the type of the \c __builtin_source_loc_impl_t type.
+  QualType getBuiltinSourceLocImplType() const {
+    return getTypeDeclType(getBuiltinSourceLocImplDecl());
+  }
+
+  /// Retrieve the C type declaration corresponding to the predefined
+  /// \c __builtin_source_loc_t type.
+  // FIXME(ERICWF): Is this needed
+  Decl *getBuiltinSourceLocImplRecord() const;
 
   /// Return whether a declaration to a builtin is allowed to be
   /// overloaded/redeclared.

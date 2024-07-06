@@ -13,6 +13,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/PrettyDeclStackTrace.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
@@ -2048,6 +2049,12 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeBracket();
         if (!SkipUntil(tok::r_square, StopAtSemi))
           break;
+      } else if (isContractSpecifier() != ContractKeyword::None &&
+                 NextToken().is(tok::l_paren)) {
+        ConsumeToken();
+        ConsumeParen();
+        if (!SkipUntil(tok::r_paren, StopAtSemi))
+          break;
       } else if (Tok.is(tok::kw_alignas) && NextToken().is(tok::l_paren)) {
         ConsumeToken();
         ConsumeParen();
@@ -2557,6 +2564,26 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
   }
 }
 
+Parser::ContractKeyword Parser::isContractSpecifier(const Token &Tok) const {
+  if (!getLangOpts().Contracts || Tok.isNot(tok::identifier))
+    return ContractKeyword::None;
+
+  const IdentifierInfo *II = Tok.getIdentifierInfo();
+
+  if (!Ident_pre) {
+    Ident_pre = &PP.getIdentifierTable().get("pre");
+    Ident_post = &PP.getIdentifierTable().get("post");
+  }
+
+  if (II == Ident_pre)
+    return ContractKeyword::Pre;
+
+  if (II == Ident_post)
+    return ContractKeyword::Post;
+
+  return ContractKeyword::None;
+}
+
 /// isCXX11VirtSpecifier - Determine whether the given token is a C++11
 /// virt-specifier.
 ///
@@ -2709,6 +2736,8 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
       MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(DeclaratorInfo,
                                                               VS);
   }
+
+  MaybeParseFunctionContractSpecifierSeq(DeclaratorInfo);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {
@@ -4294,6 +4323,182 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
   diagnoseDynamicExceptionSpecification(*this, SpecificationRange,
                                         Exceptions.empty());
   return Exceptions.empty() ? EST_DynamicNone : EST_Dynamic;
+}
+/// ParseFunctionContractSpecifierSeq - Parse a series of pre/post contracts on
+/// a function declaration.
+///
+///   function-contract-specifier-seq :
+///       function-contract-specifier function-contract-specifier-seq
+//
+///   function-contract-specifier:
+///       precondition-specifier
+///       postcondition-specifier
+//
+///   precondition-specifier:
+///       pre attribute-specifier-seq[opt] ( conditional-expression )
+///
+///   postcondition-specifier:
+///       post attribute-specifier-seq[opt] ( result-name-introducer[opt]
+///       conditional-expression )
+///
+///   result-name-introducer:
+///       attributed-identifier :
+void Parser::MaybeParseFunctionContractSpecifierSeq(
+    Declarator &DeclaratorInfo) {
+  ContractKeyword CKK;
+  while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
+    StmtResult Contract = ParseFunctionContractSpecifier(DeclaratorInfo);
+    if (Contract.isUsable()) {
+      DeclaratorInfo.addContract(Contract.getAs<ContractStmt>());
+    }
+  }
+}
+
+void Parser::MaybeLateParseFunctionContractSpecifierSeq(
+    Declarator &DeclaratorInfo) {
+  ContractKeyword CKK;
+  while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
+    CachedTokens Toks;
+    if (!LateParseFunctionContractSpecifier(DeclaratorInfo, Toks)) {
+      return;
+    }
+
+    DeclaratorInfo.addLateParsedContract(Toks);
+  }
+}
+
+bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens& Toks) {
+  auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
+    switch (isContractSpecifier(Tok)) {
+    case ContractKeyword::Pre:
+      return std::make_pair(ContractKind::Pre, "pre");
+    case ContractKeyword::Post:
+      return std::make_pair(ContractKind::Post, "post");
+    default:
+      llvm_unreachable("unhandled case");
+    }
+  }();
+
+    // Consume and cache the starting token.
+  Token StartTok = Tok;
+  SourceRange ContractRange = SourceRange(ConsumeToken());
+
+    // Check for a '('.
+  if (!Tok.is(tok::l_paren)) {
+      // If this is a bare 'noexcept', we're done.
+
+    Diag(Tok, diag::err_expected_lparen_after) << CKStr;
+    return false;
+  }
+
+    // Cache the tokens for the exception-specification.
+
+  Toks.push_back(StartTok);  // 'throw' or 'noexcept'
+  Toks.push_back(Tok);       // '('
+  ContractRange.setEnd(ConsumeParen()); // '('
+
+  ConsumeAndStoreUntil(tok::r_paren, Toks,
+                         /*StopAtSemi=*/true,
+                         /*ConsumeFinalToken=*/true);
+  ContractRange.setEnd(Toks.back().getLocation());
+  return true;
+}
+
+StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
+  auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
+    switch (isContractSpecifier(Tok)) {
+    case ContractKeyword::Pre:
+      return std::make_pair(ContractKind::Pre, "pre");
+    case ContractKeyword::Post:
+      return std::make_pair(ContractKind::Post, "post");
+    default:
+      llvm_unreachable("unhandled case");
+    }
+  }();
+  SourceLocation KeywordLoc = Tok.getLocation();
+  ConsumeToken();
+
+  ParsedAttributes CXX11Attrs(AttrFactory);
+  MaybeParseCXX11Attributes(CXX11Attrs);
+
+  using ExpressionKind =
+      Sema::ExpressionEvaluationContextRecord::ExpressionKind;
+  EnterExpressionEvaluationContext EC(
+      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      ExpressionKind::EK_ContractStmt);
+  Actions.currentEvaluationContext().InContractStatement = true;
+
+  if (Tok.isNot(tok::l_paren)) {
+    Diag(Tok, diag::err_expected_lparen_after) << CKStr;
+    SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma,
+               tok::l_paren},
+              StopAtSemi | StopBeforeMatch);
+    return StmtError();
+  }
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.expectAndConsume(diag::err_expected_lparen_after, CKStr,
+                         tok::r_paren)) {
+    return StmtError();
+  }
+
+  // Don't include the Scope::FunctionDeclarationScope, since it puts the
+  // result name introducer into wrong scope, allowing it to be referenced
+  // outside of the postcondition.
+  ParseScope ContractScope(this, Scope::DeclScope |
+                                  Scope::FunctionPrototypeScope |
+                                  Scope::ContractAssertScope);
+
+  std::optional<Sema::CXXThisScopeRAII> ThisScope;
+  InitCXXThisScopeForDeclaratorIfRelevant(DeclaratorInfo, DeclaratorInfo.getDeclSpec(), ThisScope);
+
+  DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
+
+  for (unsigned i = 0; i != FTI.NumParams; ++i) {
+    ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
+    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
+  }
+
+  DeclStmt *ResultNameStmt = nullptr;
+  if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
+    // Let this parse for non-post contracts. We'll diagnose it later.
+
+    IdentifierInfo *Id = Tok.getIdentifierInfo();
+    SourceLocation IdLoc = ConsumeToken();
+
+    SourceLocation ColonLoc = ConsumeToken();
+    ((void)ColonLoc);
+
+    StmtResult RNStmt = Actions.ActOnResultNameDeclarator(getCurScope(), DeclaratorInfo, IdLoc, Id);
+    if (RNStmt.isUsable())
+        ResultNameStmt = cast<DeclStmt>(RNStmt.get());
+    else
+      return StmtError();
+  }
+
+  SourceLocation Start = Tok.getLocation();
+  ExprResult Cond = ParseConditionalExpression();
+
+  if (Cond.isUsable()) {
+    Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
+                                             /*RecoverUncorrectedTypos=*/true);
+  } else {
+    if (!Tok.is(tok::r_paren))
+      SkipUntil(tok::r_paren, StopAtSemi | StopBeforeMatch);
+    Cond = Actions.CreateRecoveryExpr(
+        Start, Start == Tok.getLocation() ? Start : PrevTokLocation, {},
+        Actions.getASTContext().BoolTy);
+  }
+
+  T.consumeClose();
+
+  StmtResult ContractStmt = Actions.ActOnContractAssert(
+      CK, KeywordLoc, Cond.get(), ResultNameStmt, CXX11Attrs);
+  if (!ContractStmt.isUsable()) {
+    return StmtError();
+  }
+
+  return ContractStmt;
 }
 
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style

@@ -55,6 +55,7 @@ namespace clang {
 class ASTContext;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
+class ContractStmt;
 class DependentFunctionTemplateSpecializationInfo;
 class EnumDecl;
 class Expr;
@@ -769,11 +770,12 @@ struct QualifierInfo {
 /// Contains type source information through TypeSourceInfo.
 class DeclaratorDecl : public ValueDecl {
   // A struct representing a TInfo, a trailing requires-clause and a syntactic
-  // qualifier, to be used for the (uncommon) case of out-of-line declarations
-  // and constrained function decls.
+  // qualifier, to be used for the (uncommon) case of out-of-line declarations,
+  // constrained function decls or functions with contracts.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
     Expr *TrailingRequiresClause = nullptr;
+    SmallVector<ContractStmt *> Contracts = {};
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -853,7 +855,15 @@ public:
                         : nullptr;
   }
 
+  SmallVector<ContractStmt *> getContracts() const {
+    if (hasExtInfo())
+      return getExtInfo()->Contracts;
+    return {};
+  }
+
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
+
+  void setContracts(SmallVector<ContractStmt *> Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2037,6 +2047,7 @@ private:
     LazyDeclStmtPtr Body;
     /// Information about a future defaulted function definition.
     DefaultedOrDeletedFunctionInfo *DefaultedOrDeletedInfo;
+    ///
   };
 
   unsigned ODRHash;
@@ -2126,7 +2137,8 @@ protected:
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
-               Expr *TrailingRequiresClause = nullptr);
+               Expr *TrailingRequiresClause = nullptr,
+               SmallVector<ContractStmt *> Contracts = {});
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2162,12 +2174,14 @@ public:
          TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
-         Expr *TrailingRequiresClause = nullptr) {
+         Expr *TrailingRequiresClause = nullptr,
+         SmallVector<ContractStmt *> Contracts = {}) {
+
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
                                 UsesFPIntrin, isInlineSpecified,
                                 hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause);
+                                TrailingRequiresClause, Contracts);
   }
 
   static FunctionDecl *
@@ -2175,7 +2189,7 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause);
+         Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 

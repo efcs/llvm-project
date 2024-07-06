@@ -162,7 +162,23 @@ public:
 
     /// This is a scope of friend declaration.
     FriendScope = 0x40000000,
+
+    /// The scope introduced by a pre, post, or contract_assert.
+    /// The result name of a post-condition is declared within this scope.
+    /// It also affects the type of DeclRefExpr's where constification is applied.
+    ///
+    /// When the scope is introduced by a contract_assert statement, it doesn't
+    /// push a new scope, but rather adjusts the flags of the current scope.
+    /// This needs to be undone at the end of c
+    //
+    // FIXME(Ericwf): This scope in unlike others, where it doesn't applied
+    // to the entire scope, but only to the statement that introduced it.
+    // This is a bit of a hack, but it's the simplest way to get the
+    // functionality we need.
+    ContractAssertScope = 0x80000000,
   };
+  using UT = std::underlying_type_t<ScopeFlags>;
+  static_assert(std::is_unsigned_v<UT>, "ScopeFlags must be an unsigned type");
 
 private:
   /// The parent scope for this scope.  This is null for the translation-unit
@@ -563,6 +579,10 @@ public:
     return getFlags() & ScopeFlags::ContinueScope;
   }
 
+  bool isContractAssertScope() const {
+    return getFlags() & ScopeFlags::ContractAssertScope;
+  }
+
   /// Determine whether this scope is a C++ 'try' block.
   bool isTryScope() const { return getFlags() & Scope::TryScope; }
 
@@ -627,6 +647,22 @@ public:
 
   void dumpImpl(raw_ostream &OS) const;
   void dump() const;
+};
+
+struct EnterContractAssertScopeRAII {
+  Scope *S;
+  bool WasContractAssertScope;
+
+  EnterContractAssertScopeRAII(Scope *S)
+      : S(S), WasContractAssertScope(S->isContractAssertScope()) {
+    S->setFlags(S->getFlags() | Scope::ContractAssertScope);
+  }
+  ~EnterContractAssertScopeRAII() {
+    assert(S->getFlags() & Scope::ContractAssertScope);
+    if (!WasContractAssertScope) {
+      S->setFlags(S->getFlags() & ~Scope::ContractAssertScope);
+    }
+  }
 };
 
 } // namespace clang

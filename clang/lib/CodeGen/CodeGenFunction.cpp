@@ -35,6 +35,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/DataLayout.h"
@@ -48,6 +49,7 @@
 #include "llvm/Support/xxhash.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "clang/Lex/Lexer.h"
 #include <optional>
 
 using namespace clang;
@@ -335,6 +337,123 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   EmitBlock(ReturnBlock.getBlock());
   return llvm::DebugLoc();
 }
+
+
+
+void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
+    ContractViolationDetection ViolationDetectionMode) {
+  auto &SM = getContext().getSourceManager();
+  auto &Ctx = getContext();
+
+  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc() : S.getCond()->getBeginLoc();
+  auto End = S.getCond()->getEndLoc();
+  CharSourceRange ExprRange = Lexer::getAsCharRange(SourceRange(Begin, End), SM, Ctx.getLangOpts());
+  std::string AssertStr = Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
+  // FIXME(EricWF): We don't track the closing parenthesis in the source range.
+
+
+  unsigned ContractKindValue = [&]() {
+    switch (S.getContractKind()) {
+        case ContractKind::Pre:
+          return 1;
+        case ContractKind::Post:
+          return 2;
+        case ContractKind::Assert:
+          return 3;
+    }
+    llvm_unreachable("unhandled ContractKind");
+  }();
+
+  unsigned EvalSemantic = [&]() -> unsigned{
+    using EST = LangOptions::ContractEvaluationSemantic;
+    switch (S.getSemantic(getLangOpts())) {
+    case EST::Enforce:
+      return 1;
+    case EST::Observe:
+      return 2;
+    case EST::Ignore:
+    case EST::QuickEnforce:
+    case EST::Invalid:
+      llvm_unreachable("cannot generate a call for this semantic");
+    }
+    llvm_unreachable("unhandled ContractEvaluationSemantic");
+  }();
+
+  unsigned DetectionMode = static_cast<unsigned>(ViolationDetectionMode);
+
+  const SourceLocation Location = S.getCond()->getBeginLoc();
+
+  std::string Filename = [&]() -> std::string  {
+    PresumedLoc PLoc = SM.getPresumedLoc(Location);
+    return PLoc.getFilename();
+  }();
+
+  auto UnsignedTy = getContext().UnsignedIntTy;
+  auto VoidPtrTy = getContext().VoidPtrTy;
+  std::pair<llvm::Constant *, QualType> Constants[] = {
+      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy},
+      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy},
+      {llvm::ConstantInt::get(Int32Ty, DetectionMode), UnsignedTy},
+      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy},
+      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy},
+      {CGM.EmitAnnotationLineNo(Location), UnsignedTy}
+  };
+
+  CallArgList Args;
+  for (auto [Const, Ty] : Constants) {
+    Args.add(RValue::get(Const), Ty);
+  }
+
+  const CGFunctionInfo &VFuncInfo = CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
+  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
+  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation");
+
+  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+}
+
+void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
+  // Emit the contract expression.
+  const Expr *Expr = S.getCond();
+  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
+
+  // FIXME(EricWF): I think there's a lot more to do that simply this.
+  if (Semantic == LangOptions::ContractEvaluationSemantic::Ignore)
+    return;
+
+  llvm::Value *ArgValue = EmitScalarExpr(Expr);
+  llvm::BasicBlock *Begin = Builder.GetInsertBlock();
+  llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
+  llvm::BasicBlock *Violation = createBasicBlock("contract_assert_violation", this->CurFn);
+
+  Builder.SetInsertPoint(Begin);
+  Builder.CreateCondBr(ArgValue, End, Violation);
+
+  Builder.SetInsertPoint(Violation);
+
+  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
+    EmitHandleContractViolationCall(
+        S, ContractViolationDetection::PredicateFailed);
+  }
+
+  if (Semantic != ContractEvaluationSemantic::Observe) {
+    llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+    TrapCall->setDoesNotReturn();
+    TrapCall->setDoesNotThrow();
+    Builder.CreateUnreachable();
+    Builder.ClearInsertionPoint();
+  }
+
+  Builder.CreateBr(End);
+  Builder.SetInsertPoint(End);
+
+  if (Semantic != ContractEvaluationSemantic::Observe) {
+    // FIXME(EricWF): Maybe don't create the assume if the contract check is
+    // ignored.
+    llvm::Function *FnAssume = CGM.getIntrinsic(llvm::Intrinsic::assume);
+    Builder.CreateCall(FnAssume, ArgValue);
+  }
+}
+
 
 static void EmitIfUsed(CodeGenFunction &CGF, llvm::BasicBlock *BB) {
   if (!BB) return;
@@ -1486,6 +1605,13 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
+  // FIXME(EricWF): I don't think this should go here.
+  for (ContractStmt *S : FD->getContracts()) {
+    if (S->getContractKind() != ContractKind::Pre)
+      continue;
+    EmitContractStmt(*S);
+  }
+
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
     llvm::append_range(FnArgs, FD->parameters());
@@ -1559,6 +1685,14 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.CreateUnreachable();
       Builder.ClearInsertionPoint();
     }
+  }
+
+  // FIXME(EricWF): I don't think this should go here.
+  // Also we'll need to figure out how to reference the return value
+  for (ContractStmt *S : FD->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    EmitContractStmt(*S);
   }
 
   // Emit the standard function epilogue.

@@ -3190,6 +3190,24 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
                                                         SourceLocation loc,
                                                         ValueDecl *var);
 
+/// [basic.contract.general]
+/// Within the predicate of a contract assertion, id-expressions referring to variables
+/// with automatic storage duration are const ([expr.prim.id.unqual])
+static ContractConstification getContractConstification(Sema &S,
+                                                        const ValueDecl *VD) {
+
+  if (!S.getCurScope()->isContractAssertScope() && !S.isContractStmtContext())
+    return CC_None;
+
+  if (auto Var = dyn_cast<VarDecl>(VD)) {
+    if (Var->isLocalVarDeclOrParm())
+      return CC_ApplyConst;
+  }
+
+  return CC_None;
+}
+
+/// Complete semantic analysis for a reference to the given declaration.
 ExprResult Sema::BuildDeclarationNameExpr(
     const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
     NamedDecl *FoundD, const TemplateArgumentListInfo *TemplateArgs,
@@ -3250,6 +3268,8 @@ ExprResult Sema::BuildDeclarationNameExpr(
   // a reference to 'V' is simply (unexpanded) 'T'. The type, like the value,
   // is expanded by some outer '...' in the context of the use.
   type = type.getNonPackExpansionType();
+
+  ContractConstification CC = CC_None;
 
   switch (D->getKind()) {
     // Ignore all the non-ValueDecl kinds.
@@ -3328,6 +3348,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     }
     [[fallthrough]];
 
+
   case Decl::ImplicitParam:
   case Decl::ParmVar: {
     // These are always l-values.
@@ -3338,13 +3359,27 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
+      CC = getContractConstification(*this, cast<VarDecl>(VD));
+      if (CC == CC_ApplyConst)
+        type = type.withConst();
+
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
+      else {
+        CC = getContractConstification(*this, cast<VarDecl>(VD));
+        if (CC == CC_ApplyConst)
+          type = type.getNonReferenceType().withConst();
+      }
     }
 
     break;
   }
+
+  case Decl::ResultName: // FIXME(EricWF): Is this even close to correct?
+    valueKind = VK_LValue;
+    type = type.getNonReferenceType().withConst();
+    break;
 
   case Decl::Binding:
     // These are always lvalues.
@@ -3435,6 +3470,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
   auto *E =
       BuildDeclRefExpr(VD, type, valueKind, NameInfo, &SS, FoundD,
                        /*FIXME: TemplateKWLoc*/ SourceLocation(), TemplateArgs);
+
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
   // RecoveryExpr to avoid follow-up semantic analysis (thus prevent bogus
@@ -16499,7 +16535,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
   case SourceLocIdentKind::Column:
     ResultTy = Context.UnsignedIntTy;
     break;
-  case SourceLocIdentKind::SourceLocStruct:
+  case SourceLocIdentKind::SourceLocStruct: {
     if (!StdSourceLocationImplDecl) {
       StdSourceLocationImplDecl =
           LookupStdSourceLocationImpl(*this, BuiltinLoc);
@@ -16508,6 +16544,11 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
     }
     ResultTy = Context.getPointerType(
         Context.getRecordType(StdSourceLocationImplDecl).withConst());
+    break;
+  }
+  case SourceLocIdentKind::BuiltinSourceLocStruct:
+    ResultTy = Context.getPointerType(
+        Context.getRecordType(cast<RecordDecl>(Context.getBuiltinSourceLocImplRecord())).withConst());
     break;
   }
 
@@ -19296,7 +19337,7 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
 ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
   // Check whether the operand is or contains an object of non-trivial C union
-  // type.
+  // type.f
   if (E->getType().isVolatileQualified() &&
       (E->getType().hasNonTrivialToPrimitiveDestructCUnion() ||
        E->getType().hasNonTrivialToPrimitiveCopyCUnion()))
