@@ -434,6 +434,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     EmitHandleContractViolationCall(
         S, ContractViolationDetection::PredicateFailed);
   }
+
   if (Semantic != ContractEvaluationSemantic::Observe) {
     llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
     TrapCall->setDoesNotReturn();
@@ -441,8 +442,8 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     Builder.CreateUnreachable();
     Builder.ClearInsertionPoint();
   }
-  Builder.CreateBr(End);
 
+  Builder.CreateBr(End);
   Builder.SetInsertPoint(End);
 
   if (Semantic != ContractEvaluationSemantic::Observe) {
