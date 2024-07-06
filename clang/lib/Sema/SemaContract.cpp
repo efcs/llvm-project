@@ -49,6 +49,17 @@
 using namespace clang;
 using namespace sema;
 
+class clang::SemaContractHelper {
+public:
+  static SmallVector<const Attr *>
+  buildAttributesWithDummyNode(Sema &S, ParsedAttributes &Attrs) {
+    ContractStmt Dummy(Stmt::EmptyShell(), ContractKind::Pre, false, 0);
+    SmallVector<const Attr *> Result;
+    S.ProcessStmtAttributes(&Dummy, Attrs, Result);
+    return Result;
+  }
+};
+
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
   //assert(getCurScope()->isContractAssertScope() && "Incorrect scope for contract assert");
   if (Cond->isTypeDependent())
@@ -61,16 +72,19 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
   return ActOnFinishFullExpr(E.get(), /*DiscardedValue=*/false);
 }
 
-
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
-                                   Expr *Cond, DeclStmt *ResultNameDecl) {
+                                   Expr *Cond, DeclStmt *ResultNameDecl,
+                                   ArrayRef<const Attr *> Attrs) {
   assert((CK == ContractKind::Post || ResultNameDecl == nullptr) &&
          "ResultNameDecl only allowed for postconditions");
+  assert(currentEvaluationContext().InContractStatement &&
+         "Wrong context for statement");
   ExprResult E = ActOnContractAssertCondition(Cond);
   if (E.isInvalid())
     return StmtError();
 
-  return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl);
+  return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl,
+                              Attrs);
 }
 
 static ResultNameDecl *extractResultName(DeclStmt *DS) {
@@ -79,8 +93,10 @@ static ResultNameDecl *extractResultName(DeclStmt *DS) {
   return cast<ResultNameDecl>(D);
 }
 
-StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc, Expr *Cond,
-  DeclStmt *ResultNameDecl) {
+StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
+                                     Expr *Cond, DeclStmt *ResultNameDecl,
+                                     ParsedAttributes &CXX11Contracts) {
+
   if (CK != ContractKind::Post && ResultNameDecl) {
         auto RND = extractResultName(ResultNameDecl);
         auto *II = RND->getDeclName().getAsIdentifierInfo();
@@ -90,7 +106,10 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                 << II;
         return StmtError();
   }
-  return BuildContractStmt(CK, KeywordLoc, Cond, ResultNameDecl);
+
+  return BuildContractStmt(
+      CK, KeywordLoc, Cond, ResultNameDecl,
+      SemaContractHelper::buildAttributesWithDummyNode(*this, CXX11Contracts));
 }
 
 /* FIXME(EricWF): Is this needed?

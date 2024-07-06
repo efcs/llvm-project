@@ -4,7 +4,10 @@
 void test_pre_parse(int x) pre(x != 0);
 void test_post_parse(int x) post(x != 0);
 int test_dup_names(int x) // expected-note {{previous declaration is here}}
-  post(x : x != 0); // expected-error {{declaration of result name 'x' shadows parameter}}
+  post(x :  // expected-error {{declaration of result name 'x' shadows parameter}}
+    x != 0); // expected-error {{reference to 'x' is ambiguous}}
+  // expected-note@-2 {{candidate found by name lookup is 'x'}}
+  // expected-note@-4 {{candidate found by name lookup is 'x'}}
 
 
 auto test_trailing_return() -> int post(r : r != 0);
@@ -69,4 +72,16 @@ void test_converted_to_bool(int x)
 int test_result_name_scope() post(r : r != 0) {
   ((void)r); // expected-error {{use of undeclared identifier 'r'}}
   return 42;
+}
+
+void test_attribute(int x) pre [[clang::contract_group("foo")]] (x != 0) {
+  contract_assert [[clang::contract_group("foo")]] (x != 0); // OK
+
+  contract_assert [[clang::contract_group("")]] (true); // expected-error {{clang::contract_group attribute argument "" cannot be empty}}
+  contract_assert [[clang::contract_group("-bar")]] (true); // expected-error {{clang::contract_group attribute argument "-bar" cannot contain '-'}}
+  contract_assert [[clang::contract_group("foo*bar")]] (true);
+  contract_assert [[clang::contract_group("foo-bar")]] (true); // OK
+
+  contract_assert [[clang::contract_group("f")]] // expected-note {{previous attribute is here}}
+                  [[clang::contract_group("f")]] (x != 0); // expected-error {{clang::contract_group appears more than once}}
 }

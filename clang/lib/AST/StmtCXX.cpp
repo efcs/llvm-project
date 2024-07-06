@@ -11,8 +11,9 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/AST/StmtCXX.h"
-#include "clang/AST/DeclCXX.h"
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/DeclCXX.h"
 
 using namespace clang;
 
@@ -128,27 +129,43 @@ CoroutineBodyStmt::CoroutineBodyStmt(CoroutineBodyStmt::CtorArgs const &Args)
 }
 
 ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
-                                        bool HasResultName) {
-  void *Mem = C.Allocate(totalSizeToAlloc<Stmt *>(1 + HasResultName),
+                                        bool HasResultName, unsigned NumAttrs) {
+  void *Mem = C.Allocate(totalSizeToAlloc<void *>(1 + HasResultName + NumAttrs),
                          alignof(ContractStmt));
   return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName);
 }
 
 ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
                                    SourceLocation KeywordLoc, Expr *Condition,
-                                   DeclStmt *ResultNameDecl) {
+                                   DeclStmt *ResultNameDecl,
+                                   ArrayRef<const Attr *> Attrs) {
   assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
          "Only a postcondition can have a result name declaration");
-  auto *S = CreateEmpty(C, Kind, ResultNameDecl != nullptr);
-  S->KeywordLoc = KeywordLoc;
-  S->setCondition(Condition);
-  if (ResultNameDecl)
-    S->setResultNameDecl(ResultNameDecl);
-  return S;
+  void *Mem = C.Allocate(
+      totalSizeToAlloc<void *>(1 + (ResultNameDecl != nullptr) + Attrs.size()),
+      alignof(ContractStmt));
+  return new (Mem)
+      ContractStmt(Kind, KeywordLoc, Condition, ResultNameDecl, Attrs);
 }
 
 ResultNameDecl *ContractStmt::getResultNameDecl() const {
   DeclStmt* D = getResultNameDeclStmt();
   assert(D);
   return cast<ResultNameDecl>(D->getSingleDecl());
+}
+
+StringRef ContractStmt::getContractGroup() const {
+  for (const Attr *A : getAttrs()) {
+    if (const auto *CA = dyn_cast<ContractGroupAttr>(A))
+      return CA->getGroup();
+  }
+  return StringRef();
+}
+
+ContractEvaluationSemantic
+ContractStmt::getSemantic(const LangOptions &LangOpts) const {
+  StringRef Group = getContractGroup();
+  if (Group.empty())
+    return LangOpts.ContractOptions.DefaultSemantic;
+  return LangOpts.ContractOptions.getSemanticForGroup(Group);
 }

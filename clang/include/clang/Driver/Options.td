@@ -1677,11 +1677,10 @@ def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-seman
   NormalizedValues<["Ignore", "Enforce", "Observe", "QuickEnforce"]>,
   MarshallingInfoEnum<LangOpts<"ContractEvalSemantic">, "Enforce">;
 
-def fclang_contract_groups_EQ : CommaJoined<["-"], "fcontract-groups=">,
+def fclang_contract_groups_EQ : CommaJoined<["-"], "fclang-contract-groups=">,
   Visibility<[ClangOption, CC1Option]>,
   HelpText<"Clang extension. Enable or disable contracts by group. The argument is a comma-separated "
-           "sequence of one or more group names, each prefixed by '+' or '-'.">,
-  MarshallingInfoStringVector<LangOpts<"ClangContractGroups">>;
+           "sequence of one or more group names, each prefixed by '+' or '-'.">;
 
 
 // C++ Coroutines

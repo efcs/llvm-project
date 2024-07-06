@@ -12,6 +12,7 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DelayedDiagnostic.h"
@@ -295,6 +296,46 @@ static Attr *handleNoInlineAttr(Sema &S, Stmt *St, const ParsedAttr &A,
     return nullptr;
 
   return ::new (S.Context) NoInlineAttr(S.Context, A);
+}
+
+static void CheckForDuplicateContractGroupAttrs(Sema &S,
+                                                ArrayRef<const Attr *> Attrs) {
+  auto FindFunc = [](const Attr *A) { return isa<const ContractGroupAttr>(A); };
+  const auto FirstIter = std::find_if(Attrs.begin(), Attrs.end(), FindFunc);
+  if (FirstIter == Attrs.end())
+    return;
+
+  const auto *NextFound = FirstIter;
+  while (NextFound != Attrs.end() &&
+         (NextFound = std::find_if(NextFound + 1, Attrs.end(), FindFunc)) !=
+             Attrs.end()) {
+    S.Diag((*NextFound)->getLocation(), diag::err_contract_group_redeclared)
+        << *FirstIter;
+    S.Diag((*FirstIter)->getLocation(), diag::note_previous_attribute);
+  }
+}
+
+static Attr *handleContractGroupAttr(Sema &S, Stmt *st, const ParsedAttr &A,
+                                     SourceRange Range) {
+
+  assert(A.getNumArgs() == 1);
+
+  StringRef GroupName;
+  assert(A.getArgAsExpr(0));
+  if (!S.checkStringLiteralArgumentAttr(A, 0, GroupName, nullptr))
+    return nullptr;
+
+  auto EmitDiag = [&](ContractGroupDiagnostic CDK, StringRef Group,
+                      StringRef InvalidRange = "") {
+    S.Diag(Range.getBegin(), diag::err_contract_group_attribute_invalid_group)
+        << (int)CDK << Group << InvalidRange
+        << A.getArgAsExpr(0)->getSourceRange();
+  };
+
+  if (!ContractOptions::validateContractGroup(GroupName, EmitDiag))
+    return nullptr;
+
+  return ::new (S.Context) ContractGroupAttr(S.Context, A, GroupName);
 }
 
 static Attr *handleAlwaysInlineAttr(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -636,6 +677,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleCodeAlignAttr(S, St, A);
   case ParsedAttr::AT_MSConstexpr:
     return handleMSConstexprAttr(S, St, A, Range);
+  case ParsedAttr::AT_ContractGroup:
+    return handleContractGroupAttr(S, St, A, Range);
   default:
     // N.B., ClangAttrEmitter.cpp emits a diagnostic helper that ensures a
     // declaration attribute is not written on a statement, but this code is
@@ -655,6 +698,7 @@ void Sema::ProcessStmtAttributes(Stmt *S, const ParsedAttributes &InAttrs,
 
   CheckForIncompatibleAttributes(*this, OutAttrs);
   CheckForDuplicateLoopAttrs<CodeAlignAttr>(*this, OutAttrs);
+  CheckForDuplicateContractGroupAttrs(*this, OutAttrs);
 }
 
 bool Sema::CheckRebuiltStmtAttributes(ArrayRef<const Attr *> Attrs) {

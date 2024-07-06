@@ -1230,6 +1230,17 @@ public:
   }
 };
 
+// This enum is silly, but avoids creating overload sets where many adjacent
+// arguments are all convertible to/from bool or int.
+enum class ContractConstification {
+  CC_None,
+  CC_ApplyConst,
+};
+
+constexpr ContractConstification CC_None = ContractConstification::CC_None;
+constexpr ContractConstification CC_ApplyConst =
+    ContractConstification::CC_ApplyConst;
+
 /// A reference to a declared variable, function, enum, etc.
 /// [C99 6.5.1p2]
 ///

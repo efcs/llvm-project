@@ -364,18 +364,17 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
     llvm_unreachable("unhandled ContractKind");
   }();
 
-
   unsigned EvalSemantic = [&]() -> unsigned{
     using EST = LangOptions::ContractEvaluationSemantic;
-    switch (getLangOpts().ContractEvalSemantic) {
-    case EST::Ignore:
-      assert(false && "unimplemented");
+    switch (S.getSemantic(getLangOpts())) {
     case EST::Enforce:
       return 1;
     case EST::Observe:
       return 2;
+    case EST::Ignore:
     case EST::QuickEnforce:
-      assert(false && "unimplemented");
+    case EST::Invalid:
+      llvm_unreachable("cannot generate a call for this semantic");
     }
     llvm_unreachable("unhandled ContractEvaluationSemantic");
   }();
@@ -415,6 +414,11 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   // Emit the contract expression.
   const Expr *Expr = S.getCond();
+  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
+
+  // FIXME(EricWF): I think there's a lot more to do that simply this.
+  if (Semantic == LangOptions::ContractEvaluationSemantic::Ignore)
+    return;
 
   llvm::Value *ArgValue = EmitScalarExpr(Expr);
   llvm::BasicBlock *Begin = Builder.GetInsertBlock();
@@ -426,20 +430,27 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
   Builder.SetInsertPoint(Violation);
 
-  EmitHandleContractViolationCall(S, ContractViolationDetection::PredicateFailed);
-
-
-  llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
-  TrapCall->setDoesNotReturn();
-  TrapCall->setDoesNotThrow();
-  Builder.CreateUnreachable();
-  Builder.ClearInsertionPoint();
+  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
+    EmitHandleContractViolationCall(
+        S, ContractViolationDetection::PredicateFailed);
+  }
+  if (Semantic != ContractEvaluationSemantic::Observe) {
+    llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+    TrapCall->setDoesNotReturn();
+    TrapCall->setDoesNotThrow();
+    Builder.CreateUnreachable();
+    Builder.ClearInsertionPoint();
+  }
+  Builder.CreateBr(End);
 
   Builder.SetInsertPoint(End);
 
-  // FIXME(EricWF): Maybe don't create the assume if the contract check is ignored.
-  llvm::Function *FnAssume = CGM.getIntrinsic(llvm::Intrinsic::assume);
-  Builder.CreateCall(FnAssume, ArgValue);
+  if (Semantic != ContractEvaluationSemantic::Observe) {
+    // FIXME(EricWF): Maybe don't create the assume if the contract check is
+    // ignored.
+    llvm::Function *FnAssume = CGM.getIntrinsic(llvm::Intrinsic::assume);
+    Builder.CreateCall(FnAssume, ArgValue);
+  }
 }
 
 

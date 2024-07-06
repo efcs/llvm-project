@@ -3230,7 +3230,7 @@ def Unavailable : InheritableAttr {
 
 def ContractGroup : StmtAttr {
   let Spellings = [CXX11<"clang", "contract_group">];
-  let Args = [ StringArgument<"Group">];
+  let Args = [ StringArgument<"Group"> ];
   let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
   let Documentation = [Undocumented];
 }

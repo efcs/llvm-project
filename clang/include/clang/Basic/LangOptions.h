@@ -15,6 +15,7 @@
 #define LLVM_CLANG_BASIC_LANGOPTIONS_H
 
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/ObjCRuntime.h"
@@ -441,30 +442,7 @@ public:
     CX_None
   };
 
-  /// Contract evaluation mode. Determines whether to check contracts, and 
-  // whether contract failures cause compile errors.
-  enum class ContractEvaluationSemantic {
-    // Contracts are parsed, syntax checked and type checked, but never evaluated.
-    // FIXME(EricWF): This doesn't yet map to an actual enumerator in
-    //  std::contracts::evaluation_semantic
-    Ignore = 0,
-
-    // Contracts are run, failures are reported, and when a contract fails the 
-    // program is terminated. The compiler can assume after contracts statements 
-    // that the contracts hold.
-    Enforce = 1,
-
-    // Contracts are run, and failures are reported, but contract failures do not
-    // logically stop execution of the program, nor can the compiler assume
-    // contracts are true for optimizing.
-    Observe = 2,
-
-    // Contracts are run, failures cause an immediate trap
-    // FIXME(EricWF): This doesn't yet map to an actual enumerator in
-    //  std::contracts::evaluation_semantic
-    QuickEnforce = 3,
-  };
-
+  using ContractEvaluationSemantic = clang::ContractEvaluationSemantic;
 
   // Define simple language options (with no accessors).
 #define LANGOPT(Name, Bits, Default, Description) unsigned Name : Bits;
@@ -555,6 +533,10 @@ public:
   /// A prefix map for __FILE__, __BASE_FILE__ and __builtin_FILE().
   std::map<std::string, std::string, std::greater<std::string>> MacroPrefixMap;
 
+  /// A map from a "contract group" or "contract subgroup" to the value
+  /// indicating whether the group is enabled or disabled from the command line.
+  std::unordered_map<std::string, bool> EnabledContractGroups;
+
   /// Triples of the OpenMP targets that the host code codegen should
   /// take into account in order to generate accurate offloading descriptors.
   std::vector<llvm::Triple> OMPTargetTriples;
@@ -583,9 +565,9 @@ public:
   /// C++ contracts evaluation mode
   ContractEvaluationSemantic ContractEvalSemantic;
 
-  /// A List of + or - prefixed contract groups to enable or disable
-  /// FIXME(EricWF): Implement this
-  std::vector<std::string> ClangContractGroups;
+  /// A list of options pretaining to c++ contracts and clang attributes about
+  /// them.
+  ContractOptions ContractOptions;
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

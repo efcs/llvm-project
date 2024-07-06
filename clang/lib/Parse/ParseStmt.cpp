@@ -344,6 +344,8 @@ Retry:
     break;
 
   case tok::kw_contract_assert: // C++20 contract-assert-statement
+    ProhibitAttributes(CXX11Attrs);
+    ProhibitAttributes(GNUAttrs); // The attributes go after the keyword
     Res = ParseContractAssertStatement();
     SemiError = "contract_assert";
     break;
@@ -2439,10 +2441,15 @@ StmtResult Parser::ParseContractAssertStatement() {
 
   // Adjust the scope for the purposes of constification.
   EnterContractAssertScopeRAII EnterCAS(getCurScope());
+  using ExpressionKind =
+      Sema::ExpressionEvaluationContextRecord::ExpressionKind;
+  EnterExpressionEvaluationContext EC(
+      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      ExpressionKind::EK_ContractStmt);
+  Actions.currentEvaluationContext().InContractStatement = true;
 
-  // FIXME(EricWF): This seems really worg.
-  ParsedAttributes attrs(AttrFactory);
-  MaybeParseCXX11Attributes(attrs);
+  ParsedAttributes CXX11Attrs(AttrFactory);
+  MaybeParseCXX11Attributes(CXX11Attrs);
 
   if (Tok.isNot(tok::l_paren)) {
     Diag(Tok, diag::err_expected_lparen_after) << "contract_assert";
@@ -2473,9 +2480,9 @@ StmtResult Parser::ParseContractAssertStatement() {
   if (Cond.isInvalid())
     return StmtError();
 
-  return Actions.ActOnContractAssert(ContractKind::Assert, KeywordLoc, Cond.get());
-
-
+  return Actions.ActOnContractAssert(ContractKind::Assert, KeywordLoc,
+                                     Cond.get(),
+                                     /*ResultNameDecl=*/nullptr, CXX11Attrs);
 }
 
 /// ParseReturnStatement
