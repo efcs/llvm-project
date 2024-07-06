@@ -3190,7 +3190,6 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
                                                         SourceLocation loc,
                                                         ValueDecl *var);
 
-
 /// [basic.contract.general]
 /// Within the predicate of a contract assertion, id-expressions referring to variables
 /// with automatic storage duration are const ([expr.prim.id.unqual])
