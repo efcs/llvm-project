@@ -1681,7 +1681,7 @@ def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-seman
   Visibility<[ClangOption, CC1Option]>,
   NormalizedValuesScope<"LangOptions::ContractEvaluationSemantic">,
   NormalizedValues<["Ignore", "Enforce", "Observe", "QuickEnforce"]>,
-  MarshallingInfoEnum<LangOpts<"ContractEvalSemantic">, "Enforce">;
+  MarshallingInfoEnum<LangOpts<"ContractOptions.DefaultSemantic">, "Enforce">;
 
 def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group-evaluation-semantic=">,
   Visibility<[ClangOption, CC1Option]>,

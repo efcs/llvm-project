@@ -533,10 +533,6 @@ public:
   /// A prefix map for __FILE__, __BASE_FILE__ and __builtin_FILE().
   std::map<std::string, std::string, std::greater<std::string>> MacroPrefixMap;
 
-  /// A map from a "contract group" or "contract subgroup" to the value
-  /// indicating whether the group is enabled or disabled from the command line.
-  std::unordered_map<std::string, bool> EnabledContractGroups;
-
   /// Triples of the OpenMP targets that the host code codegen should
   /// take into account in order to generate accurate offloading descriptors.
   std::vector<llvm::Triple> OMPTargetTriples;

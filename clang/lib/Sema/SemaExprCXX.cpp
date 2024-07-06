@@ -1112,6 +1112,18 @@ bool Sema::CheckCXXThrowOperand(SourceLocation ThrowLoc,
   return false;
 }
 
+static QualType adjustCVQualifiersForCXXThisWithinContract(QualType ThisTy,
+                                                           ASTContext &ASTCtx) {
+  QualType ClassType = ThisTy->getPointeeType();
+  if (not ClassType.isConstQualified()) {
+    // If the 'this' object is const-qualified, we need to remove the
+    // const-qualification for the contract check.
+    ClassType.addConst();
+    return ASTCtx.getPointerType(ClassType);
+  }
+  return ThisTy;
+}
+
 static QualType adjustCVQualifiersForCXXThisWithinLambda(
     ArrayRef<FunctionScopeInfo *> FunctionScopes, QualType ThisTy,
     DeclContext *CurSemaContext, ASTContext &ASTCtx) {
@@ -1247,6 +1259,9 @@ QualType Sema::getCurrentThisType() {
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
                                                     CurContext, Context);
+  if (!ThisTy.isNull() && currentEvaluationContext().InContractStatement) {
+    return adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
+  }
   return ThisTy;
 }
 

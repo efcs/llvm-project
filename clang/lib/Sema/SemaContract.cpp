@@ -201,3 +201,17 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
 
   return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
 }
+
+Sema::ContractScopeRAII::ContractScopeRAII(Sema &SemaRef)
+    : S(&SemaRef), OldCXXThisType(SemaRef.CXXThisTypeOverride),
+      OldIsContractScope(SemaRef.ExprEvalContexts.back().InContractStatement) {
+  QualType NewT = S->CXXThisTypeOverride;
+
+  S->CXXThisTypeOverride = NewT;
+  S->ExprEvalContexts.back().InContractStatement = true;
+}
+
+Sema::ContractScopeRAII::~ContractScopeRAII() {
+  S->CXXThisTypeOverride = OldCXXThisType;
+  S->ExprEvalContexts.back().InContractStatement = OldIsContractScope;
+}

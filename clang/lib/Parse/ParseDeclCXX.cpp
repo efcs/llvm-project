@@ -4421,13 +4421,6 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   ParsedAttributes CXX11Attrs(AttrFactory);
   MaybeParseCXX11Attributes(CXX11Attrs);
 
-  using ExpressionKind =
-      Sema::ExpressionEvaluationContextRecord::ExpressionKind;
-  EnterExpressionEvaluationContext EC(
-      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
-      ExpressionKind::EK_ContractStmt);
-  Actions.currentEvaluationContext().InContractStatement = true;
-
   if (Tok.isNot(tok::l_paren)) {
     Diag(Tok, diag::err_expected_lparen_after) << CKStr;
     SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma,
@@ -4449,8 +4442,12 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
                                   Scope::FunctionPrototypeScope |
                                   Scope::ContractAssertScope);
 
+  EnterExpressionEvaluationContext EC(
+      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
+
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
   InitCXXThisScopeForDeclaratorIfRelevant(DeclaratorInfo, DeclaratorInfo.getDeclSpec(), ThisScope);
+  Sema::ContractScopeRAII ContractExpressionScope(Actions);
 
   DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
 

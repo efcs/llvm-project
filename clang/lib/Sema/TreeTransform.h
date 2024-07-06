@@ -1609,11 +1609,7 @@ public:
   StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultName,
                                  ArrayRef<const Attr *> Attrs) {
-    const bool LastVal =
-        getSema().currentEvaluationContext().InContractStatement;
-    getSema().currentEvaluationContext().InContractStatement = true;
     return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
-    getSema().currentEvaluationContext().InContractStatement = LastVal;
   }
 
   /// Build a new Objective-C \@try statement.
@@ -8589,21 +8585,10 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
 
 // C++ Contract Statements
 
-struct ValueGuard {
-  ValueGuard(bool *Value, bool NewValue) : Value(Value), OldVal(*Value) {
-    *Value = NewValue;
-  }
-  ~ValueGuard() { *Value = OldVal; }
-
-  bool *Value;
-  bool OldVal;
-};
-
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
 
-  ValueGuard InContractGuard(
-      &SemaRef.currentEvaluationContext().InContractStatement, true);
+  Sema::ContractScopeRAII ContractScope(getSema());
 
   StmtResult NewResultName;
   if (S->hasResultNameDecl()) {

@@ -2617,24 +2617,6 @@ def SetJmpEx : MSLibBuiltin<"setjmpex.h"> {
   let Prototype = "int(jmp_buf)";
 }
 
-// C++ contracts
-def ContractViolation : Builtin {
-  let Spellings = ["handle_contract_violation"];
-  let Prototype = "void()";
-  let Attributes = [NoThrow, NoReturn, Constexpr];
-}
-
-def UnnamedConstant : Builtin {
-  let Spellings = ["__builtin_unnamed_constant"];
-  let Prototype = "void(...)";
-  let Attributes = [NoThrow, CustomTypeChecking, Constexpr];
-}
-
-def CurrentContractEvaluationSemantic : Builtin {
-  let Spellings = ["__builtin_contract_evaluation_semantic"];
-  let Prototype = "int()";
-  let Attributes = [NoThrow, Constexpr];
-}
 
 // C99 library functions
 // C99 stdarg.h

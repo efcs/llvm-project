@@ -2440,13 +2440,7 @@ StmtResult Parser::ParseContractAssertStatement() {
   SourceLocation KeywordLoc = ConsumeToken(); // eat the 'contract_assert'.
 
   // Adjust the scope for the purposes of constification.
-  EnterContractAssertScopeRAII EnterCAS(getCurScope());
-  using ExpressionKind =
-      Sema::ExpressionEvaluationContextRecord::ExpressionKind;
-  EnterExpressionEvaluationContext EC(
-      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
-      ExpressionKind::EK_ContractStmt);
-  Actions.currentEvaluationContext().InContractStatement = true;
+  Sema::ContractScopeRAII ContractScope(Actions);
 
   ParsedAttributes CXX11Attrs(AttrFactory);
   MaybeParseCXX11Attributes(CXX11Attrs);

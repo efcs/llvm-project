@@ -2741,7 +2741,16 @@ public:
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                Expr *Cond, DeclStmt *ResultNameDecl,
                                ArrayRef<const Attr *> Attrs);
+  struct ContractScopeRAII {
+    ContractScopeRAII(Sema &S);
+    ~ContractScopeRAII();
 
+    ContractScopeRAII(ContractScopeRAII const &) = delete;
+
+    Sema *S;
+    QualType OldCXXThisType;
+    bool OldIsContractScope;
+  };
   ///@}
 
   //
@@ -6369,7 +6378,6 @@ public:
       EK_Decltype,
       EK_TemplateArgument,
       EK_BoundsAttrArgument,
-      EK_ContractStmt,
       EK_Other
     } ExprContext;
 
@@ -6459,10 +6467,7 @@ public:
               InDiscardedStatement);
     }
 
-    bool isContractStatementContext() const {
-
-      return InContractStatement || ExprContext == EK_ContractStmt;
-    }
+    bool isContractStatementContext() const { return InContractStatement; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6494,10 +6499,7 @@ public:
   }
 
   bool isContractStmtContext() const {
-    return ExprEvalContexts.back().ExprContext ==
-               ExpressionEvaluationContextRecord::ExpressionKind::
-                   EK_ContractStmt ||
-           ExprEvalContexts.back().InContractStatement;
+    return ExprEvalContexts.back().InContractStatement;
   }
 
   /// Increment when we find a reference; decrement when we find an ignored
