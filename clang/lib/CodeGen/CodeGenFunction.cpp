@@ -440,10 +440,11 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     TrapCall->setDoesNotReturn();
     TrapCall->setDoesNotThrow();
     Builder.CreateUnreachable();
-    Builder.ClearInsertionPoint();
+
+  } else {
+    Builder.CreateBr(End);
   }
 
-  Builder.CreateBr(End);
   Builder.SetInsertPoint(End);
 
   if (Semantic != ContractEvaluationSemantic::Observe) {
