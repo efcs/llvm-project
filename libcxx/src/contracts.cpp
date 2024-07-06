@@ -9,7 +9,6 @@
 namespace std::contracts {
 
 void invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
-
   ::handle_contract_violation(violation);
 }
 

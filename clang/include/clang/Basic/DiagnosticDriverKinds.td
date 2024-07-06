@@ -827,5 +827,4 @@ def err_drv_contract_group_name_invalid : Error<
     "|cannot be empty"
     "|\"%2\" is an invalid value"
     "}0">;
-
 }
