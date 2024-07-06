@@ -32,7 +32,10 @@ ContractOptions::getSemanticForGroup(StringRef Group) const {
         Pos != SemanticsByGroup.end()) {
       return Pos->second;
     }
-    Group = Group.substr(0, Group.rfind('.'));
+    auto NewEnd = Group.rfind('.');
+    if (NewEnd == StringRef::npos)
+      break;
+    Group = Group.substr(0, NewEnd);
   }
   return DefaultSemantic;
 }

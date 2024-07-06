@@ -5183,6 +5183,19 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
   return true;
 }
 
+static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
+  const Expr *E = S->getCond();
+  APSInt Desired;
+  if (!EvaluateInteger(E, Desired, Info)) {
+    return false;
+  }
+  if (!Desired) {
+    Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+    return false;
+  }
+  return true;
+}
+
 // Evaluate a statement.
 static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
                                    const Stmt *S, const SwitchCase *Case) {
@@ -5420,7 +5433,11 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
     }
     return Scope.destroy() ? ESR_Succeeded : ESR_Failed;
   }
-
+  case Stmt::ContractStmtClass: {
+    if (EvaluateContract(cast<ContractStmt>(S), Info))
+      return ESR_Succeeded;
+    return ESR_Failed;
+  }
   case Stmt::WhileStmtClass: {
     const WhileStmt *WS = cast<WhileStmt>(S);
     while (true) {
@@ -6323,19 +6340,6 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
   return handleLValueToRValueConversion(
       Info, E, Param->getType().getNonReferenceType(), RefLValue, Result,
       CopyObjectRepresentation);
-}
-
-static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
-  const Expr *E = S->getCond();
-  APSInt Desired;
-  if (!EvaluateInteger(E, Desired, Info)) {
-    return false;
-  }
-  if (!Desired) {
-    Info.CCEDiag(E, diag::note_constexpr_contract_failure);
-    return false;
-  }
-  return true;
 }
 
 static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
