@@ -2728,8 +2728,9 @@ public:
   ///@{
 
 public:
-  StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc, Expr *Cond,
-                                 DeclStmt *ResultNameDecl = nullptr);
+  StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultNameDecl,
+                                 ParsedAttributes &Attrs);
 
   StmtResult ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
                                       SourceLocation IDLoc,
@@ -2738,7 +2739,8 @@ public:
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
-                               Expr *Cond, DeclStmt *ResultNameDecl = nullptr);
+                               Expr *Cond, DeclStmt *ResultNameDecl,
+                               ArrayRef<const Attr *> Attrs);
 
   ///@}
 
@@ -6367,6 +6369,7 @@ public:
       EK_Decltype,
       EK_TemplateArgument,
       EK_BoundsAttrArgument,
+      EK_ContractStmt,
       EK_Other
     } ExprContext;
 
@@ -6375,7 +6378,7 @@ public:
     bool InDiscardedStatement;
     bool InImmediateFunctionContext;
     bool InImmediateEscalatingFunctionContext;
-
+    bool InContractStatement = false;
     bool IsCurrentlyCheckingDefaultArgumentOrInitializer = false;
 
     // We are in a constant context, but we also allow
@@ -6455,6 +6458,11 @@ public:
                   ExpressionEvaluationContext::ImmediateFunctionContext &&
               InDiscardedStatement);
     }
+
+    bool isContractStatementContext() const {
+
+      return InContractStatement || ExprContext == EK_ContractStmt;
+    }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6483,6 +6491,13 @@ public:
     return ExprEvalContexts.back().ExprContext ==
            ExpressionEvaluationContextRecord::ExpressionKind::
                EK_BoundsAttrArgument;
+  }
+
+  bool isContractStmtContext() const {
+    return ExprEvalContexts.back().ExprContext ==
+               ExpressionEvaluationContextRecord::ExpressionKind::
+                   EK_ContractStmt ||
+           ExprEvalContexts.back().InContractStatement;
   }
 
   /// Increment when we find a reference; decrement when we find an ignored

@@ -4402,9 +4402,7 @@ bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, Cach
                          /*ConsumeFinalToken=*/true);
   ContractRange.setEnd(Toks.back().getLocation());
   return true;
-
 }
-#pragma clang diagnostic ignored "-Wunused-variable"
 
 StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
@@ -4419,6 +4417,16 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
   }();
   SourceLocation KeywordLoc = Tok.getLocation();
   ConsumeToken();
+
+  ParsedAttributes CXX11Attrs(AttrFactory);
+  MaybeParseCXX11Attributes(CXX11Attrs);
+
+  using ExpressionKind =
+      Sema::ExpressionEvaluationContextRecord::ExpressionKind;
+  EnterExpressionEvaluationContext EC(
+      Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      ExpressionKind::EK_ContractStmt);
+  Actions.currentEvaluationContext().InContractStatement = true;
 
   if (Tok.isNot(tok::l_paren)) {
     Diag(Tok, diag::err_expected_lparen_after) << CKStr;
@@ -4484,7 +4492,13 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
   T.consumeClose();
 
-  return Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), ResultNameStmt);
+  StmtResult ContractStmt = Actions.ActOnContractAssert(
+      CK, KeywordLoc, Cond.get(), ResultNameStmt, CXX11Attrs);
+  if (!ContractStmt.isUsable()) {
+    return StmtError();
+  }
+
+  return ContractStmt;
 }
 
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style

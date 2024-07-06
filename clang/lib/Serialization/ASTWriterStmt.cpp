@@ -473,11 +473,13 @@ void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
   CurrentPackingBits.addBits(S->ContractAssertBits.ContractKind,
                              /*BitsWidth=*/2);
   CurrentPackingBits.addBit(S->ContractAssertBits.HasResultName);
+  Record.push_back(S->getAttrs().size());
 
   Record.AddSourceLocation(S->getKeywordLoc());
   Record.AddStmt(S->getCond());
   if (S->hasResultNameDecl())
     Record.AddStmt(S->getResultNameDeclStmt());
+  Record.AddAttributes(S->getAttrs());
 
   Code = serialization::STMT_CXX_CONTRACT;
 }

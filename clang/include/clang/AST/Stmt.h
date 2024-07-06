@@ -863,6 +863,9 @@ protected:
 
     LLVM_PREFERRED_TYPE(ContractKind)
     unsigned ContractKind : 2;
+
+    LLVM_PREFERRED_TYPE(unsigned)
+    unsigned NumAttrs : 32 - NumStmtBits - 3;
   };
 
   class CXXNewExprBitfields {

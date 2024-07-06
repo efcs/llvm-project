@@ -3194,16 +3194,18 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
 /// [basic.contract.general]
 /// Within the predicate of a contract assertion, id-expressions referring to variables
 /// with automatic storage duration are const ([expr.prim.id.unqual])
-static bool shouldAdjustTypeForContractConstification(Sema &S, const ValueDecl *VD) {
+static ContractConstification getContractConstification(Sema &S,
+                                                        const ValueDecl *VD) {
 
-  if (!S.getCurScope()->isContractAssertScope())
-    return false;
+  if (!S.getCurScope()->isContractAssertScope() && !S.isContractStmtContext())
+    return CC_None;
 
   if (auto Var = dyn_cast<VarDecl>(VD)) {
-    return Var->isLocalVarDeclOrParm();
+    if (Var->isLocalVarDeclOrParm())
+      return CC_ApplyConst;
   }
 
-  return false;
+  return CC_None;
 }
 
 /// Complete semantic analysis for a reference to the given declaration.
@@ -3267,6 +3269,8 @@ ExprResult Sema::BuildDeclarationNameExpr(
   // a reference to 'V' is simply (unexpanded) 'T'. The type, like the value,
   // is expanded by some outer '...' in the context of the use.
   type = type.getNonPackExpansionType();
+
+  ContractConstification CC = CC_None;
 
   switch (D->getKind()) {
     // Ignore all the non-ValueDecl kinds.
@@ -3356,12 +3360,17 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
+      CC = getContractConstification(*this, cast<VarDecl>(VD));
+      if (CC == CC_ApplyConst)
+        type = type.withConst();
+
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
       else {
-        if (shouldAdjustTypeForContractConstification(*this, VD))
-          type = type.withConst();
+        CC = getContractConstification(*this, cast<VarDecl>(VD));
+        if (CC == CC_ApplyConst)
+          type = type.getNonReferenceType().withConst();
       }
     }
 
@@ -3462,6 +3471,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
   auto *E =
       BuildDeclRefExpr(VD, type, valueKind, NameInfo, &SS, FoundD,
                        /*FIXME: TemplateKWLoc*/ SourceLocation(), TemplateArgs);
+
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
   // RecoveryExpr to avoid follow-up semantic analysis (thus prevent bogus

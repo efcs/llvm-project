@@ -3512,7 +3512,9 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
       GenerateArg(Consumer, OPT_pic_is_pie);
     for (StringRef Sanitizer : serializeSanitizerKinds(Opts.Sanitize))
       GenerateArg(Consumer, OPT_fsanitize_EQ, Sanitizer);
-
+    for (StringRef ContractGroup :
+         Opts.ContractOptions.serializeContractGroupArgs())
+      GenerateArg(Consumer, OPT_fclang_contract_groups_EQ, ContractGroup);
     return;
   }
 
@@ -3784,6 +3786,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
 
   if (!Opts.RandstructSeed.empty())
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
+
+  for (StringRef ContractGroup :
+       Opts.ContractOptions.serializeContractGroupArgs())
+    GenerateArg(Consumer, OPT_fclang_contract_groups_EQ, ContractGroup);
 }
 
 bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
@@ -4412,6 +4418,17 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
     } else
       Diags.Report(diag::err_drv_hlsl_unsupported_target) << T.str();
   }
+
+  auto EmitContractDiag = [&](ContractGroupDiagnostic CGD, StringRef GroupName,
+                              StringRef InvalidChar = "") {
+    Diags.Report(diag::err_drv_contract_group_name_invalid)
+        << (int)CGD << GroupName << InvalidChar;
+  };
+
+  std::vector<std::string> ContractGroupValues =
+      Args.getAllArgValues(options::OPT_fclang_contract_groups_EQ);
+  Opts.ContractOptions.parseContractGroups(ContractGroupValues,
+                                           EmitContractDiag);
 
   return Diags.getNumErrors() == NumErrorsBefore;
 }

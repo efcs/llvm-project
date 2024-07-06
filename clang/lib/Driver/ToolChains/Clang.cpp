@@ -7257,6 +7257,11 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
         CmdArgs.push_back(Args.MakeArgString(
             Twine("-fcontract-evaluation-semantic=") + A->getValue()));
       }
+      std::vector<std::string> ContractGroups =
+          Args.getAllArgValues(options::OPT_fclang_contract_groups_EQ);
+      CmdArgs.push_back(Args.MakeArgString(Twine("-fclang-contract-groups=") +
+                                           llvm::join(ContractGroups, ",")));
+
     }();
 
 
