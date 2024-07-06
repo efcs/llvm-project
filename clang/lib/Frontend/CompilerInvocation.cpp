@@ -3475,9 +3475,11 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
       GenerateArg(Consumer, OPT_pic_is_pie);
     for (StringRef Sanitizer : serializeSanitizerKinds(Opts.Sanitize))
       GenerateArg(Consumer, OPT_fsanitize_EQ, Sanitizer);
+
+
     for (StringRef ContractGroup :
          Opts.ContractOptions.serializeContractGroupArgs())
-      GenerateArg(Consumer, OPT_fclang_contract_groups_EQ, ContractGroup);
+      GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
     return;
   }
 
@@ -3752,7 +3754,7 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
 
   for (StringRef ContractGroup :
        Opts.ContractOptions.serializeContractGroupArgs())
-    GenerateArg(Consumer, OPT_fclang_contract_groups_EQ, ContractGroup);
+    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
 }
 
 bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
@@ -4389,7 +4391,7 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
   };
 
   std::vector<std::string> ContractGroupValues =
-      Args.getAllArgValues(options::OPT_fclang_contract_groups_EQ);
+      Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
   Opts.ContractOptions.parseContractGroups(ContractGroupValues,
                                            EmitContractDiag);
 

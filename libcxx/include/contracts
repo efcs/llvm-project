@@ -56,7 +56,7 @@ public:
         unsigned __line_;
     };
 
-  contract_violation(_Info __info) noexcept
+  explicit contract_violation(_Info __info) noexcept
       : __info_(__info) {}
 
 
@@ -70,13 +70,13 @@ _LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler(const c
 
 } // namespace std::contracts
 
-_LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&) noexcept;
+_LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&);
 
 
 extern "C" {
 _LIBCPP_EXPORTED_FROM_ABI
 void __handle_contract_violation(unsigned kind, unsigned eval_semantic,
-unsigned detection_mode, const char* comment, const char* file, unsigned line);
+                                  unsigned detection_mode, const char* comment, const char* file, unsigned line);
 }
 
 
