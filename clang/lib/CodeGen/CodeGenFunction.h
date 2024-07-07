@@ -115,7 +115,6 @@ enum TypeEvaluationKind {
 enum class ContractViolationDetection {
   PredicateFailed = 1,
   ExceptionRaised = 2
-
 };
 
 #define LIST_SANITIZER_CHECKS                                                  \
@@ -4366,6 +4365,8 @@ public:
   void EmitContractStmt(const ContractStmt &S);
 
   void EmitHandleContractViolationCall(const ContractStmt &S, ContractViolationDetection);
+  void NewEmitHandleContractViolationCall(const ContractStmt &S,
+                                          ContractViolationDetection);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission
