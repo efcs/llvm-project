@@ -775,6 +775,11 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
+  auto Contracts = D->getContracts();
+  Record.push_back(Contracts.size());
+  for (auto *C : Contracts)
+    Record.AddStmt(C);
+
   Code = serialization::DECL_FUNCTION;
 }
 

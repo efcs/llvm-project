@@ -110,6 +110,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   StmtResult Res = BuildContractStmt(
       CK, KeywordLoc, Cond, ResultNameDecl,
       SemaContractHelper::buildAttributesWithDummyNode(*this, CXX11Contracts));
+
   if (Res.isInvalid())
     return StmtError();
 

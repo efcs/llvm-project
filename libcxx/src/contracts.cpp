@@ -29,7 +29,12 @@ static void display_contract_violation(const contract_violation& violation) noex
       return {"", ""};
     }
   }();
-  std::cerr << assert_str.first << violation.comment() << assert_str.second << " failed" << std::endl;
+  std::cerr << assert_str.first << violation.comment() << assert_str.second;
+  if (violation.detection_mode() == _DetectionMode::predicate_false) {
+    std::cerr << " failed" << std::endl;
+  } else {
+    std::cerr << " exited via exception" << std::endl;
+  }
 }
 
 } // namespace std::contracts

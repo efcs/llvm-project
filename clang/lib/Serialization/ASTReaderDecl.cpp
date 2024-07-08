@@ -1162,6 +1162,13 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   for (unsigned I = 0; I != NumParams; ++I)
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
+
+  unsigned NumContracts = Record.readInt();
+  SmallVector<ContractStmt *, 4> Contracts;
+  for (unsigned I = 0; I < NumContracts; ++I)
+    Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
+  if (NumContracts != 0)
+    FD->setContracts(std::move(Contracts));
 }
 
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {

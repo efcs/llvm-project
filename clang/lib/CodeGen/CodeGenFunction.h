@@ -423,6 +423,10 @@ public:
   /// result expression.
   const Expr *RetExpr = nullptr;
 
+  /// If a contract attribute is being visited, this holds the contract
+  const ContractStmt *CurContract = nullptr;
+  bool InContractCatchBlock = false;
+
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
     if (CurLexicalScope)
@@ -4365,7 +4369,8 @@ public:
 
   void EmitContractStmt(const ContractStmt &S);
 
-  void EmitHandleContractViolationCall(const ContractStmt &S, ContractViolationDetection);
+  void EmitHandleContractViolationCall(const ContractStmt &S,
+                                       ContractViolationDetection);
   void NewEmitHandleContractViolationCall(const ContractStmt &S,
                                           llvm::Value *DidThrowFlag);
 

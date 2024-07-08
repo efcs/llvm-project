@@ -40,8 +40,6 @@ for header in public_headers:
 // TODO: Investigate this failure
 // UNSUPPORTED: LIBCXX-PICOLIBC-FIXME
 
-// UNSUPPORTED: contracts
-
 {lit_header_restrictions.get(header, '')}
 
 #include <{header}>

@@ -345,29 +345,30 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
   auto &SM = getContext().getSourceManager();
   auto &Ctx = getContext();
 
-  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc() : S.getCond()->getBeginLoc();
+  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc()
+                                     : S.getCond()->getBeginLoc();
   auto End = S.getCond()->getEndLoc();
   SourceRange Range(Begin, End);
 
   CharSourceRange ExprRange = Lexer::getAsCharRange(
       SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
-  std::string AssertStr = Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
+  std::string AssertStr =
+      Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
   // FIXME(EricWF): We don't track the closing parenthesis in the source range.
-
 
   unsigned ContractKindValue = [&]() {
     switch (S.getContractKind()) {
-        case ContractKind::Pre:
-          return 1;
-        case ContractKind::Post:
-          return 2;
-        case ContractKind::Assert:
-          return 3;
+    case ContractKind::Pre:
+      return 1;
+    case ContractKind::Post:
+      return 2;
+    case ContractKind::Assert:
+      return 3;
     }
     llvm_unreachable("unhandled ContractKind");
   }();
 
-  unsigned EvalSemantic = [&]() -> unsigned{
+  unsigned EvalSemantic = [&]() -> unsigned {
     using EST = LangOptions::ContractEvaluationSemantic;
     switch (S.getSemantic(getLangOpts())) {
     case EST::Enforce:
@@ -382,34 +383,73 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
     llvm_unreachable("unhandled ContractEvaluationSemantic");
   }();
 
-  unsigned DetectionMode = static_cast<unsigned>(ViolationDetectionMode);
-
   const SourceLocation Location = S.getCond()->getBeginLoc();
 
-  std::string Filename = [&]() -> std::string  {
+  std::string Filename = [&]() -> std::string {
     PresumedLoc PLoc = SM.getPresumedLoc(Location);
     return PLoc.getFilename();
   }();
 
   auto UnsignedTy = getContext().UnsignedIntTy;
   auto VoidPtrTy = getContext().VoidPtrTy;
-  std::pair<llvm::Constant *, QualType> Constants[] = {
-      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy},
-      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy},
-      {llvm::ConstantInt::get(Int32Ty, DetectionMode), UnsignedTy},
-      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy},
-      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy},
-      {CGM.EmitAnnotationLineNo(Location), UnsignedTy}
+  std::tuple<llvm::Constant *, QualType, llvm::Type *> Constants[] = {
+      {llvm::ConstantInt::get(Int32Ty, 1), UnsignedTy,
+       Int32Ty}, // A version tag for the struct.
+      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy, Int32Ty},
+      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy, Int32Ty},
+      // Assume the predicate failed, overwrite this value later if it's not
+      // true.
+      {llvm::ConstantInt::get(Int32Ty, (int)ViolationDetectionMode), UnsignedTy,
+       Int32Ty},
+      {CGM.EmitAnnotationLineNo(Location), UnsignedTy, Int32Ty},
+      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy,
+       Int8PtrTy},
+      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy,
+       Int8PtrTy},
+
   };
+  SmallVector<llvm::Constant *, 6> ConstantArgs;
+  SmallVector<QualType, 6> ConstantTypes;
+  SmallVector<llvm::Type *, 6> ConstantLLVMTys;
+  for (auto [Const, Ty, llvmTy] : Constants) {
+    ConstantArgs.push_back(Const);
+    ConstantTypes.push_back(Ty);
+    ConstantLLVMTys.push_back(llvmTy);
+  }
+  llvm::StructType *SType =
+      llvm::StructType::get(getLLVMContext(), ConstantLLVMTys);
+  llvm::Constant *Struct = llvm::ConstantStruct::get(SType, ConstantArgs);
 
   CallArgList Args;
-  for (auto [Const, Ty] : Constants) {
-    Args.add(RValue::get(Const), Ty);
-  }
 
-  const CGFunctionInfo &VFuncInfo = CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
+  RawAddress ArgMemory = RawAddress::invalid();
+  if (llvm::StructType *ArgStruct = SType) {
+    const llvm::DataLayout &DL = CGM.getDataLayout();
+    llvm::Instruction *IP = Args.getStackBase();
+    llvm::AllocaInst *AI;
+    if (IP) {
+      IP = IP->getNextNode();
+      AI = new llvm::AllocaInst(ArgStruct, DL.getAllocaAddrSpace(), "argmem",
+                                IP);
+    } else {
+      AI = CreateTempAlloca(ArgStruct, "argmem");
+    }
+    auto Align = CGM.getContext().getTypeAlignInChars(ConstantTypes[0]);
+    AI->setAlignment(Align.getAsAlign());
+    AI->setUsedWithInAlloca(true);
+    assert(AI->isUsedWithInAlloca() && !AI->isStaticAlloca());
+    ArgMemory = RawAddress(AI, ArgStruct, Align);
+  }
+  Builder.CreateStore(Struct, ArgMemory);
+
+  llvm::Value *ArgValue = ArgMemory.getPointer();
+  Args.add(RValue::get(ArgValue), VoidPtrTy);
+
+  const CGFunctionInfo &VFuncInfo =
+      CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation");
+  llvm::FunctionCallee VFunc =
+      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_new");
 
   EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
 }
@@ -517,10 +557,8 @@ void CodeGenFunction::NewEmitHandleContractViolationCall(
   }
   Builder.CreateStore(Struct, ArgMemory);
 
-  if (ContractKindValue) {
-    Address EP = Builder.CreateStructGEP(ArgMemory, 3);
-    Builder.CreateStore(ContractViolationVal, EP);
-  }
+  Address EP = Builder.CreateStructGEP(ArgMemory, 3);
+  Builder.CreateStore(ContractViolationVal, EP);
 
   llvm::Value *ArgValue = ArgMemory.getPointer();
   Args.add(RValue::get(ArgValue), VoidPtrTy);
@@ -578,8 +616,46 @@ static bool StmtCanThrow(const Stmt *S) {
   return false;
 }
 
+template <class OnEnd> struct ScopeGuard {
+  OnEnd End;
+  template <class OnStart> ScopeGuard(OnStart Start, OnEnd End) : End(End) {
+    Start();
+  }
+  bool Enabled = true;
+  void Disable() { Enabled = false; }
+
+  ~ScopeGuard() {
+    if (Enabled) {
+      End();
+    }
+  }
+};
+
+template <class OnStart, class OnEnd>
+ScopeGuard(OnStart, OnEnd) -> ScopeGuard<OnEnd>;
+
+void HandleContractStmtCatchBlock(CodeGenFunction &CGF, const ContractStmt &S) {
+  // FIXME(EricWF): This is a terrible hack to allow easy generation of
+  // a contract violation in a catch block.
+  assert(CGF.InContractCatchBlock == true);
+  CGF.EmitHandleContractViolationCall(
+      S, ContractViolationDetection::ExceptionRaised);
+  return;
+}
+
+// Emit the contract expression.
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
-  // Emit the contract expression.
+  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
+  // block that reports contract violations that have thrown. In order to do
+  // this without building additional AST nodes, use this Stmt as the body
+  // of the catch block, detecting when we're inside the catch block to only
+  // emit the violation.
+  if (&S == CurContract) {
+    return HandleContractStmtCatchBlock(*this, S);
+  } else {
+    assert(CurContract == nullptr);
+  }
+
   const Expr *Expr = S.getCond();
   ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
 
@@ -601,31 +677,51 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     RawAddress ContractState =
         CreateIRTemp(getContext().UnsignedIntTy, "cond.state");
     Builder.CreateStore(
-        llvm::ConstantInt::get(
-            Int32Ty, (int)ContractViolationDetection::ExceptionRaised),
+        llvm::ConstantInt::get(Int32Ty,
+                               (int)ContractViolationDetection::NoViolation),
         ContractState);
 
     auto Loc = S.getCond()->getExprLoc();
     llvm::SmallVector<Stmt *> CatchStmts;
+    // FIXME(EricWF): THIS IS A TERRIBLE HACK.
+    //   In order to emit the contract assertion violation in the catch block
+    //   we add the current statement to a dummy handler, and then detect
+    //   when we're inside that dummy handler to only emit the violation
+    //
+    // This should have some other representation, but I don't want to eagerly
+    // build all these nodes in the AST.
+    CatchStmts.push_back(const_cast<ContractStmt *>(&S));
     auto *CatchStmt = CompoundStmt::Create(getContext(), CatchStmts,
                                            FPOptionsOverride(), Loc, Loc);
     auto *Catch = new (getContext())
         CXXCatchStmt(Loc, /*exDecl=*/nullptr, /*block=*/CatchStmt);
     llvm::SmallVector<Stmt *> Stmts;
+
     auto *TryBody = CompoundStmt::Create(getContext(), Stmts,
                                          FPOptionsOverride(), Loc, Loc);
     TryStmt = CXXTryStmt::Create(getContext(), Loc, TryBody, Catch);
     assert(TryStmt);
-    EnterCXXTryStmt(*TryStmt);
+    {
+      ScopeGuard EnterContractStmt(
+          [&]() {
+            CurContract = &S;
+            InContractCatchBlock = true;
+          },
+          [&]() {
+            CurContract = nullptr;
+            InContractCatchBlock = false;
+          });
+      EnterCXXTryStmt(*TryStmt);
 
-    llvm::Value *ArgValue = EmitScalarExpr(Expr);
-    auto SelectedVal = Builder.CreateSelect(
-        ArgValue,
-        Builder.getInt32((int)ContractViolationDetection::NoViolation),
-        Builder.getInt32((int)ContractViolationDetection::PredicateFailed));
-    Builder.CreateStore(SelectedVal, ContractState);
+      llvm::Value *ArgValue = EmitScalarExpr(Expr);
+      auto SelectedVal = Builder.CreateSelect(
+          ArgValue,
+          Builder.getInt32((int)ContractViolationDetection::NoViolation),
+          Builder.getInt32((int)ContractViolationDetection::PredicateFailed));
+      Builder.CreateStore(SelectedVal, ContractState);
 
-    ExitCXXTryStmt(*TryStmt);
+      ExitCXXTryStmt(*TryStmt);
+    }
 
     ContractStateVal = Builder.CreateLoad(ContractState);
     BranchOn = Builder.CreateICmpEQ(
@@ -634,8 +730,6 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     Builder.CreateCondBr(BranchOn, End, Violation);
   } else {
 
-    ContractStateVal =
-        Builder.getInt32((int)ContractViolationDetection::PredicateFailed);
     BranchOn = EmitScalarExpr(Expr);
     Builder.CreateCondBr(BranchOn, End, Violation);
   }
@@ -645,7 +739,8 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   Builder.SetInsertPoint(Violation);
 
   if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
-    NewEmitHandleContractViolationCall(S, ContractStateVal);
+    EmitHandleContractViolationCall(
+        S, ContractViolationDetection::PredicateFailed);
   }
 
   if (Semantic != ContractEvaluationSemantic::Observe) {

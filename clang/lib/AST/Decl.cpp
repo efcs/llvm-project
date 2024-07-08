@@ -3073,7 +3073,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
   // FIXME(EricWF): Make this conditional?
-  setContracts(Contracts);
+  if (!Contracts.empty())
+    setContracts(Contracts);
 }
 
 void FunctionDecl::getNameForDiagnostic(
