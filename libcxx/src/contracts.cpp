@@ -73,7 +73,7 @@ _LIBCPP_EXPORTED_FROM_ABI void __handle_contract_violation(
   }
 }
 
-_LIBCPP_EXPORTED_FROM_ABI void __handle_contract_violation_new(void* dataptr) {
+_LIBCPP_EXPORTED_FROM_ABI void __handle_contract_violation_new(void* dataptr) noexcept {
   using namespace std::contracts;
   _BuiltinContractStruct* data = static_cast<_BuiltinContractStruct*>(dataptr);
 

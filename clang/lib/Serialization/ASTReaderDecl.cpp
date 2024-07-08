@@ -922,6 +922,10 @@ void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
     auto *Info = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     Record.readQualifierInfo(*Info);
     Info->TrailingRequiresClause = Record.readExpr();
+    // unsigned NumContracts = Record.readInt();
+    // for (unsigned I=0; I < NumContracts; ++I)
+    //   Info->Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
+
     DD->DeclInfo = Info;
   }
   QualType TSIType = Record.readType();

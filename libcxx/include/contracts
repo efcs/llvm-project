@@ -78,7 +78,7 @@ _LIBCPP_EXPORTED_FROM_ABI
 void __handle_contract_violation(unsigned kind, unsigned eval_semantic,
                                   unsigned detection_mode, const char* comment, const char* file, unsigned line);
 _LIBCPP_EXPORTED_FROM_ABI
-void __handle_contract_violation_new(void*);
+void __handle_contract_violation_new(void*) noexcept;
 }
 
 

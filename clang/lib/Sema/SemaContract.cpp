@@ -107,9 +107,13 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
         return StmtError();
   }
 
-  return BuildContractStmt(
+  StmtResult Res = BuildContractStmt(
       CK, KeywordLoc, Cond, ResultNameDecl,
       SemaContractHelper::buildAttributesWithDummyNode(*this, CXX11Contracts));
+  if (Res.isInvalid())
+    return StmtError();
+
+  return ActOnFinishFullStmt(Res.get());
 }
 
 /* FIXME(EricWF): Is this needed?
