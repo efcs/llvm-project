@@ -415,7 +415,7 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
 }
 
 void CodeGenFunction::NewEmitHandleContractViolationCall(
-    const ContractStmt &S, ContractViolationDetection ViolationDetectionMode) {
+    const ContractStmt &S, llvm::Value *ContractViolationVal) {
   auto &SM = getContext().getSourceManager();
   auto &Ctx = getContext();
 
@@ -457,8 +457,6 @@ void CodeGenFunction::NewEmitHandleContractViolationCall(
     llvm_unreachable("unhandled ContractEvaluationSemantic");
   }();
 
-  unsigned DetectionMode = static_cast<unsigned>(ViolationDetectionMode);
-
   const SourceLocation Location = S.getCond()->getBeginLoc();
 
   std::string Filename = [&]() -> std::string {
@@ -473,7 +471,11 @@ void CodeGenFunction::NewEmitHandleContractViolationCall(
        Int32Ty}, // A version tag for the struct.
       {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy, Int32Ty},
       {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy, Int32Ty},
-      {llvm::ConstantInt::get(Int32Ty, DetectionMode), UnsignedTy, Int32Ty},
+      // Assume the predicate failed, overwrite this value later if it's not
+      // true.
+      {llvm::ConstantInt::get(Int32Ty,
+                              (int)ContractViolationDetection::PredicateFailed),
+       UnsignedTy, Int32Ty},
       {CGM.EmitAnnotationLineNo(Location), UnsignedTy, Int32Ty},
       {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy,
        Int8PtrTy},
@@ -515,6 +517,11 @@ void CodeGenFunction::NewEmitHandleContractViolationCall(
   }
   Builder.CreateStore(Struct, ArgMemory);
 
+  if (ContractKindValue) {
+    Address EP = Builder.CreateStructGEP(ArgMemory, 3);
+    Builder.CreateStore(ContractViolationVal, EP);
+  }
+
   llvm::Value *ArgValue = ArgMemory.getPointer();
   Args.add(RValue::get(ArgValue), VoidPtrTy);
 
@@ -527,6 +534,50 @@ void CodeGenFunction::NewEmitHandleContractViolationCall(
   EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
 }
 
+// Check if function can throw based on prototype noexcept, also works for
+// destructors which are implicitly noexcept but can be marked noexcept(false).
+static bool FunctionCanThrow(const FunctionDecl *D) {
+  const auto *Proto = D->getType()->getAs<FunctionProtoType>();
+  if (!Proto) {
+    // Function proto is not found, we conservatively assume throwing.
+    return true;
+  }
+  return !isNoexceptExceptionSpec(Proto->getExceptionSpecType()) ||
+         Proto->canThrow() != CT_Cannot;
+}
+
+static bool StmtCanThrow(const Stmt *S) {
+  if (const auto *CE = dyn_cast<CallExpr>(S)) {
+    const auto *Callee = CE->getDirectCallee();
+    if (!Callee)
+      // We don't have direct callee. Conservatively assume throwing.
+      return true;
+
+    if (FunctionCanThrow(Callee))
+      return true;
+
+    // Fall through to visit the children.
+  }
+
+  if (const auto *TE = dyn_cast<CXXBindTemporaryExpr>(S)) {
+    // Special handling of CXXBindTemporaryExpr here as calling of Dtor of the
+    // temporary is not part of `children()` as covered in the fall through.
+    // We need to mark entire statement as throwing if the destructor of the
+    // temporary throws.
+    const auto *Dtor = TE->getTemporary()->getDestructor();
+    if (FunctionCanThrow(Dtor))
+      return true;
+
+    // Fall through to visit the children.
+  }
+
+  for (const auto *child : S->children())
+    if (StmtCanThrow(child))
+      return true;
+
+  return false;
+}
+
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   // Emit the contract expression.
   const Expr *Expr = S.getCond();
@@ -536,19 +587,65 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   if (Semantic == LangOptions::ContractEvaluationSemantic::Ignore)
     return;
 
-  llvm::Value *ArgValue = EmitScalarExpr(Expr);
   llvm::BasicBlock *Begin = Builder.GetInsertBlock();
   llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
-  llvm::BasicBlock *Violation = createBasicBlock("contract_assert_violation", this->CurFn);
-
+  llvm::BasicBlock *Violation =
+      createBasicBlock("contract_assert_violation", this->CurFn);
   Builder.SetInsertPoint(Begin);
-  Builder.CreateCondBr(ArgValue, End, Violation);
+
+  CXXTryStmt *TryStmt = nullptr;
+
+  llvm::Value *BranchOn = nullptr;
+  llvm::Value *ContractStateVal = nullptr;
+  if (StmtCanThrow(S.getCond())) {
+    RawAddress ContractState =
+        CreateIRTemp(getContext().UnsignedIntTy, "cond.state");
+    Builder.CreateStore(
+        llvm::ConstantInt::get(
+            Int32Ty, (int)ContractViolationDetection::ExceptionRaised),
+        ContractState);
+
+    auto Loc = S.getCond()->getExprLoc();
+    llvm::SmallVector<Stmt *> CatchStmts;
+    auto *CatchStmt = CompoundStmt::Create(getContext(), CatchStmts,
+                                           FPOptionsOverride(), Loc, Loc);
+    auto *Catch = new (getContext())
+        CXXCatchStmt(Loc, /*exDecl=*/nullptr, /*block=*/CatchStmt);
+    llvm::SmallVector<Stmt *> Stmts;
+    auto *TryBody = CompoundStmt::Create(getContext(), Stmts,
+                                         FPOptionsOverride(), Loc, Loc);
+    TryStmt = CXXTryStmt::Create(getContext(), Loc, TryBody, Catch);
+    assert(TryStmt);
+    EnterCXXTryStmt(*TryStmt);
+
+    llvm::Value *ArgValue = EmitScalarExpr(Expr);
+    auto SelectedVal = Builder.CreateSelect(
+        ArgValue,
+        Builder.getInt32((int)ContractViolationDetection::NoViolation),
+        Builder.getInt32((int)ContractViolationDetection::PredicateFailed));
+    Builder.CreateStore(SelectedVal, ContractState);
+
+    ExitCXXTryStmt(*TryStmt);
+
+    ContractStateVal = Builder.CreateLoad(ContractState);
+    BranchOn = Builder.CreateICmpEQ(
+        ContractStateVal,
+        Builder.getInt32((int)ContractViolationDetection::NoViolation));
+    Builder.CreateCondBr(BranchOn, End, Violation);
+  } else {
+
+    ContractStateVal =
+        Builder.getInt32((int)ContractViolationDetection::PredicateFailed);
+    BranchOn = EmitScalarExpr(Expr);
+    Builder.CreateCondBr(BranchOn, End, Violation);
+  }
+  // Exception handling requires additional IR. If the 'await_resume' function
+  // is marked as 'noexcept', we avoid generating this additional IR.
 
   Builder.SetInsertPoint(Violation);
 
   if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
-    NewEmitHandleContractViolationCall(
-        S, ContractViolationDetection::PredicateFailed);
+    NewEmitHandleContractViolationCall(S, ContractStateVal);
   }
 
   if (Semantic != ContractEvaluationSemantic::Observe) {

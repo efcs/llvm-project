@@ -113,6 +113,7 @@ enum TypeEvaluationKind {
 };
 
 enum class ContractViolationDetection {
+  NoViolation = 0,
   PredicateFailed = 1,
   ExceptionRaised = 2
 };
@@ -4366,7 +4367,7 @@ public:
 
   void EmitHandleContractViolationCall(const ContractStmt &S, ContractViolationDetection);
   void NewEmitHandleContractViolationCall(const ContractStmt &S,
-                                          ContractViolationDetection);
+                                          llvm::Value *DidThrowFlag);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission
