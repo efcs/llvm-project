@@ -637,6 +637,7 @@ namespace {
 
     /// Allocate storage for a parameter of a function call made in this frame.
     APValue &createParam(CallRef Args, const ParmVarDecl *PVD, LValue &LV);
+    APValue &createReturnValueTemp(CallRef Args, const ResultNameDecl *ResultDecl, LValue &LV);
 
     void describe(llvm::raw_ostream &OS) const override;
 
@@ -892,6 +893,9 @@ namespace {
     /// The number of heap allocations performed so far in this evaluation.
     unsigned NumHeapAllocs = 0;
 
+    const APValue *ResultValue = nullptr;
+    const LValue *ResultValueSlot = nullptr;
+
     struct EvaluatingConstructorRAII {
       EvalInfo &EI;
       ObjectUnderConstruction Object;
@@ -1131,6 +1135,13 @@ namespace {
     APValue *getParamSlot(CallRef Call, const ParmVarDecl *PVD) {
       CallStackFrame *Frame = getCallFrameAndDepth(Call.CallIndex).first;
       return Frame ? Frame->getTemporary(Call.getOrigParam(PVD), Call.Version)
+                   : nullptr;
+    }
+
+
+    APValue *getReturnValueSlot(CallRef Call, const ResultNameDecl *PVD) {
+      CallStackFrame *Frame = getCallFrameAndDepth(Call.CallIndex).first;
+      return Frame ? Frame->getTemporary(PVD, Call.Version)
                    : nullptr;
     }
 
@@ -1714,6 +1725,11 @@ namespace {
 
   public:
     bool checkNullPointer(EvalInfo &Info, const Expr *E,
+
+
+
+
+
                           CheckSubobjectKind CSK) {
       return checkNullPointerDiagnosingWith([&Info, E, CSK] {
         Info.CCEDiag(E, diag::note_constexpr_null_subobject) << CSK;
@@ -1941,6 +1957,7 @@ APValue &CallStackFrame::createTemporary(const KeyT *Key, QualType T,
   return createLocal(Base, Key, T, Scope);
 }
 
+
 /// Allocate storage for a parameter of a function call made in this frame.
 APValue &CallStackFrame::createParam(CallRef Args, const ParmVarDecl *PVD,
                                      LValue &LV) {
@@ -1951,6 +1968,16 @@ APValue &CallStackFrame::createParam(CallRef Args, const ParmVarDecl *PVD,
   // them to live to the end of the full-expression at runtime, in order to
   // give portable results and match other compilers.
   return createLocal(Base, PVD, PVD->getType(), ScopeKind::Call);
+}
+
+APValue &CallStackFrame::createReturnValueTemp(CallRef Args, const ResultNameDecl *ResultDecl, LValue &LV) {
+  assert(Args.CallIndex == Index && "creating parameter in wrong frame");
+  APValue::LValueBase Base(ResultDecl, Index, Args.Version);
+  LV.set(Base);
+  // We always destroy parameters at the end of the call, even if we'd allow
+  // them to live to the end of the full-expression at runtime, in order to
+  // give portable results and match other compilers.
+  return createLocal(Base, ResultDecl, ResultDecl->getType(), ScopeKind::Call);
 }
 
 APValue &CallStackFrame::createLocal(APValue::LValueBase Base, const void *Key,
@@ -4066,6 +4093,7 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
   }
 
   if (!LVal.Base) {
+    assert(false);
     Info.FFDiag(E, diag::note_constexpr_access_null) << AK;
     return CompleteObject();
   }
@@ -6342,6 +6370,29 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
+__attribute__((unused))
+static bool handleTrivialCopy(EvalInfo &Info, const ResultNameDecl *Param,
+                              const Expr *E, APValue *IncValue, APValue &Result,
+                              bool CopyObjectRepresentation) {
+  // Find the reference argument.
+  CallStackFrame *Frame = Info.CurrentCall;
+  if (!IncValue) {
+    IncValue = Info.getReturnValueSlot(Frame->Arguments, Param);
+    if (!IncValue) {
+      Info.FFDiag(E);
+      return false;
+    }
+  }
+
+  // Copy out the contents of the RHS object.
+  LValue RefLValue;
+  RefLValue.setFrom(Info.Ctx, *IncValue);
+  return handleLValueToRValueConversion(
+      Info, E, Param->getType().getNonReferenceType(), RefLValue, Result,
+      CopyObjectRepresentation);
+}
+
+
 static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
   for (ContractStmt *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Pre)
@@ -6352,28 +6403,58 @@ static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
   return true;
 }
 
+template <class T>
+struct ValueGuard {
+  T *Value;
+  T OldValue;
+
+  ValueGuard(T *V, T NewVal) : Value(V), OldValue(*V) {
+    *Value = NewVal;
+  }
+  ~ValueGuard() { *Value = OldValue; }
+};
+
+
+
+
 struct ReturnValueRAIIGuard {
-    CallStackFrame *Frame;
-    ReturnValueRAIIGuard(CallStackFrame *F, StmtResult *Result)
-      : Frame(F) {
-        assert(Result);
-        assert(Frame && !Frame->ReturnValue && "Already have a return value");
-        Frame->ReturnValue = &Result->Value;
-        Frame->ReturnValueSlot = Result->Slot;
+    ValueGuard<const APValue*> ReturnValue;
+    ValueGuard<const LValue*> ReturnValueSlot;
+    ValueGuard<const APValue*> R2;
+    ValueGuard<const LValue*> R2Slot;
+
+
+    ReturnValueRAIIGuard(EvalInfo *Info, CallStackFrame *F, StmtResult *Result)
+      : ReturnValue(&F->ReturnValue, &Result->Value),
+        ReturnValueSlot(&F->ReturnValueSlot, Result->Slot),
+        R2(&Info->ResultValue, &Result->Value),
+        R2Slot(&Info->ResultValueSlot, Result->Slot) {
       }
     ~ReturnValueRAIIGuard() {
-        assert(Frame->ReturnValue);
-        Frame->ReturnValue = nullptr;
-        Frame->ReturnValueSlot = nullptr;
     }
 
 };
+
+/// Returns the canonical result name decl we'll use for evaluating the result of a call to Callee.
+/// or nullptr if we don't need one.
+const ResultNameDecl *getResultNameDeclForCall(const FunctionDecl *Callee) {
+  for (ContractStmt *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    if (S->hasResultNameDecl())
+      return S->getResultNameDecl();
+  }
+  return nullptr;
+}
 
 static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info, StmtResult& Ret, CallStackFrame& Frame) {
   assert(Info.CurrentCall);
   assert(&Frame == Info.CurrentCall && "Mismatched call stack frame");
 
-  ReturnValueRAIIGuard Guard(&Frame, &Ret);
+  assert(Ret.Slot);
+
+
+  ReturnValueRAIIGuard Guard(&Info, &Frame, &Ret);
   assert(Info.CurrentCall->ReturnValue);
   for (ContractStmt *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
@@ -6394,6 +6475,15 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
     return false;
 
   CallStackFrame Frame(Info, E->getSourceRange(), Callee, This, E, Call);
+
+  const ResultNameDecl *ResultName = getResultNameDeclForCall(Callee);
+  LValue ResultSlotV2;
+  if (ResultName && !ResultSlot) {
+    APValue &V = Frame.createReturnValueTemp(Call, ResultName, ResultSlotV2);
+    ResultSlot = &ResultSlotV2;
+    ((void)V);
+    //V.moveInto(Result);
+  }
 
   // For a trivial copy or move assignment, perform an APValue copy. This is
   // essential for unions, where the operations performed by the assignment
@@ -6431,6 +6521,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
   if (!EvaluatePreContracts(Callee, Info))
     return false;
+
 
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
@@ -8003,7 +8094,8 @@ public:
 
   bool VisitCallExpr(const CallExpr *E) {
     APValue Result;
-    if (!handleCallExpr(E, Result, nullptr))
+    LValue ResultSlot;
+    if (!handleCallExpr(E, Result, &ResultSlot))
       return false;
     return DerivedSuccess(Result, E);
   }
@@ -8574,7 +8666,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E);
   bool VisitDeclRefExpr(const DeclRefExpr *E);
-  bool VisitResultNameDecl(const ResultNameDecl *E);
+  bool VisitResultNameDecl(const DeclRefExpr *DE, const ResultNameDecl *E);
   bool VisitPredefinedExpr(const PredefinedExpr *E) { return Success(E); }
   bool VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
@@ -8689,7 +8781,19 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
           UnnamedGlobalConstantDecl>(D))
     return Success(cast<ValueDecl>(D));
   if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D)) {
-    if (Info.checkingPotentialConstantExpression())
+    return VisitResultNameDecl(E, RND);
+
+  }
+
+  if (const VarDecl *VD = dyn_cast<VarDecl>(D))
+    return VisitVarDecl(E, VD);
+  if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
+    return Visit(BD->getBinding());
+  return Error(E);
+}
+
+#if 0
+if (Info.checkingPotentialConstantExpression())
       return false;
     auto [Frame, Index] = Info.tryGetReturnValue();
     if (!Frame)
@@ -8700,31 +8804,45 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
     Frame->ReturnValue->dump();
     llvm::errs().flush();
 
-    assert(Frame->ReturnValue->isLValue() &&
-           "ResultNameDecl with a non-lvalue return value");
+    const APValue *V = Frame->ReturnValue;
+    const LValue *Slot = Frame->ReturnValueSlot;
+    if (!V->isLValue() && !Slot) {
+      assert(!Slot);
 
-    return Success(Frame->ReturnValue->getLValueBase());
-  }
-  if (const VarDecl *VD = dyn_cast<VarDecl>(D))
-    return VisitVarDecl(E, VD);
-  if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
-    return Visit(BD->getBinding());
-  return Error(E);
-}
+      }
+    return Success(Slot->getLValueBase());
 
-bool LValueExprEvaluator::VisitResultNameDecl(const ResultNameDecl *E) {
+#endif
+
+bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const ResultNameDecl *RND) {
   E->dumpColor();
-  assert(false);
   if (Info.checkingPotentialConstantExpression())
     return false;
-  auto [Frame, Index] = Info.tryGetReturnValue();
-  assert(Frame);
+  //APValue::LValueBase Base{RND};
+  //Info.setEvaluatingDecl()
+  if (Info.ResultValue)
+    Info.ResultValue->dump();
 
+  //if (Info.ResultValue && Info.ResultValue->isLValue())
+  //  return Success(*Info.ResultValue, E);
+  if (Info.ResultValueSlot)
+    return Success(Info.ResultValueSlot->getLValueBase());
+  auto [Frame, Index] = Info.tryGetReturnValue();
+
+  if (!Frame)
+    return Error(E);
+
+  assert(Frame);
   assert(Frame->ReturnValue &&
          "ResultNameDecl without a return value");
   Frame->ReturnValue->dump();
   llvm::errs().flush();
+  if (Frame->ReturnValue && Frame->ReturnValue->isLValue())
+    return Success(*Frame->ReturnValue, E);
 
+  if (Frame->ReturnValueSlot) {
+    return Success(Frame->ReturnValueSlot->getLValueBase());
+  }
   assert(Frame->ReturnValue->isLValue() &&
          "ResultNameDecl with a non-lvalue return value");
 
@@ -16237,6 +16355,75 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
        Result.HasSideEffects)) {
     // FIXME: Prefix a note to indicate that the problem is lack of constant
     // destruction.
+    return false;
+  }
+
+  return true;
+}
+
+
+
+bool EvaluateReturnValueDecl(Expr::EvalResult &Result, const ASTContext &Ctx,
+                             ConstantExprKind Kind,
+                             DeclRefExpr *DE,
+                             ResultNameDecl *RND,
+                             SourceLocation ExprLoc)  {
+
+  bool IsConst;
+  if (FastEvaluateAsRValue(DE, Result, Ctx, IsConst) && Result.Val.hasValue())
+    return true;
+
+  ExprTimeTraceScope TimeScope(DE, Ctx, "EvaluateAsConstantExpr");
+  EvalInfo::EvaluationMode EM = EvalInfo::EM_ConstantExpression;
+  EvalInfo Info(Ctx, Result, EM);
+  Info.InConstantContext = true;
+
+  if (Info.EnableNewConstInterp) {
+    assert(false && "Not Yet Implemented");
+  }
+
+  // The type of the object we're initializing is 'const T' for a class NTTP.
+  QualType T = RND->getType();
+  if (Kind == ConstantExprKind::ClassTemplateArgument)
+    T.addConst();
+
+  // If we're evaluating a prvalue, fake up a MaterializeTemporaryExpr to
+  // represent the result of the evaluation. CheckConstantExpression ensures
+  // this doesn't escape.
+  MaterializeTemporaryExpr BaseMTE(T, const_cast<DeclRefExpr*>(DE), true);
+  APValue::LValueBase Base(&BaseMTE);
+  Info.setEvaluatingDecl(Base, Result.Val);
+
+  if (Info.EnableNewConstInterp) {
+    assert(false && "Not implemented");
+  } else {
+    LValue LVal;
+    LVal.set(Base);
+    // C++23 [intro.execution]/p5
+    // A full-expression is [...] a constant-expression
+    // So we need to make sure temporary objects are destroyed after having
+    // evaluating the expression (per C++23 [class.temporary]/p4).
+    FullExpressionRAII Scope(Info);
+    if (!::EvaluateInPlace(Result.Val, Info, LVal, DE) ||
+        Result.HasSideEffects || !Scope.destroy())
+      return false;
+
+    if (!Info.discardCleanups())
+      llvm_unreachable("Unhandled cleanup; missing full expression marker?");
+  }
+
+  if (!CheckConstantExpression(Info, ExprLoc, RND->getType(),
+                               Result.Val, Kind))
+    return false;
+  if (!CheckMemoryLeaks(Info))
+    return false;
+
+  // If this is a class template argument, it's required to have constant
+  // destruction too.
+  if (Kind == ConstantExprKind::ClassTemplateArgument) {
+    // FIXME: Prefix a note to indicate that the problem is lack of constant
+    // destruction.
+    assert(false && "unhandled");
     return false;
   }
 
