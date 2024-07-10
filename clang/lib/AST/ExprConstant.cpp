@@ -4093,7 +4093,6 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
   }
 
   if (!LVal.Base) {
-    assert(false);
     Info.FFDiag(E, diag::note_constexpr_access_null) << AK;
     return CompleteObject();
   }
