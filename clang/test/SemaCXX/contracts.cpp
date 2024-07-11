@@ -20,7 +20,7 @@ struct A {
   int xx;
 
   int test_member(int x) pre(x != 0) post(r : r != 0) post(rx : rx != 0);
-  void test_this_access() post(r != 0); // FIXME
+  void test_this_access() post(r != 0);  // expected-error {{use of undeclared identifier 'r'}}
 
   int r;
 };
@@ -77,11 +77,11 @@ int test_result_name_scope() post(r : r != 0) {
 void test_attribute(int x) pre [[clang::contract_group("foo")]] (x != 0) {
   contract_assert [[clang::contract_group("foo")]] (x != 0); // OK
 
-  contract_assert [[clang::contract_group("")]] (true); // expected-error {{clang::contract_group attribute argument "" cannot be empty}}
-  contract_assert [[clang::contract_group("-bar")]] (true); // expected-error {{clang::contract_group attribute argument "-bar" cannot contain '-'}}
-  contract_assert [[clang::contract_group("foo*bar")]] (true);
-  contract_assert [[clang::contract_group("foo-bar")]] (true); // OK
+  contract_assert [[clang::contract_group("")]] (true);  // expected-error {{clang::contract_group group cannot be empty}}
+  contract_assert [[clang::contract_group("-bar")]] (true);  // expected-error {{clang::contract_group group "-bar" cannot contain '-'}}
+  contract_assert [[clang::contract_group("foo*bar")]] (true); // expected-error {{clang::contract_group group "foo*bar" cannot contain '*'}}
+  contract_assert [[clang::contract_group("foo-bar")]] (true);  // expected-error {{clang::contract_group group "foo-bar" cannot contain '-'}}
 
   contract_assert [[clang::contract_group("f")]] // expected-note {{previous attribute is here}}
-                  [[clang::contract_group("f")]] (x != 0); // expected-error {{clang::contract_group appears more than once}}
+                  [[clang::contract_group("f")]] (x != 0);  // expected-error {{clang::contract_group attribute appears more than once}}
 }

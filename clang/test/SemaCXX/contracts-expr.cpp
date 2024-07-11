@@ -14,7 +14,8 @@ constexpr int do_test() {
 
 int foo() {
   int x = 42;
-  contract_assert(++x);
+  contract_assert(++x); // expected-error {{read-only variable is not assignable}}
+
 }
 
 template <class T, class U>
@@ -33,17 +34,16 @@ constexpr void assert_same() {
 template <typename T>
 int foo(T v) {
   int v2 = v;
-  const int v3 = v;
+  const int v3 = v; // expected-note {{variable 'v3' declared const here}}
   contract_assert((
-  ++v,
-  ++v2,
-  ++v3
+  ++v, // expected-error {{read-only variable is not assignable}}
+  ++v2, // expected-error {{read-only variable is not assignable}}
+  ++v3  // expected-error {{cannot assign to variable 'v3' with const-qualified type 'const int'}}
   ));
   contract_assert((assert_same<decltype(v), T>(), true));
   contract_assert((assert_same<decltype(v2), int>(), true));
   contract_assert((assert_same<decltype(v3), const int>(), true));
-
 }
-template int foo(int);
+template int foo(int); // expected-note {{in instantiation of function template specialization 'foo<int>' requested here}}
 
 constexpr int test = do_test();
