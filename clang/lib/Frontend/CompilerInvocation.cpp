@@ -3528,7 +3528,7 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
 
 
     for (StringRef ContractGroup :
-         Opts.ContractOptions.serializeContractGroupArgs())
+         Opts.ContractOpts.serializeContractGroupArgs())
       GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
     return;
   }
@@ -3803,7 +3803,7 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
 
   for (StringRef ContractGroup :
-       Opts.ContractOptions.serializeContractGroupArgs())
+       Opts.ContractOpts.serializeContractGroupArgs())
     GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
 }
 
@@ -4442,7 +4442,7 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   std::vector<std::string> ContractGroupValues =
       Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
-  Opts.ContractOptions.parseContractGroups(ContractGroupValues,
+  Opts.ContractOpts.parseContractGroups(ContractGroupValues,
                                            EmitContractDiag);
 
   return Diags.getNumErrors() == NumErrorsBefore;

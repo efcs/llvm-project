@@ -563,7 +563,7 @@ public:
 
   /// A list of options pretaining to c++ contracts and clang attributes about
   /// them.
-  ContractOptions ContractOptions;
+  ContractOptions ContractOpts;
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

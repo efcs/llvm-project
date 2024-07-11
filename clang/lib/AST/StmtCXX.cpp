@@ -166,6 +166,6 @@ ContractEvaluationSemantic
 ContractStmt::getSemantic(const LangOptions &LangOpts) const {
   StringRef Group = getContractGroup();
   if (Group.empty())
-    return LangOpts.ContractOptions.DefaultSemantic;
-  return LangOpts.ContractOptions.getSemanticForGroup(Group);
+    return LangOpts.ContractOpts.DefaultSemantic;
+  return LangOpts.ContractOpts.getSemanticForGroup(Group);
 }

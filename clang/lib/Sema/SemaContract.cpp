@@ -197,8 +197,8 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
   assert(S->isContractAssertScope());
   assert(S->isFunctionPrototypeScope());
   assert(S->getFunctionPrototypeDepth() >= 1);
-  //New->setScopeInfo(S->getFunctionPrototypeDepth() - 1,
-  //                  S->getNextFunctionPrototypeIndex());
+  //New->setDeclContext(getScopeForContext(S->getFunctionPrototypeDepth() - 1,
+   //                 S->getNextFunctionPrototypeIndex());
 
   // Add the parameter declaration into this scope.
   S->AddDecl(New);

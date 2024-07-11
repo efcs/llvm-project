@@ -61,6 +61,7 @@
 #include "llvm/Support/SipHash.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
+#include "clang/Basic/EricWFDebug.h"
 #include <cstring>
 #include <functional>
 #include <optional>
@@ -3340,6 +3341,7 @@ static bool HandleLValueComplexElement(EvalInfo &Info, const Expr *E,
   return true;
 }
 
+
 /// Try to evaluate the initializer for a variable declaration.
 ///
 /// \param Info   Information about the ongoing evaluation.
@@ -3473,6 +3475,147 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
 
   Result = VD->getEvaluatedValue();
   return true;
+}
+
+/// Try to evaluate the initializer for a variable declaration.
+///
+/// \param Info   Information about the ongoing evaluation.
+/// \param E      An expression to be used when printing diagnostics.
+/// \param VD     The variable whose initializer should be obtained.
+/// \param Version The version of the variable within the frame.
+/// \param Frame  The frame in which the variable was created. Must be null
+///               if this variable is not local to the evaluation.
+/// \param Result Filled in with a pointer to the value of the variable.
+static bool evaluateValueDeclInit(EvalInfo &Info, const Expr *E,
+                                const ResultNameDecl *VD,
+                                const APValue & In, CallStackFrame *Frame,
+                                unsigned Version, APValue *&Result) {
+  APValue::LValueBase Base(VD, Frame ? Frame->Index : 0, Version);
+
+  Info.setEvaluatingDecl(Base,  In);
+
+  // If this is a local variable, dig out its value.
+  if (Frame) {
+    Result = Frame->getTemporary(VD, Version);
+    if (Result)
+      return true;
+
+    if (!isa<ParmVarDecl>(VD) && !isa<ResultNameDecl>(VD)) {
+      // Assume variables referenced within a lambda's call operator that were
+      // not declared within the call operator are captures and during checking
+      // of a potential constant expression, assume they are unknown constant
+      // expressions.
+      assert(isLambdaCallOperator(Frame->Callee) &&
+             (VD->getDeclContext() != Frame->Callee || VD->isInitCapture()) &&
+             "missing value for local variable");
+      if (Info.checkingPotentialConstantExpression())
+        return false;
+      // FIXME: This diagnostic is bogus; we do support captures. Is this code
+      // still reachable at all?
+      Info.FFDiag(E->getBeginLoc(),
+                  diag::note_unimplemented_constexpr_lambda_feature_ast)
+          << "captures not currently allowed";
+      return false;
+    }
+  }
+
+  // If we're currently evaluating the initializer of this declaration, use that
+  // in-flight value.
+  if (Info.EvaluatingDecl == Base) {
+    Result = In;
+    return true;
+  }
+  assert(false);
+
+  if (isa<ParmVarDecl>(VD)) {
+    // Assume parameters of a potential constant expression are usable in
+    // constant expressions.
+    if (!Info.checkingPotentialConstantExpression() ||
+        !Info.CurrentCall->Callee ||
+        !Info.CurrentCall->Callee->Equals(VD->getDeclContext())) {
+      if (Info.getLangOpts().CPlusPlus11) {
+        Info.FFDiag(E, diag::note_constexpr_function_param_value_unknown)
+            << VD;
+        NoteLValueLocation(Info, Base);
+      } else {
+        Info.FFDiag(E);
+      }
+    }
+    return false;
+  }
+
+  if (E->isValueDependent())
+    return false;
+#if 0
+  // Dig out the initializer, and use the declaration which it's attached to.
+  // FIXME: We should eventually check whether the variable has a reachable
+  // initializing declaration.
+  const Expr *Init = VD->getAnyInitializer(VD);
+  if (!Init) {
+    // Don't diagnose during potential constant expression checking; an
+    // initializer might be added later.
+    if (!Info.checkingPotentialConstantExpression()) {
+      Info.FFDiag(E, diag::note_constexpr_var_init_unknown, 1)
+        << VD;
+      NoteLValueLocation(Info, Base);
+    }
+    return false;
+  }
+
+  if (Init->isValueDependent()) {
+    // The DeclRefExpr is not value-dependent, but the variable it refers to
+    // has a value-dependent initializer. This should only happen in
+    // constant-folding cases, where the variable is not actually of a suitable
+    // type for use in a constant expression (otherwise the DeclRefExpr would
+    // have been value-dependent too), so diagnose that.
+    assert(!VD->mightBeUsableInConstantExpressions(Info.Ctx));
+    if (!Info.checkingPotentialConstantExpression()) {
+      Info.FFDiag(E, Info.getLangOpts().CPlusPlus11
+                         ? diag::note_constexpr_ltor_non_constexpr
+                         : diag::note_constexpr_ltor_non_integral, 1)
+          << VD << VD->getType();
+      NoteLValueLocation(Info, Base);
+    }
+    return false;
+  }
+
+  // Check that we can fold the initializer. In C++, we will have already done
+  // this in the cases where it matters for conformance.
+  if (!VD->evaluateValue()) {
+    Info.FFDiag(E, diag::note_constexpr_var_init_non_constant, 1) << VD;
+    NoteLValueLocation(Info, Base);
+    return false;
+  }
+
+  // Check that the variable is actually usable in constant expressions. For a
+  // const integral variable or a reference, we might have a non-constant
+  // initializer that we can nonetheless evaluate the initializer for. Such
+  // variables are not usable in constant expressions. In C++98, the
+  // initializer also syntactically needs to be an ICE.
+  //
+  // FIXME: We don't diagnose cases that aren't potentially usable in constant
+  // expressions here; doing so would regress diagnostics for things like
+  // reading from a volatile constexpr variable.
+  if ((Info.getLangOpts().CPlusPlus && !VD->hasConstantInitialization() &&
+       VD->mightBeUsableInConstantExpressions(Info.Ctx)) ||
+      ((Info.getLangOpts().CPlusPlus || Info.getLangOpts().OpenCL) &&
+       !Info.getLangOpts().CPlusPlus11 && !VD->hasICEInitializer(Info.Ctx))) {
+    Info.CCEDiag(E, diag::note_constexpr_var_init_non_constant, 1) << VD;
+    NoteLValueLocation(Info, Base);
+  }
+
+  // Never use the initializer of a weak variable, not even for constant
+  // folding. We can't be sure that this is the definition that will be used.
+  if (VD->isWeak()) {
+    Info.FFDiag(E, diag::note_constexpr_var_init_weak) << VD;
+    NoteLValueLocation(Info, Base);
+    return false;
+  }
+
+  Result = VD->getEvaluatedValue();
+  return true;
+#endif
+  return false;
 }
 
 /// Get the base index of the given base class within an APValue representing
@@ -8813,40 +8956,50 @@ if (Info.checkingPotentialConstantExpression())
 
 #endif
 
+#if 0
 bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const ResultNameDecl *RND) {
-  E->dumpColor();
+  ERICWF_DEBUG_BLOCK {
+    E->dumpColor();
+    if (Info.ResultValue)
+      Info.ResultValue->dump();
+  }
   if (Info.checkingPotentialConstantExpression())
     return false;
   //APValue::LValueBase Base{RND};
   //Info.setEvaluatingDecl()
-  if (Info.ResultValue)
-    Info.ResultValue->dump();
+
+
 
   //if (Info.ResultValue && Info.ResultValue->isLValue())
   //  return Success(*Info.ResultValue, E);
-  if (Info.ResultValueSlot)
-    return Success(Info.ResultValueSlot->getLValueBase());
+  if (Info.ResultValue && Info.ResultValue->isLValue())
+    return Success(Info.ResultValue->getLValueBase());
+
   auto [Frame, Index] = Info.tryGetReturnValue();
 
   if (!Frame)
     return Error(E);
 
-  assert(Frame);
   assert(Frame->ReturnValue &&
          "ResultNameDecl without a return value");
-  Frame->ReturnValue->dump();
-  llvm::errs().flush();
-  if (Frame->ReturnValue && Frame->ReturnValue->isLValue())
-    return Success(*Frame->ReturnValue, E);
+  ERICWF_DEBUG_BLOCK {
+    Frame->ReturnValue->dump();
+    llvm::errs().flush();
+  }
 
-  if (Frame->ReturnValueSlot) {
+  if (Frame->ReturnValueSlot && Frame->ReturnValue->isLValue()) {
     return Success(Frame->ReturnValueSlot->getLValueBase());
   }
+  if (Frame->ReturnValue && Frame->ReturnValue->isLValue())
+    return Success(*Frame->ReturnValue, E);
+  return Error(E);
+
   assert(Frame->ReturnValue->isLValue() &&
          "ResultNameDecl with a non-lvalue return value");
 
   return Success(Frame->ReturnValue->getLValueBase());
 }
+#endif
 
 bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
 
@@ -8915,6 +9068,125 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
 
   APValue *V;
   if (!evaluateVarDeclInit(Info, E, VD, Frame, Version, V))
+    return false;
+  if (!V->hasValue()) {
+    // FIXME: Is it possible for V to be indeterminate here? If so, we should
+    // adjust the diagnostic to say that.
+    if (!Info.checkingPotentialConstantExpression())
+      Info.FFDiag(E, diag::note_constexpr_use_uninit_reference);
+    return false;
+  }
+  return Success(*V, E);
+}
+
+
+bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const ResultNameDecl *VD) {
+  ERICWF_DEBUG_BLOCK {
+    llvm::errs() << "Here with ";
+    E->dumpColor();
+  }
+
+  if (1) {
+    if (Info.checkingPotentialConstantExpression())
+      return false;
+    auto [Frame, Index] = Info.tryGetReturnValue();
+    if (!Frame)
+      return Error(E);
+
+    assert(Frame->ReturnValue &&
+           "ResultNameDecl without a return value");
+    Frame->ReturnValue->dump();
+    llvm::errs().flush();
+
+    //const APValue *V = Frame->ReturnValue;
+    const LValue *Slot = Frame->ReturnValueSlot;
+
+   auto Version = Frame->getCurrentTemporaryVersion(VD);
+    APValue *V = Frame->getTemporary(VD, Version);
+  if (!evaluateValueDeclInit(Info, E, VD, Frame, Version, V))
+    return false;
+  if (!V->hasValue()) {
+    // FIXME: Is it possible for V to be indeterminate here? If so, we should
+    // adjust the diagnostic to say that.
+    if (!Info.checkingPotentialConstantExpression())
+      Info.FFDiag(E, diag::note_constexpr_use_uninit_reference);
+    return false;
+  }
+  return Success(*V, E);
+
+    if (!V->isLValue() && !Slot) {
+      assert(!Slot);
+
+      }
+    return Success(Slot->getLValueBase());
+
+  }
+  // If we are within a lambda's call operator, check whether the 'VD' referred
+  // to within 'E' actually represents a lambda-capture that maps to a
+  // data-member/field within the closure object, and if so, evaluate to the
+  // field or what the field refers to.
+  if (Info.CurrentCall && isLambdaCallOperator(Info.CurrentCall->Callee) &&
+      isa<DeclRefExpr>(E) &&
+      cast<DeclRefExpr>(E)->refersToEnclosingVariableOrCapture()) {
+    // We don't always have a complete capture-map when checking or inferring if
+    // the function call operator meets the requirements of a constexpr function
+    // - but we don't need to evaluate the captures to determine constexprness
+    // (dcl.constexpr C++17).
+    if (Info.checkingPotentialConstantExpression())
+      return false;
+
+    if (auto *FD = Info.CurrentCall->LambdaCaptureFields.lookup(VD)) {
+      const auto *MD = cast<CXXMethodDecl>(Info.CurrentCall->Callee);
+      return HandleLambdaCapture(Info, E, Result, MD, FD,
+                                 FD->getType()->isReferenceType());
+    }
+  }
+
+  CallStackFrame *Frame = nullptr;
+  unsigned Version = 0;
+  if (true) { // VD->hasLocalStorage()) {
+    // Only if a local variable was declared in the function currently being
+    // evaluated, do we expect to be able to find its value in the current
+    // frame. (Otherwise it was likely declared in an enclosing context and
+    // could either have a valid evaluatable value (for e.g. a constexpr
+    // variable) or be ill-formed (and trigger an appropriate evaluation
+    // diagnostic)).
+    CallStackFrame *CurrFrame = Info.CurrentCall;
+    if (CurrFrame->Callee && CurrFrame->Callee->Equals(VD->getDeclContext())) {
+      // Function parameters are stored in some caller's frame. (Usually the
+      // immediate caller, but for an inherited constructor they may be more
+      // distant.)
+      if (auto *PVD = dyn_cast<ResultNameDecl>(VD)) {
+        if (CurrFrame->Arguments) {
+          //VD = CurrFrame->Arguments.getOrigParam(PVD);
+          Frame =
+              Info.getCallFrameAndDepth(CurrFrame->Arguments.CallIndex).first;
+          Version = CurrFrame->Arguments.Version;
+        }
+      } else {
+        Frame = CurrFrame;
+        Version = CurrFrame->getCurrentTemporaryVersion(VD);
+      }
+    }
+  }
+
+  if (!VD->getType()->isReferenceType()) {
+    if (Frame) {
+      Result.set({VD, Frame->Index, Version});
+      return true;
+    }
+    return Success(VD);
+  }
+
+  if (!Info.getLangOpts().CPlusPlus11) {
+    Info.CCEDiag(E, diag::note_constexpr_ltor_non_integral, 1)
+        << VD << VD->getType();
+    Info.Note(VD->getLocation(), diag::note_declared_at);
+  }
+
+
+  APValue *V;
+  if (!evaluateValueDeclInit(Info, E, VD, Frame, Version, V))
     return false;
   if (!V->hasValue()) {
     // FIXME: Is it possible for V to be indeterminate here? If so, we should
