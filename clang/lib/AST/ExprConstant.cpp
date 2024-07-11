@@ -525,6 +525,27 @@ namespace {
     unsigned Version;
   };
 
+  struct ResultNameInfo {
+    const ResultNameDecl *ResultDecl = nullptr;
+    const LValue *Slot = nullptr;
+    const APValue *Value = nullptr;
+  };
+
+  struct ResultNameGuard {
+    ResultNameInfo **Dest;
+    ResultNameInfo *Old;
+
+    ResultNameGuard(ResultNameInfo** Dest, ResultNameInfo* New)
+        : Dest(Dest), Old(*Dest) {
+      *Dest = New;
+    }
+    ResultNameGuard(ResultNameGuard const&) = delete;
+    ResultNameGuard& operator=(ResultNameGuard const&) = delete;
+    ~ResultNameGuard() {
+      *Dest = Old;
+    }
+  };
+
   /// A stack frame in the constexpr call stack.
   class CallStackFrame : public interp::Frame {
   public:
@@ -550,11 +571,6 @@ namespace {
     /// Source location information about the default argument or default
     /// initializer expression we're evaluating, if any.
     CurrentSourceLocExprScope CurSourceLocExprScope;
-
-    /// The return value of the function call used as the value of a ResultNameDecl
-    /// in a post contract assert.
-    const APValue *ReturnValue = nullptr;
-    const LValue *ReturnValueSlot = nullptr;
 
     // Note that we intentionally use std::map here so that references to
     // values are stable.
@@ -592,6 +608,9 @@ namespace {
     // (We should cache this map rather than recomputing it repeatedly.)
     // But let's try this and see how it goes; we can look into caching the map
     // as a later change.
+    ResultNameInfo *CurrentResultNameInfo = nullptr;
+    const ResultNameDecl *CanonicalResultName = nullptr;
+
 
     /// LambdaCaptureFields - Mapping from captured variables/this to
     /// corresponding data members in the closure class.
@@ -600,7 +619,8 @@ namespace {
 
     CallStackFrame(EvalInfo &Info, SourceRange CallRange,
                    const FunctionDecl *Callee, const LValue *This,
-                   const Expr *CallExpr, CallRef Arguments);
+                   const Expr *CallExpr, CallRef Arguments,
+                   const ResultNameDecl *CanonicalResultDecl = nullptr);
     ~CallStackFrame();
 
     // Return the temporary for Key whose version number is Version.
@@ -638,7 +658,7 @@ namespace {
 
     /// Allocate storage for a parameter of a function call made in this frame.
     APValue &createParam(CallRef Args, const ParmVarDecl *PVD, LValue &LV);
-    APValue &createReturnValueTemp(CallRef Args, const ResultNameDecl *ResultDecl, LValue &LV);
+    APValue &createReturnValueTemp(const ResultNameDecl *ResultDecl, LValue &LV);
 
     void describe(llvm::raw_ostream &OS) const override;
 
@@ -894,8 +914,6 @@ namespace {
     /// The number of heap allocations performed so far in this evaluation.
     unsigned NumHeapAllocs = 0;
 
-    const APValue *ResultValue = nullptr;
-    const LValue *ResultValueSlot = nullptr;
 
     struct EvaluatingConstructorRAII {
       EvalInfo &EI;
@@ -1081,13 +1099,13 @@ namespace {
     }
 
     std::pair<CallStackFrame *, unsigned>
-    tryGetReturnValue() {
+    tryGetReturnValue(const ResultNameDecl *RND) {
       // We will eventually hit BottomFrame, which has Index 1, so Frame can't
       // be null in this loop.
       unsigned Depth = CallStackDepth;
       CallStackFrame *Frame = CurrentCall;
       while (Frame) {
-        if (Frame->ReturnValue)
+        if (Frame->CurrentResultNameInfo && Frame->CurrentResultNameInfo->ResultDecl == RND)
           break;
         Frame = Frame->Caller;
         --Depth;
@@ -1095,6 +1113,11 @@ namespace {
       if (Frame)
         return {Frame, Depth};
       return {nullptr, 0};
+    }
+
+    ResultNameInfo *tryGetResultInfo(const ResultNameDecl *RND) {
+      auto *Frame = tryGetReturnValue(RND).first;
+      return Frame ? Frame->CurrentResultNameInfo : nullptr;
     }
 
     std::pair<CallStackFrame *, unsigned>
@@ -1140,10 +1163,16 @@ namespace {
     }
 
 
-    APValue *getReturnValueSlot(CallRef Call, const ResultNameDecl *PVD) {
-      CallStackFrame *Frame = getCallFrameAndDepth(Call.CallIndex).first;
-      return Frame ? Frame->getTemporary(PVD, Call.Version)
-                   : nullptr;
+    APValue *getReturnValueSlot(const ResultNameDecl *RND) {
+      CallStackFrame *Frame = tryGetReturnValue(RND).first;
+
+      assert(Frame->CurrentResultNameInfo && Frame->CurrentResultNameInfo->ResultDecl == RND);
+      if (!Frame)
+        return nullptr;
+      unsigned Version = Frame->getCurrentTemporaryVersion(RND);
+      APValue *Res = Frame->getTemporary(RND, Version);
+      assert(Frame->CurrentResultNameInfo->Value == Res);
+      return Res;
     }
 
     /// Information about a stack frame for std::allocator<T>::[de]allocate.
@@ -1527,10 +1556,13 @@ void SubobjectDesignator::diagnosePointerArithmetic(EvalInfo &Info,
 
 CallStackFrame::CallStackFrame(EvalInfo &Info, SourceRange CallRange,
                                const FunctionDecl *Callee, const LValue *This,
-                               const Expr *CallExpr, CallRef Call)
+                               const Expr *CallExpr, CallRef Call,
+                               const ResultNameDecl *CanonicalRN)
     : Info(Info), Caller(Info.CurrentCall), Callee(Callee), This(This),
-      CallExpr(CallExpr), Arguments(Call), CallRange(CallRange),
-      Index(Info.NextCallIndex++) {
+      CallExpr(CallExpr), Arguments(Call),
+      CallRange(CallRange),
+      Index(Info.NextCallIndex++),
+      CanonicalResultName(CanonicalRN) {
   Info.CurrentCall = this;
   ++Info.CallStackDepth;
 }
@@ -1971,14 +2003,28 @@ APValue &CallStackFrame::createParam(CallRef Args, const ParmVarDecl *PVD,
   return createLocal(Base, PVD, PVD->getType(), ScopeKind::Call);
 }
 
-APValue &CallStackFrame::createReturnValueTemp(CallRef Args, const ResultNameDecl *ResultDecl, LValue &LV) {
+APValue &CallStackFrame::createReturnValueTemp(const ResultNameDecl *ResultDecl, LValue &LV) {
+#if 0
+  ERICWF_DEBUG_BLOCK {
+    llvm::errs() << " Have ResultDecl: " << ResultDecl->getName() << "\n"
+      << "  Args.CallIndex: " << Args.CallIndex << "\n"
+        << "  Index: " << Index << "\n"
+      << "Version: " << Args.Version << "\n";
+  }
   assert(Args.CallIndex == Index && "creating parameter in wrong frame");
+
   APValue::LValueBase Base(ResultDecl, Index, Args.Version);
+#endif
+
+  unsigned Version = getTempVersion();
+  APValue::LValueBase Base(ResultDecl, Index, Version);
   LV.set(Base);
   // We always destroy parameters at the end of the call, even if we'd allow
   // them to live to the end of the full-expression at runtime, in order to
   // give portable results and match other compilers.
-  return createLocal(Base, ResultDecl, ResultDecl->getType(), ScopeKind::Call);
+  QualType ResultType = ResultDecl->getType();
+  ResultType.removeLocalConst();
+  return createLocal(Base, ResultDecl, ResultType, ScopeKind::Call);
 }
 
 APValue &CallStackFrame::createLocal(APValue::LValueBase Base, const void *Key,
@@ -3486,7 +3532,7 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
 /// \param Frame  The frame in which the variable was created. Must be null
 ///               if this variable is not local to the evaluation.
 /// \param Result Filled in with a pointer to the value of the variable.
-static bool evaluateValueDeclInit(EvalInfo &Info, const Expr *E,
+[[maybe_unused]] static bool evaluateValueDeclInit(EvalInfo &Info, const Expr *E,
                                   const ResultNameDecl *VD, APValue *In,
                                   CallStackFrame *Frame, unsigned Version,
                                   APValue *&Result) {
@@ -5232,6 +5278,45 @@ struct TempVersionRAII {
 
 }
 
+
+static bool CreateCallResult(const ResultNameDecl *RND,
+                              const APValue &InValue,
+                              CallRef Call, CallStackFrame *Frame,
+                               EvalInfo &Info,
+                               LValue &Slot,
+                               APValue *&Result,
+                                bool NonNull = true) {
+
+
+
+  // Create the parameter slot and register its destruction. For a vararg
+  // argument, create a temporary.
+  // FIXME: For calling conventions that destroy parameters in the callee,
+  // should we consider performing destruction when the function returns
+  // instead?
+  assert(RND);
+  // Create it as non-const for now
+  QualType RNDType = RND->getType();
+  RNDType.removeLocalConst();
+  APValue &V = Frame->createReturnValueTemp(RND, Slot);
+  Result = &V;
+  ImplicitValueInitExpr VIE(RNDType);
+  if (!EvaluateInPlace(V, Info, Slot, &VIE)) {
+    return false;
+  }
+
+  // Passing a null pointer to an __attribute__((nonnull)) parameter results in
+  // undefined behavior, so is non-constant.
+  if (NonNull && V.isLValue() && V.isNullPointer()) {
+    assert(false);
+    Info.CCEDiag(&VIE, diag::note_non_null_attribute_failed);
+    return false;
+  }
+
+  return true;
+}
+
+
 static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
                                    const Stmt *S,
                                    const SwitchCase *SC = nullptr);
@@ -5536,6 +5621,15 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
 
   case Stmt::ReturnStmtClass: {
     const Expr *RetExpr = cast<ReturnStmt>(S)->getRetValue();
+#if 0
+    if (Info.CurrentCall->ResultName) {
+        assert(Result.Slot && "ResultSlot must be set for return statement");
+        if (RetExpr) {
+          if (!EvaluateCallResult(Info.CurrentCall->ResultName, RetExpr, Info.CurrentCall->Arguments, Info, Result.Slot))
+            return ESR_Failed;
+        }
+    }
+#endif
     FullExpressionRAII Scope(Info);
     if (RetExpr && RetExpr->isValueDependent()) {
       EvaluateDependentExpr(RetExpr, Info);
@@ -6518,14 +6612,19 @@ static bool handleTrivialCopy(EvalInfo &Info, const ResultNameDecl *Param,
                               bool CopyObjectRepresentation) {
   // Find the reference argument.
   CallStackFrame *Frame = Info.CurrentCall;
+  ((void)Frame);
   if (!IncValue) {
-    IncValue = Info.getReturnValueSlot(Frame->Arguments, Param);
+
+    IncValue = Info.getReturnValueSlot(Param);
     if (!IncValue) {
       Info.FFDiag(E);
       return false;
     }
   }
-
+  ERICWF_DEBUG_BLOCK {
+    llvm::errs() << "Here with\n";
+        IncValue->dump();
+  };
   // Copy out the contents of the RHS object.
   LValue RefLValue;
   RefLValue.setFrom(Info.Ctx, *IncValue);
@@ -6549,16 +6648,28 @@ template <class T>
 struct ValueGuard {
   T *Value;
   T OldValue;
-
+  bool IsSet = true;
   ValueGuard(T *V, T NewVal) : Value(V), OldValue(*V) {
     *Value = NewVal;
   }
-  ~ValueGuard() { *Value = OldValue; }
+
+  void reset() {
+    if (IsSet) {
+      *Value = OldValue;
+      IsSet = false;
+    }
+  }
+
+
+  ~ValueGuard() { reset(); }
 };
 
+template <class T, class U>
+ValueGuard(T* V, U NewVal) -> ValueGuard<T>;
 
 
 
+#if 0
 struct ReturnValueRAIIGuard {
     ValueGuard<const APValue*> ReturnValue;
     ValueGuard<const LValue*> ReturnValueSlot;
@@ -6576,33 +6687,82 @@ struct ReturnValueRAIIGuard {
     }
 
 };
+#endif
 
 /// Returns the canonical result name decl we'll use for evaluating the result of a call to Callee.
 /// or nullptr if we don't need one.
-const ResultNameDecl *getResultNameDeclForCall(const FunctionDecl *Callee) {
+SmallVector<const ResultNameDecl *, 4> getResultNameDeclsForCall(const FunctionDecl *Callee) {
+  SmallVector<const ResultNameDecl *, 4> Results;
   for (ContractStmt *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
       continue;
     if (S->hasResultNameDecl())
-      return S->getResultNameDecl();
+      Results.push_back(S->getResultNameDecl());
   }
-  return nullptr;
+  return Results;
 }
 
-static bool EvaluatePostContracts(const FunctionDecl* Callee, EvalInfo& Info, StmtResult& Ret, CallStackFrame& Frame) {
+struct PostConditionEvalInfo {
+  const APValue &Value;
+  const LValue *Slot = nullptr;
+  const ResultNameDecl *CanonResultName = nullptr;
+  EvalInfo &Info;
+  CallStackFrame &Frame;
+  const FunctionDecl *Callee;
+};
+
+static bool EvaluatePostContractWithResultName(const ContractStmt *C,
+  PostConditionEvalInfo &PCInfo) {
+  auto &Info = PCInfo.Info;
+  auto &Frame = PCInfo.Frame;
+  assert(C && C->getContractKind() == ContractKind::Post);
+  assert(C->hasResultNameDecl());
+
+  const APValue &ResultValue = PCInfo.Value;
+
+  const ResultNameDecl *RND = C->getResultNameDecl();
+  LValue ResultLValue;
+  APValue *ThisValue = nullptr;
+
+  if (!CreateCallResult(RND, PCInfo.Value, Info.CurrentCall->Arguments, &PCInfo.Frame, Info, ResultLValue, ThisValue)) {
+    ERICWF_DEBUG_BLOCK {
+      llvm::errs() << "Creating call result failed";
+    }
+    return false;
+  }
+
+  ERICWF_DEBUG_BLOCK {
+
+      ThisValue->dump();
+      ResultValue.dump();
+  }
+
+
+  ResultNameInfo RNI{RND, PCInfo.Slot, &PCInfo.Value};
+  ValueGuard VG(&Frame.CurrentResultNameInfo, &RNI);
+  return EvaluateContract(C, Info);
+
+
+}
+
+static bool EvaluatePostContracts(PostConditionEvalInfo &PCInfo) {
+  auto &Info = PCInfo.Info;
+  auto &Frame = PCInfo.Frame;
   assert(Info.CurrentCall);
   assert(&Frame == Info.CurrentCall && "Mismatched call stack frame");
 
-  assert(Ret.Slot);
+  assert(PCInfo.Slot);
 
-
-  ReturnValueRAIIGuard Guard(&Info, &Frame, &Ret);
-  assert(Info.CurrentCall->ReturnValue);
-  for (ContractStmt *S : Callee->getContracts()) {
+  for (ContractStmt *S : PCInfo.Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
       continue;
-    if (!EvaluateContract(S, Info))
-      return false;
+    if (S->hasResultNameDecl()) {
+      if (!EvaluatePostContractWithResultName(S, PCInfo))
+        return false;
+    } else  {
+        if (!EvaluateContract(S, Info))
+          return false;
+    }
   }
   return true;
 }
@@ -6616,16 +6776,22 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
   if (!Info.CheckCallLimit(CallLoc))
     return false;
 
-  CallStackFrame Frame(Info, E->getSourceRange(), Callee, This, E, Call);
 
-  const ResultNameDecl *ResultName = getResultNameDeclForCall(Callee);
-  LValue ResultSlotV2;
-  if (ResultName && !ResultSlot) {
-    APValue &V = Frame.createReturnValueTemp(Call, ResultName, ResultSlotV2);
-    ResultSlot = &ResultSlotV2;
-    ((void)V);
-    //V.moveInto(Result);
+  SmallVector<const ResultNameDecl*, 4> ResultNames = getResultNameDeclsForCall(Callee);
+  const ResultNameDecl *CanonResultName = ResultNames.size() == 0 ? nullptr : ResultNames[0];
+
+  CallStackFrame Frame(Info, E->getSourceRange(), Callee, This, E, Call, CanonResultName);
+
+
+  LValue ResultLValue;
+  if (CanonResultName && ResultSlot == nullptr) {
+    APValue Dumb;
+    APValue *Out;
+    if (!CreateCallResult(CanonResultName, Dumb, Call, &Frame, Info, ResultLValue, Out))
+      return false;
+    ResultSlot = &ResultLValue;
   }
+  PostConditionEvalInfo PostInfo{Result, ResultSlot, CanonResultName, Info, Frame, Callee};
 
   // For a trivial copy or move assignment, perform an APValue copy. This is
   // essential for unions, where the operations performed by the assignment
@@ -6670,11 +6836,11 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return EvaluatePostContracts(Callee, Info, Ret, Frame);
+      return EvaluatePostContracts(PostInfo);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
   if (ESR == ESR_Returned)
-    return EvaluatePostContracts(Callee, Info, Ret, Frame);
+    return EvaluatePostContracts(PostInfo);
   return false;
 }
 
@@ -9085,10 +9251,59 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
     llvm::errs() << "Here with ";
     E->dumpColor();
   }
+  if (Info.checkingPotentialConstantExpression())
+      return false;
+
+
+  //APValue *CurTemp = Info.CurrentCall->getCurrentTemporary(VD);
+  ResultNameInfo *ResultI = Info.tryGetResultInfo(VD);
+  if (!ResultI) {
+    Info.FFDiag(E, diag::err_ericwf_fixme)
+      << "IDK!";
+    return Error(E);
+  }
+  if (!ResultI) {
+    ERICWF_DEBUG_BLOCK {
+      llvm::errs() << "FUDGE";
+    }
+    return Error(E);
+  }
+
+  assert(ResultI);
+  assert(ResultI->Slot);
+  if (ResultI->Value->isLValue()) {
+    return Success(*ResultI->Value, E);
+  }
+  return Success(ResultI->Slot->getLValueBase());
+
+
+#if 0
+  APValue *Slot =  Info.getReturnValueSlot(VD);
+  ERICWF_DEBUG_BLOCK {
+    if (!Slot) {
+      llvm::errs() << "Failed to find slot for " << VD->getName() << "\n";
+      E->dumpColor();
+    }
+  };
+  if (Slot) {
+    return Success(*Slot, E);
+  }
+
+  auto [Frame, Index] = Info.tryGetReturnValue(VD);
+  if (Frame && Frame->ResultSlot) {
+    return Success(Frame->ResultSlot->getLValueBase());
+  }
+  Info.FFDiag(E, diag::err_ericwf_fixme) << "This isn't working";
 
   if (1) {
-    if (Info.checkingPotentialConstantExpression())
-      return false;
+
+
+    auto Version = Frame->getCurrentTemporaryVersion(VD);
+    APValue *V = Frame->getTemporary(VD, Version);
+    assert(V);
+    if (V->isLValue())
+      return Success(*V, E);
+
     auto [Frame, Index] = Info.tryGetReturnValue();
     if (!Frame)
       return Error(E);
@@ -9100,7 +9315,9 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
 
     //const APValue *V = Frame->ReturnValue;
     const LValue *Slot = Frame->ReturnValueSlot;
-
+    if (Slot) {
+      return Success(Slot->getLValueBase());
+    }
    auto Version = Frame->getCurrentTemporaryVersion(VD);
    APValue *V = Frame->getTemporary(VD, Version);
 
@@ -9115,6 +9332,7 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
        Info.FFDiag(E, diag::note_constexpr_use_uninit_reference);
      return false;
   }
+  //return Success(VD);
   return Success(*V, E);
 
     if (!V->isLValue() && !Slot) {
@@ -9201,6 +9419,7 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
     return false;
   }
   return Success(*V, E);
+#endif
 }
 
 bool LValueExprEvaluator::VisitCallExpr(const CallExpr *E) {
