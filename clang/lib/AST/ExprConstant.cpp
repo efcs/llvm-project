@@ -3487,12 +3487,12 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
 ///               if this variable is not local to the evaluation.
 /// \param Result Filled in with a pointer to the value of the variable.
 static bool evaluateValueDeclInit(EvalInfo &Info, const Expr *E,
-                                const ResultNameDecl *VD,
-                                const APValue & In, CallStackFrame *Frame,
-                                unsigned Version, APValue *&Result) {
+                                  const ResultNameDecl *VD, APValue *In,
+                                  CallStackFrame *Frame, unsigned Version,
+                                  APValue *&Result) {
   APValue::LValueBase Base(VD, Frame ? Frame->Index : 0, Version);
-
-  Info.setEvaluatingDecl(Base,  In);
+  assert(In);
+  Info.setEvaluatingDecl(Base, *In);
 
   // If this is a local variable, dig out its value.
   if (Frame) {
@@ -9102,15 +9102,18 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
     const LValue *Slot = Frame->ReturnValueSlot;
 
    auto Version = Frame->getCurrentTemporaryVersion(VD);
-    APValue *V = Frame->getTemporary(VD, Version);
-  if (!evaluateValueDeclInit(Info, E, VD, Frame, Version, V))
-    return false;
-  if (!V->hasValue()) {
-    // FIXME: Is it possible for V to be indeterminate here? If so, we should
-    // adjust the diagnostic to say that.
-    if (!Info.checkingPotentialConstantExpression())
-      Info.FFDiag(E, diag::note_constexpr_use_uninit_reference);
-    return false;
+   APValue *V = Frame->getTemporary(VD, Version);
+
+   if (!evaluateValueDeclInit(Info, E, VD,
+                              const_cast<APValue *>(Frame->ReturnValue), Frame,
+                              Version, V))
+     return false;
+   if (!V->hasValue()) {
+     // FIXME: Is it possible for V to be indeterminate here? If so, we should
+     // adjust the diagnostic to say that.
+     if (!Info.checkingPotentialConstantExpression())
+       Info.FFDiag(E, diag::note_constexpr_use_uninit_reference);
+     return false;
   }
   return Success(*V, E);
 
@@ -9186,7 +9189,9 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E, const Result
 
 
   APValue *V;
-  if (!evaluateValueDeclInit(Info, E, VD, Frame, Version, V))
+  if (!evaluateValueDeclInit(Info, E, VD,
+                             const_cast<APValue *>(Frame->ReturnValue), Frame,
+                             Version, V))
     return false;
   if (!V->hasValue()) {
     // FIXME: Is it possible for V to be indeterminate here? If so, we should
