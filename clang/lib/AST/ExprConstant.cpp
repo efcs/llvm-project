@@ -501,7 +501,7 @@ namespace {
 
   /// A reference to a particular call and its arguments.
   struct CallRef {
-    CallRef() : OrigCallee(), CallIndex(0), Version() {}
+    CallRef() : OrigCallee(), OrigResultName(), CallIndex(0), Version() {}
     CallRef(const FunctionDecl *Callee, unsigned CallIndex, unsigned Version)
         : OrigCallee(Callee), CallIndex(CallIndex), Version(Version) {}
 
@@ -519,6 +519,8 @@ namespace {
     /// virtual override), but this function's parameters are the ones that
     /// appear in the parameter map.
     const FunctionDecl *OrigCallee;
+    const ResultNameDecl *OrigResultName;
+
     /// The call index of the frame that holds the argument values.
     unsigned CallIndex;
     /// The version of the parameters corresponding to this call.
@@ -658,7 +660,7 @@ namespace {
 
     /// Allocate storage for a parameter of a function call made in this frame.
     APValue &createParam(CallRef Args, const ParmVarDecl *PVD, LValue &LV);
-    APValue &createReturnValueTemp(const ResultNameDecl *ResultDecl, LValue &LV);
+    APValue &createReturnValueTemp(CallRef Args, const ResultNameDecl *ResultDecl, LValue &LV);
 
     void describe(llvm::raw_ostream &OS) const override;
 
@@ -1163,16 +1165,10 @@ namespace {
     }
 
 
-    APValue *getReturnValueSlot(const ResultNameDecl *RND) {
-      CallStackFrame *Frame = tryGetReturnValue(RND).first;
-
-      assert(Frame->CurrentResultNameInfo && Frame->CurrentResultNameInfo->ResultDecl == RND);
-      if (!Frame)
-        return nullptr;
-      unsigned Version = Frame->getCurrentTemporaryVersion(RND);
-      APValue *Res = Frame->getTemporary(RND, Version);
-      assert(Frame->CurrentResultNameInfo->Value == Res);
-      return Res;
+    APValue *getReturnValueSlot(CallRef Call, const ResultNameDecl *RND) {
+      CallStackFrame *Frame = getCallFrameAndDepth(Call.CallIndex).first;
+      return Frame ? Frame->getTemporary(RND, Call.Version)
+                   : nullptr;
     }
 
     /// Information about a stack frame for std::allocator<T>::[de]allocate.
@@ -2003,21 +1999,17 @@ APValue &CallStackFrame::createParam(CallRef Args, const ParmVarDecl *PVD,
   return createLocal(Base, PVD, PVD->getType(), ScopeKind::Call);
 }
 
-APValue &CallStackFrame::createReturnValueTemp(const ResultNameDecl *ResultDecl, LValue &LV) {
-#if 0
+APValue &CallStackFrame::createReturnValueTemp(CallRef Args,
+     const ResultNameDecl *ResultDecl, LValue &LV) {
   ERICWF_DEBUG_BLOCK {
     llvm::errs() << " Have ResultDecl: " << ResultDecl->getName() << "\n"
       << "  Args.CallIndex: " << Args.CallIndex << "\n"
         << "  Index: " << Index << "\n"
       << "Version: " << Args.Version << "\n";
   }
-  assert(Args.CallIndex == Index && "creating parameter in wrong frame");
-
+  assert(Args.CallIndex + 1 == Index  && "creating parameter in wrong frame");
   APValue::LValueBase Base(ResultDecl, Index, Args.Version);
-#endif
 
-  unsigned Version = getTempVersion();
-  APValue::LValueBase Base(ResultDecl, Index, Version);
   LV.set(Base);
   // We always destroy parameters at the end of the call, even if we'd allow
   // them to live to the end of the full-expression at runtime, in order to
@@ -5298,13 +5290,26 @@ static bool CreateCallResult(const ResultNameDecl *RND,
   // Create it as non-const for now
   QualType RNDType = RND->getType();
   RNDType.removeLocalConst();
-  APValue &V = Frame->createReturnValueTemp(RND, Slot);
+  APValue &V = Frame->createReturnValueTemp(Call, RND, Slot);
   Result = &V;
   ImplicitValueInitExpr VIE(RNDType);
   if (!EvaluateInPlace(V, Info, Slot, &VIE)) {
+    ERICWF_DEBUG_BLOCK {
+      llvm::errs() << "Creating inplace has failed";
+    }
     return false;
+
   }
 
+  //  if (!handleTrivialCopy(Info, MD->getParamDecl(0), Args[0], RHSValue,
+  //                         MD->getParent()->isUnion()))
+   //       return false;
+  if (!handleAssignment(Info, &VIE, Slot, RNDType, V)) {
+      ERICWF_DEBUG_BLOCK {
+        llvm::errs() << "Creating assignment failed";
+      }
+      return false;
+    }
   // Passing a null pointer to an __attribute__((nonnull)) parameter results in
   // undefined behavior, so is non-constant.
   if (NonNull && V.isLValue() && V.isNullPointer()) {
@@ -5312,6 +5317,10 @@ static bool CreateCallResult(const ResultNameDecl *RND,
     Info.CCEDiag(&VIE, diag::note_non_null_attribute_failed);
     return false;
   }
+
+//  if (!handleLValueToRValueConversion(Info, &VIE, RNDType, Slot, V))
+  //  return false;
+
 
   return true;
 }
@@ -6615,7 +6624,7 @@ static bool handleTrivialCopy(EvalInfo &Info, const ResultNameDecl *Param,
   ((void)Frame);
   if (!IncValue) {
 
-    IncValue = Info.getReturnValueSlot(Param);
+    IncValue = Info.getReturnValueSlot(Frame->Arguments, Param);
     if (!IncValue) {
       Info.FFDiag(E);
       return false;
@@ -6718,22 +6727,28 @@ static bool EvaluatePostContractWithResultName(const ContractStmt *C,
   assert(C && C->getContractKind() == ContractKind::Post);
   assert(C->hasResultNameDecl());
 
-  const APValue &ResultValue = PCInfo.Value;
 
+  const APValue &ResultValue = PCInfo.Value;
+  ERICWF_DEBUG_BLOCK {
+    ResultValue.dump();
+  }
   const ResultNameDecl *RND = C->getResultNameDecl();
   LValue ResultLValue;
   APValue *ThisValue = nullptr;
-
-  if (!CreateCallResult(RND, PCInfo.Value, Info.CurrentCall->Arguments, &PCInfo.Frame, Info, ResultLValue, ThisValue)) {
+  if (Frame.CanonicalResultName != RND) {
+    if (!CreateCallResult(RND, PCInfo.Value, Info.CurrentCall->Arguments, &PCInfo.Frame, Info, ResultLValue, ThisValue)) {
     ERICWF_DEBUG_BLOCK {
-      llvm::errs() << "Creating call result failed";
+      llvm::errs() << "Creating call result failed\n";
     }
     return false;
+    }
   }
+
 
   ERICWF_DEBUG_BLOCK {
 
-      ThisValue->dump();
+      if(ThisValue)
+        ThisValue->dump();
       ResultValue.dump();
   }
 
@@ -6784,6 +6799,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
 
   LValue ResultLValue;
+
   if (CanonResultName && ResultSlot == nullptr) {
     APValue Dumb;
     APValue *Out;

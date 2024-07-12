@@ -68,6 +68,7 @@ class Module;
 class NamespaceDecl;
 class ParmVarDecl;
 class RecordDecl;
+class ResultNameDecl;
 class Stmt;
 class StringLiteral;
 class TagDecl;
@@ -2760,6 +2761,10 @@ public:
   /// initializer list constructors. Note that, unlike getMinRequiredArguments,
   /// parameter packs are not treated specially here.
   bool hasOneParamOrDefaultArgs() const;
+
+
+  bool hasResultNameIntroducer();
+  ResultNameDecl *getCanonicalResultNameIntroducer();
 
   /// Find the source location information for how the type of this function
   /// was written. May be absent (for example if the function was declared via
