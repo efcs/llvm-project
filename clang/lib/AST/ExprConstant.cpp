@@ -918,7 +918,6 @@ namespace {
     /// The number of heap allocations performed so far in this evaluation.
     unsigned NumHeapAllocs = 0;
 
-
     struct EvaluatingConstructorRAII {
       EvalInfo &EI;
       ObjectUnderConstruction Object;
@@ -1143,6 +1142,7 @@ namespace {
       return Frame ? Frame->getTemporary(Call.getOrigParam(PVD), Call.Version)
                    : nullptr;
     }
+
     /// Information about a stack frame for std::allocator<T>::[de]allocate.
     struct StdAllocatorCaller {
       unsigned FrameIndex;
@@ -1723,11 +1723,6 @@ namespace {
 
   public:
     bool checkNullPointer(EvalInfo &Info, const Expr *E,
-
-
-
-
-
                           CheckSubobjectKind CSK) {
       return checkNullPointerDiagnosingWith([&Info, E, CSK] {
         Info.CCEDiag(E, diag::note_constexpr_null_subobject) << CSK;
@@ -1954,7 +1949,6 @@ APValue &CallStackFrame::createTemporary(const KeyT *Key, QualType T,
   LV.set(Base);
   return createLocal(Base, Key, T, Scope);
 }
-
 
 /// Allocate storage for a parameter of a function call made in this frame.
 APValue &CallStackFrame::createParam(CallRef Args, const ParmVarDecl *PVD,
@@ -3334,7 +3328,6 @@ static bool HandleLValueComplexElement(EvalInfo &Info, const Expr *E,
   LVal.addComplex(Info, E, EltTy, Imag);
   return true;
 }
-
 
 /// Try to evaluate the initializer for a variable declaration.
 ///
@@ -5084,11 +5077,7 @@ struct StmtResult {
   APValue &Value;
   /// The location containing the result, if any (used to support RVO).
   const LValue *Slot;
-
-  const Stmt *LastStatement = nullptr;
 };
-
-
 
 struct TempVersionRAII {
   CallStackFrame &Frame;
@@ -5415,7 +5404,7 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
       // We know we returned, but we don't know what the value is.
       return ESR_Failed;
     }
-    Result.LastStatement = S;
+
     if (RetExpr &&
         !(Result.Slot
               ? EvaluateInPlace(Result.Value, Info, *Result.Slot, RetExpr)
@@ -6395,39 +6384,6 @@ static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
   }
   return true;
 }
-
-template <class T>
-struct ValueGuard {
-  T *Value;
-  T OldValue;
-  bool IsSet = true;
-  ValueGuard(T *V, T NewVal) : Value(V), OldValue(*V) {
-    *Value = NewVal;
-  }
-
-  void reset() {
-    if (IsSet) {
-      *Value = OldValue;
-      IsSet = false;
-    }
-  }
-
-
-  ~ValueGuard() { reset(); }
-};
-
-template <class T, class U>
-ValueGuard(T* V, U NewVal) -> ValueGuard<T>;
-
-struct PostConditionEvalInfo {
-  const APValue &Value;
-  const LValue *Slot = nullptr;
-  const ResultNameDecl *CanonResultName = nullptr;
-  EvalInfo &Info;
-  CallStackFrame &Frame;
-  const FunctionDecl *Callee;
-  const Expr *InitializingExpr = nullptr;
-};
 
 static bool EvaluatePostContractWithResultName(const ContractStmt *C,
                                                EvalInfo &Info,
@@ -8884,10 +8840,15 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
 bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
                                               const ResultNameDecl *VD) {
   auto *Frame = Info.CurrentCall;
-  assert(Frame);
+  // We don't always have a result value when we're doing this kind of
+  // evaluation?
+  if (Info.checkingPotentialConstantExpression()) {
+    return false;
+  }
   if (Frame && !Frame->ResultSlot) {
-    assert(Info.EvalMode) Info.CCEDiag(E, diag::err_ericwf_fixme)
+    Info.CCEDiag(E, diag::err_ericwf_fixme)
         << "How do we not have a call frame?";
+    // We should always have a result slot set if we've evaluated the call
     return false;
   }
   // If the call expression used an RVO slot for the return value, use that
@@ -16354,63 +16315,6 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
        Result.HasSideEffects)) {
     // FIXME: Prefix a note to indicate that the problem is lack of constant
     // destruction.
-    return false;
-  }
-
-  return true;
-}
-
-[[maybe_unused]] bool
-EvaluateReturnValueDecl(EvalInfo &Info, Expr::EvalResult &Result,
-                        const ASTContext &Ctx, ConstantExprKind Kind,
-                        DeclRefExpr *DE, ResultNameDecl *RND,
-                        SourceLocation ExprLoc) {
-
-  if (Info.EnableNewConstInterp) {
-    assert(false && "Not Yet Implemented");
-  }
-
-  // The type of the object we're initializing is 'const T' for a class NTTP.
-  QualType T = RND->getType();
-  T.addConst();
-
-  // If we're evaluating a prvalue, fake up a MaterializeTemporaryExpr to
-  // represent the result of the evaluation. CheckConstantExpression ensures
-  // this doesn't escape.
-  MaterializeTemporaryExpr BaseMTE(T, const_cast<DeclRefExpr*>(DE), true);
-  APValue::LValueBase Base(&BaseMTE);
-  Info.setEvaluatingDecl(Base, Result.Val);
-
-  if (Info.EnableNewConstInterp) {
-    assert(false && "Not implemented");
-  } else {
-    LValue LVal;
-    LVal.set(Base);
-    // C++23 [intro.execution]/p5
-    // A full-expression is [...] a constant-expression
-    // So we need to make sure temporary objects are destroyed after having
-    // evaluating the expression (per C++23 [class.temporary]/p4).
-    FullExpressionRAII Scope(Info);
-    if (!::EvaluateInPlace(Result.Val, Info, LVal, DE) ||
-        Result.HasSideEffects || !Scope.destroy())
-      return false;
-
-    if (!Info.discardCleanups())
-      llvm_unreachable("Unhandled cleanup; missing full expression marker?");
-  }
-
-  if (!CheckConstantExpression(Info, ExprLoc, RND->getType(),
-                               Result.Val, Kind))
-    return false;
-  if (!CheckMemoryLeaks(Info))
-    return false;
-
-  // If this is a class template argument, it's required to have constant
-  // destruction too.
-  if (Kind == ConstantExprKind::ClassTemplateArgument) {
-    // FIXME: Prefix a note to indicate that the problem is lack of constant
-    // destruction.
-    assert(false && "unhandled");
     return false;
   }
 
