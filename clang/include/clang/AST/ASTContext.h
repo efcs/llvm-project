@@ -1180,6 +1180,8 @@ public:
   // The implicit record decl __builtin_source_loc_impl_type
   mutable Decl *BuiltinSourceLocImplRecordDecl = nullptr;
 
+  mutable Decl *BuiltinContractViolationRecordDecl = nullptr;
+
   // Implicitly-declared type 'struct _GUID'.
   mutable TagDecl *MSGuidTagDecl = nullptr;
 
@@ -2201,6 +2203,13 @@ public:
   /// \c __builtin_source_loc_t type.
   // FIXME(ERICWF): Is this needed
   Decl *getBuiltinSourceLocImplRecord() const;
+
+  QualType getBuiltinContractViolationRecordType() const {
+    return getRecordType(
+        cast<RecordDecl>(getBuiltinContractViolationRecordDecl()));
+  }
+
+  Decl *getBuiltinContractViolationRecordDecl() const;
 
   /// Return whether a declaration to a builtin is allowed to be
   /// overloaded/redeclared.

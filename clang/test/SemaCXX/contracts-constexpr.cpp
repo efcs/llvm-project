@@ -22,4 +22,4 @@ constexpr int f2(int x) post(r : r != 0) {
   return x;
 }
 
-constexpr int test2 = f2(1);
+constexpr int test2 = f2(0);

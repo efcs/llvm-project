@@ -16,6 +16,8 @@
 #ifndef LLVM_CLANG_BASIC_ERICWFDEBUG_H
 #define LLVM_CLANG_BASIC_ERICWFDEBUG_H
 
+#include "llvm/Support/Debug.h"
+#include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
 
 namespace clang {
@@ -39,7 +41,21 @@ inline void printSourceLocation(const char *file, const char *func,
 #define ERICWF_PRINT_SOURCE_LOC()                                              \
   ::clang::printSourceLocation(__FILE__, __func__, __LINE__)
 
+#define ERICWF_STACK_TRACE(N)                                                  \
+  do {                                                                         \
+    if (::clang::EricWFDebugEnabled) {                                         \
+      llvm::PrintStackTrace(llvm::errs(), N)                                   \
+    }                                                                          \
+  } while (0)
+
 } // namespace clang
+
+#define ERICWF_PRINT(x)                                                        \
+  do {                                                                         \
+    ERICWF_PRINT_SOURCE_LOC();                                                 \
+    if constexpr (::clang::EricWFDebugEnabled)                                 \
+      llvm::errs() << #x << " = " << x;                                        \
+  } while (0)
 
 #define ERICWF_DEBUG_BLOCK                                                     \
   ERICWF_PRINT_SOURCE_LOC();                                                   \

@@ -673,7 +673,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
   llvm::Value *BranchOn = nullptr;
   llvm::Value *ContractStateVal = nullptr;
-  if (StmtCanThrow(S.getCond())) {
+  if (false && StmtCanThrow(S.getCond())) {
     RawAddress ContractState =
         CreateIRTemp(getContext().UnsignedIntTy, "cond.state");
     Builder.CreateStore(

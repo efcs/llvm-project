@@ -9257,6 +9257,48 @@ static TypedefDecl *CreateBuiltinSourceLocImplDecl(const ASTContext *Context) {
   return Context->buildImplicitTypedef(SourceLocImplTy, "__builtin_source_loc_impl_t");
 }
 
+static RecordDecl *
+CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT =
+      Context->buildImplicitRecord("__builtin_contract_violation_info_t");
+  ViolationInfoT->startDefinition();
+
+  const size_t NumFields = 8;
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  ;
+
+  std::pair<QualType, const char *> FieldInfo[NumFields] = {
+      {Context->UnsignedIntTy, "__version_"},
+      {ConstStrLiteralTy, "__message_"},
+      {ConstStrLiteralTy, "__file_"},
+      {ConstStrLiteralTy, "__function_"},
+      {Context->UnsignedIntTy, "__line_"},
+      {Context->UnsignedIntTy, "__contract_kind_"},
+      {Context->UnsignedIntTy, "__evaluation_semantic_"},
+      {Context->UnsignedIntTy, "__detection_mode_"}};
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+  // QualType SourceLocImplTy = Context->getRecordType(SourceLocImplDecl);
+  return ViolationInfoT;
+
+  // return Context->buildImplicitTypedef(ViolationInfoT,
+  // "__builtin_source_loc_impl_t");
+}
+
 static TypedefDecl *CreateHexagonBuiltinVaListDecl(const ASTContext *Context) {
   // typedef struct __va_list_tag {
   RecordDecl *VaListTagDecl;
@@ -9358,6 +9400,16 @@ Decl *ASTContext::getBuiltinSourceLocImplRecord() const {
 
   assert(BuiltinSourceLocImplRecordDecl);
   return BuiltinSourceLocImplRecordDecl;
+}
+
+Decl *ASTContext::getBuiltinContractViolationRecordDecl() const {
+  if (!BuiltinContractViolationRecordDecl) {
+    BuiltinContractViolationRecordDecl =
+        CreateBuiltinContractViolationRecordDecl(this);
+    assert(BuiltinContractViolationRecordDecl->isImplicit());
+  }
+
+  return BuiltinContractViolationRecordDecl;
 }
 
 Decl *ASTContext::getVaListTagDecl() const {
