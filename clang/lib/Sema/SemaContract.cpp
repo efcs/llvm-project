@@ -176,7 +176,7 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
         Diag(PVD->getLocation(), diag::note_previous_declaration);
       } else if (auto *CD = dyn_cast<CapturedDecl>(PrevDecl)) {
         Diag(IDLoc, diag::err_redefinition_different_kind) << II;
-        Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
+        Diag(CD->getLocation(), diag::note_previous_declaration);
       } else {
         Diag(IDLoc, diag::err_ericwf_fixme) << "Add A Diagnostic Here";
       }
