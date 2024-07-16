@@ -338,225 +338,18 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   return llvm::DebugLoc();
 }
 
-
-
-void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
-    ContractViolationDetection ViolationDetectionMode) {
-  // auto &SM = getContext().getSourceManager();
+void CodeGenFunction::EmitHandleContractViolationCall(
+    const ContractStmt &S, ContractViolationDetection ViolationDetectionMode) {
   auto &Ctx = getContext();
   ContractEvaluationSemantic EvalSemantic = S.getSemantic(getLangOpts());
   UnnamedGlobalConstantDecl *ViolationObj =
       Ctx.BuildViolationObject(&S, EvalSemantic, ViolationDetectionMode);
 
-#if 0
-  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc()
-                                     : S.getCond()->getBeginLoc();
-  auto End = S.getCond()->getEndLoc();
-  SourceRange Range(Begin, End);
-
-  CharSourceRange ExprRange = Lexer::getAsCharRange(
-      SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
-  std::string AssertStr =
-      Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
-  // FIXME(EricWF): We don't track the closing parenthesis in the source range.
-
-  unsigned ContractKindValue = [&]() {
-    switch (S.getContractKind()) {
-    case ContractKind::Pre:
-      return 1;
-    case ContractKind::Post:
-      return 2;
-    case ContractKind::Assert:
-      return 3;
-    }
-    llvm_unreachable("unhandled ContractKind");
-  }();
-
-  const SourceLocation Location = S.getCond()->getBeginLoc();
-
-  std::string Filename = [&]() -> std::string {
-    PresumedLoc PLoc = SM.getPresumedLoc(Location);
-    return PLoc.getFilename();
-  }();
-
-  auto UnsignedTy = getContext().UnsignedIntTy;
-  auto VoidPtrTy = getContext().VoidPtrTy;
-  std::tuple<llvm::Constant *, QualType, llvm::Type *> Constants[] = {
-      {llvm::ConstantInt::get(Int32Ty, 1), UnsignedTy,
-       Int32Ty}, // A version tag for the struct.
-      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy, Int32Ty},
-      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy, Int32Ty},
-      // Assume the predicate failed, overwrite this value later if it's not
-      // true.
-      {llvm::ConstantInt::get(Int32Ty, (int)ViolationDetectionMode), UnsignedTy,
-       Int32Ty},
-      {CGM.EmitAnnotationLineNo(Location), UnsignedTy, Int32Ty},
-      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy,
-       Int8PtrTy},
-      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy,
-       Int8PtrTy},
-
-  };
-  SmallVector<llvm::Constant *, 6> ConstantArgs;
-  SmallVector<QualType, 6> ConstantTypes;
-  SmallVector<llvm::Type *, 6> ConstantLLVMTys;
-  for (auto [Const, Ty, llvmTy] : Constants) {
-    ConstantArgs.push_back(Const);
-    ConstantTypes.push_back(Ty);
-    ConstantLLVMTys.push_back(llvmTy);
-  }
-  llvm::StructType *SType =
-      llvm::StructType::get(getLLVMContext(), ConstantLLVMTys);
-  llvm::Constant *Struct = llvm::ConstantStruct::get(SType, ConstantArgs);
-
-
   CallArgList Args;
-
-  RawAddress ArgMemory = RawAddress::invalid();
-  if (llvm::StructType *ArgStruct = SType) {
-    const llvm::DataLayout &DL = CGM.getDataLayout();
-    llvm::Instruction *IP = Args.getStackBase();
-    llvm::AllocaInst *AI;
-    if (IP) {
-      IP = IP->getNextNode();
-      AI = new llvm::AllocaInst(ArgStruct, DL.getAllocaAddrSpace(), "argmem",
-                                IP);
-    } else {
-      AI = CreateTempAlloca(ArgStruct, "argmem");
-    }
-    auto Align = CGM.getContext().getTypeAlignInChars(ConstantTypes[0]);
-    AI->setAlignment(Align.getAsAlign());
-    AI->setUsedWithInAlloca(true);
-    assert(AI->isUsedWithInAlloca() && !AI->isStaticAlloca());
-    ArgMemory = RawAddress(AI, ArgStruct, Align);
-  }
-  Builder.CreateStore(Struct, ArgMemory);
-#endif
-
-  CallArgList Args;
-  ViolationObj->getType().dump();
   ConstantAddress ArgValue =
       CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);
 
   Args.add(RValue::get(ArgValue.getPointer()), Ctx.VoidPtrTy);
-
-  const CGFunctionInfo &VFuncInfo =
-      CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
-  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc =
-      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_new");
-
-  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
-}
-
-void CodeGenFunction::NewEmitHandleContractViolationCall(
-    const ContractStmt &S, llvm::Value *ContractViolationVal) {
-  auto &SM = getContext().getSourceManager();
-  auto &Ctx = getContext();
-
-  auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc()
-                                     : S.getCond()->getBeginLoc();
-  auto End = S.getCond()->getEndLoc();
-  SourceRange Range(Begin, End);
-
-  CharSourceRange ExprRange = Lexer::getAsCharRange(
-      SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
-  std::string AssertStr =
-      Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
-  // FIXME(EricWF): We don't track the closing parenthesis in the source range.
-
-  unsigned ContractKindValue = [&]() {
-    switch (S.getContractKind()) {
-    case ContractKind::Pre:
-      return 1;
-    case ContractKind::Post:
-      return 2;
-    case ContractKind::Assert:
-      return 3;
-    }
-    llvm_unreachable("unhandled ContractKind");
-  }();
-
-  unsigned EvalSemantic = [&]() -> unsigned {
-    using EST = LangOptions::ContractEvaluationSemantic;
-    switch (S.getSemantic(getLangOpts())) {
-    case EST::Enforce:
-      return 1;
-    case EST::Observe:
-      return 2;
-    case EST::Ignore:
-    case EST::QuickEnforce:
-    case EST::Invalid:
-      llvm_unreachable("cannot generate a call for this semantic");
-    }
-    llvm_unreachable("unhandled ContractEvaluationSemantic");
-  }();
-
-  const SourceLocation Location = S.getCond()->getBeginLoc();
-
-  std::string Filename = [&]() -> std::string {
-    PresumedLoc PLoc = SM.getPresumedLoc(Location);
-    return PLoc.getFilename();
-  }();
-
-  auto UnsignedTy = getContext().UnsignedIntTy;
-  auto VoidPtrTy = getContext().VoidPtrTy;
-  std::tuple<llvm::Constant *, QualType, llvm::Type *> Constants[] = {
-      {llvm::ConstantInt::get(Int32Ty, 1), UnsignedTy,
-       Int32Ty}, // A version tag for the struct.
-      {llvm::ConstantInt::get(Int32Ty, ContractKindValue), UnsignedTy, Int32Ty},
-      {llvm::ConstantInt::get(Int32Ty, EvalSemantic), UnsignedTy, Int32Ty},
-      // Assume the predicate failed, overwrite this value later if it's not
-      // true.
-      {llvm::ConstantInt::get(Int32Ty,
-                              (int)ContractViolationDetection::PredicateFailed),
-       UnsignedTy, Int32Ty},
-      {CGM.EmitAnnotationLineNo(Location), UnsignedTy, Int32Ty},
-      {CGM.GetAddrOfConstantCString(AssertStr).getPointer(), VoidPtrTy,
-       Int8PtrTy},
-      {CGM.GetAddrOfConstantCString(Filename).getPointer(), VoidPtrTy,
-       Int8PtrTy},
-
-  };
-  SmallVector<llvm::Constant *, 6> ConstantArgs;
-  SmallVector<QualType, 6> ConstantTypes;
-  SmallVector<llvm::Type *, 6> ConstantLLVMTys;
-  for (auto [Const, Ty, llvmTy] : Constants) {
-    ConstantArgs.push_back(Const);
-    ConstantTypes.push_back(Ty);
-    ConstantLLVMTys.push_back(llvmTy);
-  }
-  llvm::StructType *SType =
-      llvm::StructType::get(getLLVMContext(), ConstantLLVMTys);
-  llvm::Constant *Struct = llvm::ConstantStruct::get(SType, ConstantArgs);
-
-  CallArgList Args;
-
-  RawAddress ArgMemory = RawAddress::invalid();
-  if (llvm::StructType *ArgStruct = SType) {
-    const llvm::DataLayout &DL = CGM.getDataLayout();
-    llvm::Instruction *IP = Args.getStackBase();
-    llvm::AllocaInst *AI;
-    if (IP) {
-      IP = IP->getNextNode();
-      AI = new llvm::AllocaInst(ArgStruct, DL.getAllocaAddrSpace(), "argmem",
-                                IP);
-    } else {
-      AI = CreateTempAlloca(ArgStruct, "argmem");
-    }
-    auto Align = CGM.getContext().getTypeAlignInChars(ConstantTypes[0]);
-    AI->setAlignment(Align.getAsAlign());
-    AI->setUsedWithInAlloca(true);
-    assert(AI->isUsedWithInAlloca() && !AI->isStaticAlloca());
-    ArgMemory = RawAddress(AI, ArgStruct, Align);
-  }
-  Builder.CreateStore(Struct, ArgMemory);
-
-  Address EP = Builder.CreateStructGEP(ArgMemory, 3);
-  Builder.CreateStore(ContractViolationVal, EP);
-
-  llvm::Value *ArgValue = ArgMemory.getPointer();
-  Args.add(RValue::get(ArgValue), VoidPtrTy);
 
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
@@ -659,9 +452,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     return;
 
   llvm::BasicBlock *Begin = Builder.GetInsertBlock();
-  if (!Begin) {
-    Begin = createBasicBlock("contract_assert_begin", this->CurFn);
-  }
+  assert(Begin);
   llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
   llvm::BasicBlock *Violation =
       createBasicBlock("contract_assert_violation", this->CurFn);

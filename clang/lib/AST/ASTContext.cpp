@@ -9571,11 +9571,8 @@ CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
     ViolationInfoT->addDecl(Field);
   }
   ViolationInfoT->completeDefinition();
-  // QualType SourceLocImplTy = Context->getRecordType(SourceLocImplDecl);
-  return ViolationInfoT;
 
-  // return Context->buildImplicitTypedef(ViolationInfoT,
-  // "__builtin_source_loc_impl_t");
+  return ViolationInfoT;
 }
 
 UnnamedGlobalConstantDecl *
@@ -9598,7 +9595,7 @@ ASTContext::BuildViolationObject(const ContractStmt *CS,
     return APValue(Res, CharUnits::Zero(), Path, /*OnePastTheEnd=*/false);
   };
 
-  const CXXRecordDecl *ImplDecl =
+  const RecordDecl *ImplDecl =
       dyn_cast_or_null<RecordDecl>(getBuiltinContractViolationRecordDecl());
   assert(ImplDecl);
 

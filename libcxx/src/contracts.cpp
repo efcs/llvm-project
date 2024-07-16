@@ -40,13 +40,14 @@ static void display_contract_violation(const contract_violation& violation) noex
 } // namespace std::contracts
 
 struct _BuiltinContractStruct {
-  int32_t version;
-  int32_t contract_kind;
-  int32_t eval_semantic;
-  int32_t detection_mode;
-  int32_t lineno;
+  unsigned version;
   const char* comment;
   const char* file;
+  const char* function;
+  unsigned lineno;
+  unsigned contract_kind;
+  unsigned eval_semantic;
+  unsigned detection_mode;
 };
 
 extern "C" {
