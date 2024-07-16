@@ -2982,6 +2982,11 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   assert(E->isNonOdrUse() != NOUR_Unevaluated &&
          "should not emit an unevaluated operand");
 
+  // FIXME(EricWF): There's got to be more to this.
+  if (const auto *RND = dyn_cast<ResultNameDecl>(ND)) {
+    return MakeAddrLValue(ReturnValue, T, AlignmentSource::Decl);
+  }
+
   if (const auto *VD = dyn_cast<VarDecl>(ND)) {
     // Global Named registers access via intrinsics only
     if (VD->getStorageClass() == SC_Register &&

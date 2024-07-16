@@ -4004,6 +4004,19 @@ void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {
   if (SanOpts.has(SanitizerKind::ReturnsNonnullAttribute))
     RetNNAttr = CurCodeDecl->getAttr<ReturnsNonNullAttr>();
 
+  SmallVector<const ContractStmt *, 4> PostContracts;
+  if (auto *FD = dyn_cast<FunctionDecl>(CurCodeDecl)) {
+    for (auto *CA : FD->getContracts()) {
+      if (CA->getContractKind() == ContractKind::Post) {
+        PostContracts.push_back(CA);
+      }
+    }
+  }
+
+  for (auto *CA : PostContracts) {
+    EmitContractStmt(*CA);
+  }
+
   if (!RetNNAttr && !requiresReturnValueNullabilityCheck())
     return;
 

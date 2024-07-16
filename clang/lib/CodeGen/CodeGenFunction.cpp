@@ -1762,14 +1762,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   } else
     llvm_unreachable("no definition for emitted function");
 
-  // FIXME(EricWF): I don't think this should go here.
-  // Also we'll need to figure out how to reference the return value
-  for (ContractStmt *S : FD->getContracts()) {
-    if (S->getContractKind() != ContractKind::Post)
-      continue;
-    EmitStmt(S);
-  }
-
   // C++11 [stmt.return]p2:
   //   Flowing off the end of a function [...] results in undefined behavior in
   //   a value-returning function.
@@ -1796,6 +1788,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
+  // FIXME(EricWF): I don't think this should go here.
+  // Also we'll need to figure out how to reference the return value
+  // Post Contracts are emitted in ReturnValueCheck
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());
