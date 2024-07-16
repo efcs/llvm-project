@@ -1275,11 +1275,9 @@ static bool checkTupleLikeDecomposition(Sema &S,
     if (UseMemberGet) {
       //   if [lookup of member get] finds at least one declaration, the
       //   initializer is e.get<i-1>().
-      E = S.BuildMemberReferenceExpr(E.get(), DecompType, Loc,
-                                     /*IsArrow=*/false,
-                                     /*SS=*/CXXScopeSpec(),
-                                     /*TemplateKWLoc=*/SourceLocation(),
-                                     MemberGet, &Args, /*S=*/nullptr);
+      E = S.BuildMemberReferenceExpr(E.get(), DecompType, Loc, false,
+                                     CXXScopeSpec(), SourceLocation(), nullptr,
+                                     MemberGet, &Args, nullptr);
       if (E.isInvalid())
         return true;
 
@@ -4910,12 +4908,16 @@ BuildImplicitMemberInitializer(Sema &SemaRef, CXXConstructorDecl *Constructor,
     MemberLookup.addDecl(Indirect ? cast<ValueDecl>(Indirect)
                                   : cast<ValueDecl>(Field), AS_public);
     MemberLookup.resolveKind();
-    ExprResult CtorArg = SemaRef.BuildMemberReferenceExpr(
-        MemberExprBase, ParamType, Loc,
-        /*IsArrow=*/false, SS,
-        /*TemplateKWLoc=*/SourceLocation(), MemberLookup,
-        /*TemplateArgs=*/nullptr,
-        /*S=*/nullptr);
+    ExprResult CtorArg
+      = SemaRef.BuildMemberReferenceExpr(MemberExprBase,
+                                         ParamType, Loc,
+                                         /*IsArrow=*/false,
+                                         SS,
+                                         /*TemplateKWLoc=*/SourceLocation(),
+                                         /*FirstQualifierInScope=*/nullptr,
+                                         MemberLookup,
+                                         /*TemplateArgs=*/nullptr,
+                                         /*S*/nullptr);
     if (CtorArg.isInvalid())
       return true;
 
@@ -9077,7 +9079,10 @@ ComputeDefaultedComparisonExceptionSpec(Sema &S, SourceLocation Loc,
     EnterExpressionEvaluationContext Context(
         S, Sema::ExpressionEvaluationContext::Unevaluated);
 
-    CXXRecordDecl *RD = cast<CXXRecordDecl>(FD->getLexicalParent());
+    CXXRecordDecl *RD =
+        cast<CXXRecordDecl>(FD->getFriendObjectKind() == Decl::FOK_None
+                                ? FD->getDeclContext()
+                                : FD->getLexicalDeclContext());
     SourceLocation BodyLoc =
         FD->getEndLoc().isValid() ? FD->getEndLoc() : FD->getLocation();
     StmtResult Body =
@@ -11260,6 +11265,34 @@ void Sema::CheckExplicitObjectMemberFunction(Declarator &D,
     D.setInvalidType();
   }
 
+  // Friend declarations require some care. Consider:
+  //
+  // namespace N {
+  // struct A{};
+  // int f(A);
+  // }
+  //
+  // struct S {
+  //   struct T {
+  //     int f(this T);
+  //   };
+  //
+  //   friend int T::f(this T); // Allow this.
+  //   friend int f(this S);    // But disallow this.
+  //   friend int N::f(this A); // And disallow this.
+  // };
+  //
+  // Here, it seems to suffice to check whether the scope
+  // specifier designates a class type.
+  if (D.getDeclSpec().isFriendSpecified() &&
+      !isa_and_present<CXXRecordDecl>(
+          computeDeclContext(D.getCXXScopeSpec()))) {
+    Diag(ExplicitObjectParam->getBeginLoc(),
+         diag::err_explicit_object_parameter_nonmember)
+        << D.getSourceRange() << /*non-member=*/2 << IsLambda;
+    D.setInvalidType();
+  }
+
   if (IsLambda && FTI.hasMutableQualifier()) {
     Diag(ExplicitObjectParam->getBeginLoc(),
          diag::err_explicit_object_parameter_mutable)
@@ -11270,10 +11303,8 @@ void Sema::CheckExplicitObjectMemberFunction(Declarator &D,
     return;
 
   if (!DC || !DC->isRecord()) {
-    Diag(ExplicitObjectParam->getLocation(),
-         diag::err_explicit_object_parameter_nonmember)
-        << D.getSourceRange() << /*non-member=*/2 << IsLambda;
-    D.setInvalidType();
+    assert(D.isInvalidType() && "Explicit object parameter in non-member "
+                                "should have been diagnosed already");
     return;
   }
 
@@ -14341,10 +14372,8 @@ class MemberBuilder: public ExprBuilder {
 public:
   Expr *build(Sema &S, SourceLocation Loc) const override {
     return assertNotNull(S.BuildMemberReferenceExpr(
-                              Builder.build(S, Loc), Type, Loc, IsArrow, SS,
-                              /*TemplateKwLoc=*/SourceLocation(), MemberLookup,
-                              /*TemplateArgs=*/nullptr, /*S=*/nullptr)
-                             .get());
+        Builder.build(S, Loc), Type, Loc, IsArrow, SS, SourceLocation(),
+        nullptr, MemberLookup, nullptr, nullptr).get());
   }
 
   MemberBuilder(const ExprBuilder &Builder, QualType Type, bool IsArrow,
@@ -14550,11 +14579,13 @@ buildSingleCopyAssignRecursively(Sema &S, SourceLocation Loc, QualType T,
                    Loc);
 
     // Create the reference to operator=.
-    ExprResult OpEqualRef = S.BuildMemberReferenceExpr(
-        To.build(S, Loc), T, Loc, /*IsArrow=*/false, SS,
-        /*TemplateKWLoc=*/SourceLocation(), OpLookup,
-        /*TemplateArgs=*/nullptr, /*S*/ nullptr,
-        /*SuppressQualifierCheck=*/true);
+    ExprResult OpEqualRef
+      = S.BuildMemberReferenceExpr(To.build(S, Loc), T, Loc, /*IsArrow=*/false,
+                                   SS, /*TemplateKWLoc=*/SourceLocation(),
+                                   /*FirstQualifierInScope=*/nullptr,
+                                   OpLookup,
+                                   /*TemplateArgs=*/nullptr, /*S*/nullptr,
+                                   /*SuppressQualifierCheck=*/true);
     if (OpEqualRef.isInvalid())
       return StmtError();
 
@@ -17160,9 +17191,8 @@ bool Sema::EvaluateStaticAssertMessageAsString(Expr *Message,
 
   auto BuildExpr = [&](LookupResult &LR) {
     ExprResult Res = BuildMemberReferenceExpr(
-        Message, Message->getType(), Message->getBeginLoc(), /*IsArrow=*/false,
-        /*SS=*/CXXScopeSpec(), /*TemplateKWLoc=*/SourceLocation(), LR,
-        /*TemplateArgs=*/nullptr, /*S=*/nullptr);
+        Message, Message->getType(), Message->getBeginLoc(), false,
+        CXXScopeSpec(), SourceLocation(), nullptr, LR, nullptr, nullptr);
     if (Res.isInvalid())
       return ExprError();
     Res = BuildCallExpr(nullptr, Res.get(), Loc, std::nullopt, Loc, nullptr,

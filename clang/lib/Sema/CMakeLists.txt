@@ -83,6 +83,7 @@ add_clang_library(clangSema
   SemaSystemZ.cpp
   SemaTemplate.cpp
   SemaTemplateDeduction.cpp
+  SemaTemplateDeductionGuide.cpp
   SemaTemplateInstantiate.cpp
   SemaTemplateInstantiateDecl.cpp
   SemaTemplateVariadic.cpp
