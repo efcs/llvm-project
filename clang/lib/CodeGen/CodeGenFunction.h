@@ -740,6 +740,17 @@ public:
 
   unsigned NextCleanupDestIndex = 1;
 
+  /// ContractViolationBlock - Unified block for contract violation.
+  llvm::BasicBlock *ContractViolationBlock = nullptr;
+  llvm::BasicBlock *ContractViolationTrapBlock = nullptr;
+  llvm::PHINode *ContractViolationPhi = nullptr;
+
+  llvm::BasicBlock *GetContractViolationTrapBlock();
+
+  llvm::BasicBlock *GetContractViolationBlock();
+  void AddContractViolationIncomingBlock(llvm::BasicBlock *Inc,
+                                         const ContractStmt *CS);
+
   /// EHResumeBlock - Unified block containing a call to llvm.eh.resume.
   llvm::BasicBlock *EHResumeBlock = nullptr;
 
