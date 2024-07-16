@@ -1484,6 +1484,9 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    // The set of tokens that make up the contracts on the method.
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2127,8 +2130,10 @@ private:
   }
 
   StmtResult ParseContractAssertStatement();
-  void MaybeParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
-  StmtResult ParseFunctionContractSpecifier(Declarator &DeclaratorInfo);
+  void
+  MaybeParseFunctionContractSpecifierSeq(SmallVector<ContractStmt *> &Contracts,
+                                         QualType ReturnType);
+  StmtResult ParseFunctionContractSpecifier(QualType ReturnType);
   void MaybeLateParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
   bool LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens & ContractToks);
 

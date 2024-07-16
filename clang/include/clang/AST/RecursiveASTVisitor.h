@@ -2231,6 +2231,12 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
     TRY_TO(TraverseStmt(TrailingRequiresClause));
   }
 
+  // Visit any contracts attached to the function declaration..
+  const auto &Contracts = D->getContracts();
+  for (const auto &Contract : Contracts) {
+    TRY_TO(TraverseContractStmt(Contract));
+  }
+
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
     // Constructor initializers.
     for (auto *I : Ctor->inits()) {
@@ -2447,7 +2453,13 @@ DEF_TRAVERSE_STMT(ObjCForCollectionStmt, {})
 DEF_TRAVERSE_STMT(ObjCAutoreleasePoolStmt, {})
 // FIXME(EricWF): This may have a declaration with a body eventually.
 // Will that need a different implementation.
-DEF_TRAVERSE_STMT(ContractStmt, {})
+DEF_TRAVERSE_STMT(ContractStmt, {
+  if (S->hasResultNameDecl()) {
+    TRY_TO(TraverseDecl(S->getResultNameDecl()));
+  }
+  TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getCond());
+  ShouldVisitChildren = false;
+})
 
 DEF_TRAVERSE_STMT(CXXForRangeStmt, {
   if (!getDerived().shouldVisitImplicitCode()) {

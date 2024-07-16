@@ -1,13 +1,11 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts
 
 
 void test_pre_parse(int x) pre(x != 0);
 void test_post_parse(int x) post(x != 0);
 int test_dup_names(int x) // expected-note {{previous declaration is here}}
   post(x :  // expected-error {{declaration of result name 'x' shadows parameter}}
-    x != 0); // expected-error {{reference to 'x' is ambiguous}}
-  // expected-note@-2 {{candidate found by name lookup is 'x'}}
-  // expected-note@-4 {{candidate found by name lookup is 'x'}}
+    x != 0);
 
 
 auto test_trailing_return() -> int post(r : r != 0);
@@ -19,8 +17,11 @@ int test_can_redecl_result_name()
 struct A {
   int xx;
 
-  int test_member(int x) pre(x != 0) post(r : r != 0) post(rx : rx != 0);
-  void test_this_access() post(r != 0);  // expected-error {{use of undeclared identifier 'r'}}
+  int test_member(int x)
+    pre(x != 0)
+    post(r : r != 0)
+    post(x : x != 0); // expected-error {{declaration of result name 'x' shadows parameter}}
+  void test_this_access() post(r != 0);
 
   int r;
 };

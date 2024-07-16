@@ -342,9 +342,13 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
 
 void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
     ContractViolationDetection ViolationDetectionMode) {
-  auto &SM = getContext().getSourceManager();
+  // auto &SM = getContext().getSourceManager();
   auto &Ctx = getContext();
+  ContractEvaluationSemantic EvalSemantic = S.getSemantic(getLangOpts());
+  UnnamedGlobalConstantDecl *ViolationObj =
+      Ctx.BuildViolationObject(&S, EvalSemantic, ViolationDetectionMode);
 
+#if 0
   auto Begin = S.hasResultNameDecl() ? S.getResultNameDecl()->getBeginLoc()
                                      : S.getCond()->getBeginLoc();
   auto End = S.getCond()->getEndLoc();
@@ -366,21 +370,6 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
       return 3;
     }
     llvm_unreachable("unhandled ContractKind");
-  }();
-
-  unsigned EvalSemantic = [&]() -> unsigned {
-    using EST = LangOptions::ContractEvaluationSemantic;
-    switch (S.getSemantic(getLangOpts())) {
-    case EST::Enforce:
-      return 1;
-    case EST::Observe:
-      return 2;
-    case EST::Ignore:
-    case EST::QuickEnforce:
-    case EST::Invalid:
-      llvm_unreachable("cannot generate a call for this semantic");
-    }
-    llvm_unreachable("unhandled ContractEvaluationSemantic");
   }();
 
   const SourceLocation Location = S.getCond()->getBeginLoc();
@@ -420,6 +409,7 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
       llvm::StructType::get(getLLVMContext(), ConstantLLVMTys);
   llvm::Constant *Struct = llvm::ConstantStruct::get(SType, ConstantArgs);
 
+
   CallArgList Args;
 
   RawAddress ArgMemory = RawAddress::invalid();
@@ -441,9 +431,14 @@ void CodeGenFunction::EmitHandleContractViolationCall(const ContractStmt &S,
     ArgMemory = RawAddress(AI, ArgStruct, Align);
   }
   Builder.CreateStore(Struct, ArgMemory);
+#endif
 
-  llvm::Value *ArgValue = ArgMemory.getPointer();
-  Args.add(RValue::get(ArgValue), VoidPtrTy);
+  CallArgList Args;
+  ViolationObj->getType().dump();
+  ConstantAddress ArgValue =
+      CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);
+
+  Args.add(RValue::get(ArgValue.getPointer()), Ctx.VoidPtrTy);
 
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionCall(getContext().VoidTy, Args);
@@ -664,10 +659,14 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     return;
 
   llvm::BasicBlock *Begin = Builder.GetInsertBlock();
+  if (!Begin) {
+    Begin = createBasicBlock("contract_assert_begin", this->CurFn);
+  }
   llvm::BasicBlock *End = createBasicBlock("contract_assert_end", this->CurFn);
   llvm::BasicBlock *Violation =
       createBasicBlock("contract_assert_violation", this->CurFn);
-  Builder.SetInsertPoint(Begin);
+  // Builder.CreateBr(Begin);
+  // Builder.SetInsertPoint(Begin);
 
   CXXTryStmt *TryStmt = nullptr;
 
@@ -1916,7 +1915,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   for (ContractStmt *S : FD->getContracts()) {
     if (S->getContractKind() != ContractKind::Pre)
       continue;
-    EmitContractStmt(*S);
+    EmitStmt(S);
   }
 
   // Save parameters for coroutine function.
@@ -1967,6 +1966,14 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   } else
     llvm_unreachable("no definition for emitted function");
 
+  // FIXME(EricWF): I don't think this should go here.
+  // Also we'll need to figure out how to reference the return value
+  for (ContractStmt *S : FD->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    EmitStmt(S);
+  }
+
   // C++11 [stmt.return]p2:
   //   Flowing off the end of a function [...] results in undefined behavior in
   //   a value-returning function.
@@ -1992,14 +1999,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.CreateUnreachable();
       Builder.ClearInsertionPoint();
     }
-  }
-
-  // FIXME(EricWF): I don't think this should go here.
-  // Also we'll need to figure out how to reference the return value
-  for (ContractStmt *S : FD->getContracts()) {
-    if (S->getContractKind() != ContractKind::Post)
-      continue;
-    EmitContractStmt(*S);
   }
 
   // Emit the standard function epilogue.

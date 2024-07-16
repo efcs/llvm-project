@@ -2282,6 +2282,11 @@ void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
   dumpType(D->getType());
 }
 
+void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
+  dumpName(D);
+  dumpType(D->getType());
+}
+
 void TextNodeDumper::VisitCapturedDecl(const CapturedDecl *D) {
   if (D->isNothrow())
     OS << " nothrow";
@@ -2888,4 +2893,19 @@ void TextNodeDumper::VisitOpenACCLoopConstruct(const OpenACCLoopConstruct *S) {
 void TextNodeDumper::VisitEmbedExpr(const EmbedExpr *S) {
   AddChild("begin", [=] { OS << S->getStartingElementPos(); });
   AddChild("number of elements", [=] { OS << S->getDataElementCount(); });
+}
+
+void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  switch (S->getContractKind()) {
+  case ContractKind::Post:
+    OS << " post";
+    break;
+  case ContractKind::Pre:
+    OS << " pre";
+    break;
+  case ContractKind::Assert:
+    OS << " contract_assert";
+    break;
+  }
 }

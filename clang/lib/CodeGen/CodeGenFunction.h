@@ -112,12 +112,6 @@ enum TypeEvaluationKind {
   TEK_Aggregate
 };
 
-enum class ContractViolationDetection {
-  NoViolation = 0,
-  PredicateFailed = 1,
-  ExceptionRaised = 2
-};
-
 #define LIST_SANITIZER_CHECKS                                                  \
   SANITIZER_CHECK(AddOverflow, add_overflow, 0)                                \
   SANITIZER_CHECK(BuiltinUnreachable, builtin_unreachable, 0)                  \

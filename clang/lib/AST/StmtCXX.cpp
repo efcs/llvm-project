@@ -14,6 +14,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/Lex/Preprocessor.h"
 
 using namespace clang;
 
@@ -168,4 +169,17 @@ ContractStmt::getSemantic(const LangOptions &LangOpts) const {
   if (Group.empty())
     return LangOpts.ContractOpts.DefaultSemantic;
   return LangOpts.ContractOpts.getSemanticForGroup(Group);
+}
+
+std::string ContractStmt::getMessage(const ASTContext &Ctx) const {
+  auto &SM = Ctx.getSourceManager();
+  auto Begin = hasResultNameDecl() ? getResultNameDecl()->getBeginLoc()
+                                   : getCond()->getBeginLoc();
+  auto End = getCond()->getEndLoc();
+  SourceRange Range(Begin, End);
+  CharSourceRange ExprRange = Lexer::getAsCharRange(
+      SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
+  std::string AssertStr =
+      Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
+  return AssertStr;
 }

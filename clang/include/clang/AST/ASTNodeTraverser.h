@@ -159,7 +159,7 @@ public:
 
       // Some statements have custom mechanisms for dumping their children.
       if (isa<DeclStmt>(S) || isa<GenericSelectionExpr>(S) ||
-          isa<RequiresExpr>(S))
+          isa<RequiresExpr>(S) || isa<ContractStmt>(S))
         return;
 
       if (Traversal == TK_IgnoreUnlessSpelledInSource &&
@@ -529,6 +529,10 @@ public:
     if (const Expr *TRC = D->getTrailingRequiresClause())
       Visit(TRC);
 
+    const auto &Contracts = D->getContracts();
+    for (const auto &C : Contracts)
+      Visit(C);
+
     if (Traversal == TK_IgnoreUnlessSpelledInSource && D->isDefaulted())
       return;
 
@@ -720,6 +724,12 @@ public:
   void VisitConceptDecl(const ConceptDecl *D) {
     dumpTemplateParameters(D->getTemplateParameters());
     Visit(D->getConstraintExpr());
+  }
+
+  void VisitContractStmt(const ContractStmt *S) {
+    if (S->hasResultNameDecl())
+      Visit(S->getResultNameDecl());
+    Visit(S->getCond());
   }
 
   void VisitImplicitConceptSpecializationDecl(

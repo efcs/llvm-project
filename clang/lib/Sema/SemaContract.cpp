@@ -136,17 +136,34 @@ void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
 
 /// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
 /// to introduce parameters into function prototype scope.
-StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
-                                      SourceLocation IDLoc,
-                                      IdentifierInfo *II)  {
-  assert(S && S->isContractAssertScope() && "Invalid scope for result name");
+StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
+                                           SourceLocation IDLoc,
+                                           IdentifierInfo *II) {
+  // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
   //CheckFunctionOrTemplateParamDeclarator(S, D);
+#if 0
+  QualType RetType;
 
   TypeSourceInfo *TInfo = GetTypeForDeclarator(FuncDecl);
-  assert(TInfo && TInfo->getType()->isFunctionType() && "no type from declarator in ActOnParamDeclarator");
-  QualType RetType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
+  TInfo->getType().dump();
+  assert(TInfo);
+  if (TInfo->getType()->isFunctionType() || TInfo->getType()->isFunctionProtoType()) {
+    assert((TInfo->getType()->isFunctionProtoType() ||
+            TInfo->getType()->isFunctionType()) &&
+           "no type from declarator in ActOnResultNameDeclarator");
+    assert(TInfo && TInfo->getType()->isFunctionType() &&
+           "no type from declarator in ActOnParamDeclarator");
+    RetType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
+  }
+else if (FuncDecl.hasTrailingReturnType()) {
+    RetType = GetTypeFromParser(FuncDecl.getTrailingReturnType());
+  } else {
+    // We haven't yet turned the declarator into a function type.
+    RetType = TInfo->getType();
+  }
 
+#endif
   if (RetType->isVoidType())  {
     Diag(IDLoc, diag::err_void_result_name) << II;
     return StmtError();
@@ -174,11 +191,11 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
       if (auto* PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
         Diag(IDLoc, diag::err_result_name_shadows_param) << II; // FIXME(EricWF): Change the diagnostic here.
         Diag(PVD->getLocation(), diag::note_previous_declaration);
-      } else if (auto *CD = dyn_cast<CapturedDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_redefinition_different_kind) << II;
-        Diag(CD->getLocation(), diag::note_previous_declaration);
       } else {
-        Diag(IDLoc, diag::err_ericwf_fixme) << "Add A Diagnostic Here";
+        // FIXME(EricWF): Is this an error?
+        PrevDecl->dumpColor();
+        Diag(IDLoc, diag::err_redefinition_different_kind) << II;
+        Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
       }
     }
   }
@@ -190,11 +207,8 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
   auto *New = ResultNameDecl::Create(Context, CurContext,
                      IDLoc, II, RetType);
 
-  if (FuncDecl.isInvalidType())
-    New->setInvalidDecl();
-
-  //CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
-  assert(S->isContractAssertScope());
+  // CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
+  // assert(S->isContractAssertScope());
   assert(S->isFunctionPrototypeScope());
   assert(S->getFunctionPrototypeDepth() >= 1);
   //New->setDeclContext(getScopeForContext(S->getFunctionPrototypeDepth() - 1,

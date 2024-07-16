@@ -23,6 +23,7 @@ namespace clang {
 
 class VarDecl;
 class ResultNameDecl;
+class UnnamedGlobalConstantDecl;
 
 /// CXXCatchStmt - This represents a C++ catch block.
 ///
@@ -616,6 +617,8 @@ public:
   void setContractKind(ContractKind CK) {
     ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
   }
+
+  std::string getMessage(const ASTContext &Ctx) const;
 
   ArrayRef<const Attr *> getAttrs() const {
     return llvm::ArrayRef(getAttrArrayPtr(), ContractAssertBits.NumAttrs);

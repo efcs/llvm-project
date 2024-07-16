@@ -2541,6 +2541,10 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
     }
   }
 
+  if (!NeedLateParse) {
+    NeedLateParse = !DeclaratorInfo.getLateParsedContracts().empty();
+  }
+
   if (NeedLateParse) {
     // Push this method onto the stack of late-parsed method
     // declarations.
@@ -2560,6 +2564,11 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
     if (FTI.getExceptionSpecType() == EST_Unparsed) {
       LateMethod->ExceptionSpecTokens = FTI.ExceptionSpecTokens;
       FTI.ExceptionSpecTokens = nullptr;
+    }
+
+    if (!DeclaratorInfo.LateParsedContracts.empty()) {
+      LateMethod->ContractTokens =
+          std::move(DeclaratorInfo.LateParsedContracts);
     }
   }
 }
@@ -2737,7 +2746,14 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
                                                               VS);
   }
 
-  MaybeParseFunctionContractSpecifierSeq(DeclaratorInfo);
+  // FIXME(EricWF): Why is this here?
+  TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclaratorInfo);
+  assert(TInfo);
+  QualType RT = TInfo->getType();
+  if (TInfo->getType()->isFunctionType()) {
+    RT = RT->getAs<FunctionType>()->getReturnType();
+  }
+  MaybeParseFunctionContractSpecifierSeq(DeclaratorInfo.Contracts, RT);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {
@@ -4344,26 +4360,27 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
 ///   result-name-introducer:
 ///       attributed-identifier :
 void Parser::MaybeParseFunctionContractSpecifierSeq(
-    Declarator &DeclaratorInfo) {
+    SmallVector<ContractStmt *> &Contracts, QualType ReturnType) {
   ContractKeyword CKK;
   while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
-    StmtResult Contract = ParseFunctionContractSpecifier(DeclaratorInfo);
+    StmtResult Contract = ParseFunctionContractSpecifier(ReturnType);
     if (Contract.isUsable()) {
-      DeclaratorInfo.addContract(Contract.getAs<ContractStmt>());
+      Contracts.push_back(Contract.getAs<ContractStmt>());
     }
   }
 }
 
 void Parser::MaybeLateParseFunctionContractSpecifierSeq(
     Declarator &DeclaratorInfo) {
+  if (!getLangOpts().CPlusPlus || !getLangOpts().Contracts)
+    return;
   ContractKeyword CKK;
   while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
     CachedTokens Toks;
-    if (!LateParseFunctionContractSpecifier(DeclaratorInfo, Toks)) {
+    if (!LateParseFunctionContractSpecifier(
+            DeclaratorInfo, DeclaratorInfo.LateParsedContracts)) {
       return;
     }
-
-    DeclaratorInfo.addLateParsedContract(Toks);
   }
 }
 
@@ -4404,7 +4421,7 @@ bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, Cach
   return true;
 }
 
-StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
+StmtResult Parser::ParseFunctionContractSpecifier(QualType RetType) {
   auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
     switch (isContractSpecifier(Tok)) {
     case ContractKeyword::Pre:
@@ -4434,20 +4451,53 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
                          tok::r_paren)) {
     return StmtError();
   }
-
+#if 0
   // Don't include the Scope::FunctionDeclarationScope, since it puts the
   // result name introducer into wrong scope, allowing it to be referenced
   // outside of the postcondition.
   ParseScope ContractScope(this, Scope::DeclScope |
                                   Scope::FunctionPrototypeScope |
                                   Scope::ContractAssertScope);
-
+#endif
   EnterExpressionEvaluationContext EC(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
+  ParseScope ContractScope2(
+      this, Scope::DeclScope | Scope::FunctionDeclarationScope |
+                Scope::FunctionPrototypeScope | Scope::ContractAssertScope);
+#if 0
+  // C++23 [basic.scope.namespace]p1:
+  //   For each non-friend redeclaration or specialization whose target scope
+  //   is or is contained by the scope, the portion after the declarator-id,
+  //   class-head-name, or enum-head-name is also included in the scope.
+  // C++23 [basic.scope.class]p1:
+  //   For each non-friend redeclaration or specialization whose target scope
+  //   is or is contained by the scope, the portion after the declarator-id,
+  //   class-head-name, or enum-head-name is also included in the scope.
+  //
+  // FIXME: We should really be calling ParseTrailingRequiresClause in
+  // ParseDirectDeclarator, when we are already in the declarator scope.
+  // This would also correctly suppress access checks for specializations
+  // and explicit instantiations, which we currently do not do.
+  CXXScopeSpec &SS = DeclaratorInfo.getCXXScopeSpec();
+  DeclaratorScopeObj DeclScopeObj(*this, SS);
+  if (SS.isValid() && Actions.ShouldEnterDeclaratorScope(getCurScope(), SS))
+    DeclScopeObj.EnterDeclaratorScope();
+
+  ParseScope ContractScope2(this, Scope::DeclScope |
+                                  Scope::FunctionDeclarationScope |
+                                  Scope::FunctionPrototypeScope |
+                                  Scope::ContractAssertScope);
+  auto& D = DeclaratorInfo;
+  std::optional<Sema::CXXThisScopeRAII> ThisScope;
+  InitCXXThisScopeForDeclaratorIfRelevant(D, D.getDeclSpec(), ThisScope);
+
+
+
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
   InitCXXThisScopeForDeclaratorIfRelevant(DeclaratorInfo, DeclaratorInfo.getDeclSpec(), ThisScope);
-  Sema::ContractScopeRAII ContractExpressionScope(Actions);
+
+
 
   DeclaratorChunk::FunctionTypeInfo FTI = DeclaratorInfo.getFunctionTypeInfo();
 
@@ -4455,6 +4505,9 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
     ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
     Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
   }
+
+#endif
+  Sema::ContractScopeRAII ContractExpressionScope(Actions);
 
   DeclStmt *ResultNameStmt = nullptr;
   if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
@@ -4465,8 +4518,9 @@ StmtResult Parser::ParseFunctionContractSpecifier(Declarator &DeclaratorInfo) {
 
     SourceLocation ColonLoc = ConsumeToken();
     ((void)ColonLoc);
-
-    StmtResult RNStmt = Actions.ActOnResultNameDeclarator(getCurScope(), DeclaratorInfo, IdLoc, Id);
+    // RetType = GetTypeForDeclarator(FuncDecl);
+    StmtResult RNStmt =
+        Actions.ActOnResultNameDeclarator(getCurScope(), RetType, IdLoc, Id);
     if (RNStmt.isUsable())
         ResultNameStmt = cast<DeclStmt>(RNStmt.get());
     else
@@ -4620,7 +4674,8 @@ void Parser::PopParsingClass(Sema::ParsingClassState state) {
   ClassStack.pop();
   if (Victim->TopLevelClass) {
     // Deallocate all of the nested classes of this class,
-    // recursively: we don't need to keep any of this information.
+    // recursively: we don't need
+    // to keep any of this information.
     DeallocateParsedClasses(Victim);
     return;
   }

@@ -2732,9 +2732,9 @@ public:
                                  Expr *Cond, DeclStmt *ResultNameDecl,
                                  ParsedAttributes &Attrs);
 
-  StmtResult ActOnResultNameDeclarator(Scope *S, Declarator &FuncDecl,
-                                      SourceLocation IDLoc,
-                                      IdentifierInfo *II);
+  StmtResult ActOnResultNameDeclarator(Scope *S, QualType T,
+                                       SourceLocation IDLoc,
+                                       IdentifierInfo *II);
 
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 

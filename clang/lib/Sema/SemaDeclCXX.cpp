@@ -10683,11 +10683,6 @@ void Sema::ActOnFinishDelayedCXXMethodDeclaration(Scope *S, Decl *MethodD) {
   AdjustDeclIfTemplate(MethodD);
 
   FunctionDecl *Method = cast<FunctionDecl>(MethodD);
-  if (!Method->getContracts().empty()) {
-    Diag(Method->getContracts()[0]->getBeginLoc(),
-         diag::warn_ericwf_unimplemented)
-        << "pre/post on methods is not yet well supported";
-  }
 
   // Now that we have our default arguments, check the constructor
   // again. It could produce additional diagnostics or affect whether

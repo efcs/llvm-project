@@ -1980,10 +1980,13 @@ private:
   /// requires-clause, or null if no such clause was specified.
   Expr *TrailingRequiresClause;
 
+public:
   /// \brief All pre and post contracts specified by the function declaration
   SmallVector<ContractStmt *> Contracts;
-  SmallVector<CachedTokens> LateParsedContracts;
 
+  CachedTokens LateParsedContracts;
+
+private:
   /// If this declarator declares a template, its template parameter lists.
   ArrayRef<TemplateParameterList *> TemplateParameterLists;
 
@@ -2662,11 +2665,11 @@ public:
     return Contracts;
   }
 
-  void addLateParsedContract(CachedTokens Toks) {
-    LateParsedContracts.push_back(Toks);
+  void addLateParsedContract(CachedTokens &Toks) {
+    LateParsedContracts.append(Toks);
   }
 
-  const SmallVector<CachedTokens> &getLateParsedContracts() {
+  const CachedTokens &getLateParsedContracts() const {
     return LateParsedContracts;
   }
 

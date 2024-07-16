@@ -576,6 +576,78 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     LM.ExceptionSpecTokens = nullptr;
   }
 
+  if (!LM.ContractTokens.empty()) {
+    CachedTokens *Toks = &LM.ContractTokens;
+
+    // Add the 'stop' token.
+    Token LastContractToken = Toks->back();
+    Token ContractEnd;
+    ContractEnd.startToken();
+    ContractEnd.setKind(tok::eof);
+    ContractEnd.setLocation(LastContractToken.getEndLoc());
+    ContractEnd.setEofData(LM.Method);
+    Toks->push_back(ContractEnd);
+
+    // Parse the default argument from its saved token stream.
+    Toks->push_back(Tok); // So that the current token doesn't get lost
+    PP.EnterTokenStream(*Toks, true, /*IsReinject*/ true);
+
+    // Consume the previously-pushed token.
+    ConsumeAnyToken();
+
+    // C++11 [expr.prim.general]p3:
+    //   If a declaration declares a member function or member function
+    //   template of a class X, the expression this is a prvalue of type
+    //   "pointer to cv-qualifier-seq X" between the optional cv-qualifer-seq
+    //   and the end of the function-definition, member-declarator, or
+    //   declarator.
+    CXXMethodDecl *Method;
+    FunctionDecl *FunctionToPush;
+    if (FunctionTemplateDecl *FunTmpl =
+            dyn_cast<FunctionTemplateDecl>(LM.Method))
+      FunctionToPush = FunTmpl->getTemplatedDecl();
+    else
+      FunctionToPush = cast<FunctionDecl>(LM.Method);
+    Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
+    QualType RetType = FunctionToPush->getReturnType();
+
+    // Push a function scope so that tryCaptureVariable() can properly visit
+    // function scopes involving function parameters that are referenced inside
+    // the noexcept specifier e.g. through a lambda expression.
+    // Example:
+    // struct X {
+    //   void ICE(int val) noexcept(noexcept([val]{}));
+    // };
+    // Setup the CurScope to match the function DeclContext - we have such
+    // assumption in IsInFnTryBlockHandler().
+    ParseScope FnScope(this, Scope::FnScope);
+    Sema::ContextRAII FnContext(Actions, FunctionToPush,
+                                /*NewThisContext=*/false);
+    Sema::FunctionScopeRAII PopFnContext(Actions);
+    Actions.PushFunctionScope();
+
+    Sema::CXXThisScopeRAII ThisScope(
+        Actions, Method ? Method->getParent() : nullptr,
+        Method ? Method->getMethodQualifiers() : Qualifiers{},
+        Method && getLangOpts().CPlusPlus11);
+
+    // Parse the exception-specification.
+    SmallVector<ContractStmt *> Contracts;
+    assert(FunctionToPush->getContracts().empty());
+    MaybeParseFunctionContractSpecifierSeq(Contracts, RetType);
+    FunctionToPush->setContracts(Contracts);
+    // There could be leftover tokens (e.g. because of an error).
+    // Skip through until we reach the original token position.
+    while (Tok.isNot(tok::eof))
+      ConsumeAnyToken();
+
+    // Clean up the remaining EOF token.
+    if (Tok.is(tok::eof) && Tok.getEofData() == LM.Method)
+      ConsumeAnyToken();
+
+    LM.ContractTokens.clear();
+  }
+
   InFunctionTemplateScope.Scopes.Exit();
 
   // Finish the delayed C++ method declaration.

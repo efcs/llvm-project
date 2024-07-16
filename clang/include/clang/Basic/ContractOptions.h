@@ -64,6 +64,12 @@ enum class ContractEvaluationSemantic {
   QuickEnforce = 3,
 };
 
+enum class ContractViolationDetection {
+  NoViolation = 0,
+  PredicateFailed = 1,
+  ExceptionRaised = 2
+};
+
 /// Represents the set of contract groups that have been enabled or disabled
 /// on the command line using '-fclang-contract-groups='.
 ///

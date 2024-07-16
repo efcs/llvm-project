@@ -2324,7 +2324,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   if (Tok.is(tok::kw_requires))
     ParseTrailingRequiresClause(D);
 
-  MaybeParseFunctionContractSpecifierSeq(D);
+  // FIXME(EricWF): What are we doing here?
+  // MaybeParseFunctionContractSpecifierSeq(D);
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2576,11 +2577,14 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       //	      declarator initializer[opt]
       //        declarator requires-clause
 
-      // FIXME(EricWF): Is this the correct place?
-      MaybeParseFunctionContractSpecifierSeq(D);
-
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClause(D);
+
+      // FIXME(EricWF): Is this the correct place?
+      // Yes: Though parsing here means we need to reenter the correct scope
+      // and context ourselves, it means we hve the function return type.
+      // MaybeParseFunctionContractSpecifierSeq(D);
+
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
       D.complete(ThisDecl);
       if (ThisDecl)
@@ -7198,9 +7202,7 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
         Actions.ActOnStartFunctionDeclarationDeclarator(D,
                                                         TemplateParameterDepth);
       ParseFunctionDeclarator(D, attrs, T, IsAmbiguous);
-      assert(D.getContracts().empty());
       if (IsFunctionDeclaration) {
-        assert(D.getContracts().empty());
         Actions.ActOnFinishFunctionDeclarationDeclarator(D);
       }
       PrototypeScope.Exit();
@@ -7649,6 +7651,19 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         TrailingReturnTypeLoc = Range.getBegin();
         EndLoc = Range.getEnd();
       }
+      if (Delayed) {
+        MaybeLateParseFunctionContractSpecifierSeq(D);
+      } else {
+        TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(D);
+        assert(TInfo);
+        QualType RetT;
+        if (TrailingReturnType.isUsable()) {
+          RetT = TrailingReturnType.get().get();
+        } else {
+          RetT = TInfo->getType();
+        }
+        MaybeParseFunctionContractSpecifierSeq(D.Contracts, RetT);
+      }
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
     }
@@ -7678,19 +7693,17 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   }
 
   // Remember that we parsed a function type, and remember the attributes.
-  D.AddTypeInfo(DeclaratorChunk::getFunction(
-                    HasProto, IsAmbiguous, LParenLoc, ParamInfo.data(),
-                    ParamInfo.size(), EllipsisLoc, RParenLoc,
-                    RefQualifierIsLValueRef, RefQualifierLoc,
-                    /*MutableLoc=*/SourceLocation(),
-                    ESpecType, ESpecRange, DynamicExceptions.data(),
-                    DynamicExceptionRanges.data(), DynamicExceptions.size(),
-                    NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
-                    ExceptionSpecTokens, DeclsInPrototype, StartLoc,
-                    LocalEndLoc, D, TrailingReturnType, TrailingReturnTypeLoc,
-                    &DS),
-                std::move(FnAttrs), EndLoc);
-    assert(D.getContracts().empty());
+  D.AddTypeInfo(
+      DeclaratorChunk::getFunction(
+          HasProto, IsAmbiguous, LParenLoc, ParamInfo.data(), ParamInfo.size(),
+          EllipsisLoc, RParenLoc, RefQualifierIsLValueRef, RefQualifierLoc,
+          /*MutableLoc=*/SourceLocation(), ESpecType, ESpecRange,
+          DynamicExceptions.data(), DynamicExceptionRanges.data(),
+          DynamicExceptions.size(),
+          NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
+          ExceptionSpecTokens, DeclsInPrototype, StartLoc, LocalEndLoc, D,
+          TrailingReturnType, TrailingReturnTypeLoc, &DS),
+      std::move(FnAttrs), EndLoc);
 }
 
 /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
