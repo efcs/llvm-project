@@ -17176,14 +17176,10 @@ bool Expr::isPotentialConstantExpr(const FunctionDecl *FD,
     HandleConstructorCall(&VIE, This, Args, CD, Info, Scratch);
   } else {
     SourceLocation Loc = FD->getLocation();
-    LValue Slot;
-    ImplicitValueInitExpr VIE2(FD->getReturnType());
-    Slot.set({&VIE2, Info.CurrentCall->Index});
-    Info.setEvaluatingDecl(Slot.getLValueBase(), Scratch);
     HandleFunctionCall(
         Loc, FD, (MD && MD->isImplicitObjectMemberFunction()) ? &This : nullptr,
-        &VIE2, Args, CallRef(), FD->getBody(), Info, Scratch,
-        /*ResultSlot=*/&Slot);
+        &VIE, Args, CallRef(), FD->getBody(), Info, Scratch,
+        /*ResultSlot=*/nullptr);
   }
 
   return Diags.empty();
