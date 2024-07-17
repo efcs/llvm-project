@@ -17,6 +17,7 @@
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
 #include "clang/Parse/ParseDiagnostic.h"
@@ -7608,7 +7609,8 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
       // delayed (even if this is a friend declaration).
       bool Delayed = D.getContext() == DeclaratorContext::Member &&
                      D.isFunctionDeclaratorAFunctionDeclaration();
-      if (Delayed && Actions.isLibstdcxxEagerExceptionSpecHack(D) &&
+      bool DelayedNoexcept = Delayed;
+      if (DelayedNoexcept && Actions.isLibstdcxxEagerExceptionSpecHack(D) &&
           GetLookAheadToken(0).is(tok::kw_noexcept) &&
           GetLookAheadToken(1).is(tok::l_paren) &&
           GetLookAheadToken(2).is(tok::kw_noexcept) &&
@@ -7623,14 +7625,11 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         // for 'swap' will only find the function we're currently declaring,
         // whereas it expects to find a non-member swap through ADL. Turn off
         // delayed parsing to give it a chance to find what it expects.
-        Delayed = false;
+        DelayedNoexcept = false;
       }
-      ESpecType = tryParseExceptionSpecification(Delayed,
-                                                 ESpecRange,
-                                                 DynamicExceptions,
-                                                 DynamicExceptionRanges,
-                                                 NoexceptExpr,
-                                                 ExceptionSpecTokens);
+      ESpecType = tryParseExceptionSpecification(
+          DelayedNoexcept, ESpecRange, DynamicExceptions,
+          DynamicExceptionRanges, NoexceptExpr, ExceptionSpecTokens);
       if (ESpecType != EST_None)
         EndLoc = ESpecRange.getEnd();
 
@@ -7651,18 +7650,25 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         TrailingReturnTypeLoc = Range.getBegin();
         EndLoc = Range.getEnd();
       }
-      if (Delayed) {
-        MaybeLateParseFunctionContractSpecifierSeq(D);
-      } else {
-        TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(D);
-        assert(TInfo);
-        QualType RetT;
-        if (TrailingReturnType.isUsable()) {
-          RetT = TrailingReturnType.get().get();
-        } else {
-          RetT = TInfo->getType();
+      if (getLangOpts().Contracts) {
+        if (Delayed) {
+          MaybeLateParseFunctionContractSpecifierSeq(D);
+        } else if (D.isFunctionDeclaratorAFunctionDeclaration() &&
+                   isContractSpecifier(Tok) != ContractKeyword::None) {
+          // FIXME(EricWF): Should we wait until we contruct the function type
+          // info to more easily extract the return type?
+          QualType RetT;
+          if (TrailingReturnType.isUsable())
+            RetT = TrailingReturnType.get().get();
+          else {
+            //  We don't have the full function type yet, so the type we
+            // get back will just the the return type _hopefully_
+            TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(D);
+            assert(!TInfo->getType()->isFunctionType());
+            RetT = TInfo->getType();
+          }
+          MaybeParseFunctionContractSpecifierSeq(D.Contracts, RetT);
         }
-        MaybeParseFunctionContractSpecifierSeq(D.Contracts, RetT);
       }
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
