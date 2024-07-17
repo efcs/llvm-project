@@ -626,10 +626,6 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     // auto *Block = Builder.GetInsertBlock();
     Builder.CreateCondBr(BranchOn, End, Violation);
   }
-
-  // Exception handling requires additional IR. If the 'await_resume' function
-  // is marked as 'noexcept', we avoid generating this additional IR.
-
   if (Semantic == ContractEvaluationSemantic::Observe) {
 
     EmitBlock(Violation);
