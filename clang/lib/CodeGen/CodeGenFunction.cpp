@@ -442,10 +442,17 @@ void CodeGenFunction::EmitHandleContractViolationCall(
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
   llvm::FunctionCallee VFunc =
       CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_new");
-  llvm::Value *Args2[1] = {ArgValue.getPointer()};
-  EmitNoreturnRuntimeCallOrInvoke(VFunc, Args2);
 
-  // EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+  if (EvalSemantic == ContractEvaluationSemantic::Enforce) {
+    llvm::Value *Args[1] = {ArgValue.getPointer()};
+    EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
+  } else {
+    CallArgList Args;
+    Args.add(RValue::get(ArgValue.getPointer()), getContext().VoidPtrTy);
+    EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
+  }
+
+  //
 }
 
 // Check if function can throw based on prototype noexcept, also works for
@@ -631,6 +638,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
     EmitBlock(Violation);
     EmitHandleContractViolationCall(
         S, ContractViolationDetection::PredicateFailed);
+    Builder.CreateBr(End);
   }
 
   EmitBlock(End);
@@ -985,6 +993,16 @@ void CodeGenFunction::markAsIgnoreThreadCheckingAtRuntime(llvm::Function *Fn) {
     Fn->addFnAttr("sanitize_thread_no_checking_at_run_time");
     Fn->removeFnAttr(llvm::Attribute::SanitizeThread);
   }
+}
+
+static bool hasPostContracts(const Decl *D) {
+  auto *FuncD = dyn_cast_or_null<FunctionDecl>(D);
+  if (!FuncD)
+    return false;
+  const auto &ContV = FuncD->getContracts();
+  return llvm::any_of(ContV, [](const ContractStmt *CA) {
+    return CA->getContractKind() == ContractKind::Post;
+  });
 }
 
 /// Check if the return value of this function requires sanitization.

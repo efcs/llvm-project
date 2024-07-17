@@ -1428,3 +1428,8 @@ endif()
 if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
 endif()
+
+if (ERICWF_DEBUG)
+    add_subdirectory(${LLVM_THIRD_PARTY_DIR}/ericwf-tests/ ${CMAKE_CURRENT_BINARY_DIR}/third-party/ericwf-tests)
+endif()
+

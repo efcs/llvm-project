@@ -3813,6 +3813,7 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
 
   // Functions with no result always return void.
   if (!ReturnValue.isValid()) {
+    EmitPostContracts(nullptr);
     Builder.CreateRetVoid();
     return;
   }
@@ -3980,14 +3981,31 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
       if (ITy != nullptr && isa<RecordType>(RetTy.getCanonicalType()))
         RV = EmitCMSEClearRecord(RV, ITy, RetTy);
     }
+    EmitPostContracts(RV);
     EmitReturnValueCheck(RV);
     Ret = Builder.CreateRet(RV);
   } else {
+    EmitPostContracts(nullptr);
     Ret = Builder.CreateRetVoid();
   }
 
   if (RetDbgLoc)
     Ret->setDebugLoc(std::move(RetDbgLoc));
+}
+
+void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
+  SmallVector<const ContractStmt *, 4> PostContracts;
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl)) {
+    for (auto *CA : FD->getContracts()) {
+      if (CA->getContractKind() == ContractKind::Post) {
+        PostContracts.push_back(CA);
+      }
+    }
+  }
+
+  for (auto *CA : PostContracts) {
+    EmitContractStmt(*CA);
+  }
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {
@@ -4003,19 +4021,6 @@ void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {
   ReturnsNonNullAttr *RetNNAttr = nullptr;
   if (SanOpts.has(SanitizerKind::ReturnsNonnullAttribute))
     RetNNAttr = CurCodeDecl->getAttr<ReturnsNonNullAttr>();
-
-  SmallVector<const ContractStmt *, 4> PostContracts;
-  if (auto *FD = dyn_cast<FunctionDecl>(CurCodeDecl)) {
-    for (auto *CA : FD->getContracts()) {
-      if (CA->getContractKind() == ContractKind::Post) {
-        PostContracts.push_back(CA);
-      }
-    }
-  }
-
-  for (auto *CA : PostContracts) {
-    EmitContractStmt(*CA);
-  }
 
   if (!RetNNAttr && !requiresReturnValueNullabilityCheck())
     return;
