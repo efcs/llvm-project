@@ -38,11 +38,11 @@ public:
   contract_violation(const contract_violation&) = delete;
   contract_violation& operator=(const contract_violation&) = delete;
 
-  std::source_location location() const;
-  const char* comment() const noexcept;
-  _DetectionMode detection_mode() const noexcept;
-  assertion_kind kind() const noexcept;
-  evaluation_semantic semantic() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI std::source_location location() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI const char* comment() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI _DetectionMode detection_mode() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI assertion_kind kind() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI evaluation_semantic semantic() const noexcept;
 
 private:
   explicit contract_violation(const _ContractViolationImpl *impl) noexcept

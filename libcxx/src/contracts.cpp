@@ -136,7 +136,7 @@ void std::contracts::invoke_default_contract_violation_handler(const contract_vi
   __default_violation_handler(violation);
 }
 
-std::source_location contract_violation::location() const { return __pimpl_->location; }
+std::source_location contract_violation::location() const noexcept { return __pimpl_->location; }
 const char* contract_violation::comment() const noexcept { return __pimpl_->comment; }
 _DetectionMode contract_violation::detection_mode() const noexcept { return __pimpl_->mode; }
 assertion_kind contract_violation::kind() const noexcept { return __pimpl_->kind; }

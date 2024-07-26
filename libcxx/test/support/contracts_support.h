@@ -74,7 +74,7 @@ struct ContractLoc;
 
 std::string to_string(contract_violation const& vio) {
   std::string tmp = "Contract Violation: \n";
-  tmp += std::format("    {}:{}: \n", vio.file_name(), vio.line());
+  tmp += std::format("    {}:{}: \n", vio.location().file_name(), vio.location().line());
   tmp += std::format(
       "    assertion_kind: {}\n    detection_kind: {}\n     semantic: {}\n     comment: \"{}\"\n",
       enum_to_string(vio.kind()),
@@ -164,7 +164,7 @@ struct ContractLoc {
   constexpr explicit ContractLoc(SLOC(loc)) : line(loc.line()), file(loc.file_name()), function(loc.function_name()) {}
   constexpr explicit ContractLoc(unsigned line, const char* file, const char* func = "")
       : line(line), file(file ? file : ""), function(func ? func : "") {}
-  constexpr explicit ContractLoc(const contract_violation& vio) : line(vio.line()), file(vio.file_name()) {}
+  constexpr explicit ContractLoc(const contract_violation& vio) : ContractLoc(vio.location()) {}
 
   ContractLoc with_name(std::string name) {
     auto pos = named_locs.find(name);
