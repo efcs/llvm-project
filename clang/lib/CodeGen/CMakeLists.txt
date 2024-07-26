@@ -111,7 +111,7 @@ add_clang_library(clangCodeGen
   MacroPPCallbacks.cpp
   MicrosoftCXXABI.cpp
   ModuleBuilder.cpp
-  ObjectFilePCHContainerOperations.cpp
+  ObjectFilePCHContainerWriter.cpp
   PatternInit.cpp
   SanitizerMetadata.cpp
   SwiftCallingConv.cpp
