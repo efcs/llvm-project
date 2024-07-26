@@ -2275,7 +2275,7 @@ CXXMethodDecl::Create(ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
                       TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                       bool isInline, ConstexprSpecKind ConstexprKind,
                       SourceLocation EndLocation, Expr *TrailingRequiresClause,
-                      SmallVector<ContractStmt *> Contracts) {
+                      ArrayRef<ContractStmt *> Contracts) {
   return new (C, RD) CXXMethodDecl(
       CXXMethod, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
       isInline, ConstexprKind, EndLocation, TrailingRequiresClause, Contracts);
@@ -2687,7 +2687,7 @@ CXXConstructorDecl::CXXConstructorDecl(
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited, Expr *TrailingRequiresClause,
 
-    SmallVector<ContractStmt *> Contracts)
+    ArrayRef<ContractStmt *> Contracts)
     : CXXMethodDecl(CXXConstructor, C, RD, StartLoc, NameInfo, T, TInfo,
                     SC_None, UsesFPIntrin, isInline, ConstexprKind,
                     SourceLocation(), TrailingRequiresClause, Contracts) {
@@ -2728,7 +2728,7 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited, Expr *TrailingRequiresClause,
-    SmallVector<ContractStmt *> Contracts) {
+    ArrayRef<ContractStmt *> Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConstructorName &&
          "Name must refer to a constructor");
@@ -2863,7 +2863,7 @@ CXXDestructorDecl *CXXDestructorDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
     ConstexprSpecKind ConstexprKind, Expr *TrailingRequiresClause,
-    SmallVector<ContractStmt *> Contracts) {
+    ArrayRef<ContractStmt *> Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXDestructorName &&
          "Name must refer to a destructor");
@@ -2897,7 +2897,7 @@ CXXConversionDecl *CXXConversionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
     ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-    Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts) {
+    Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConversionFunctionName &&
          "Name must refer to a conversion function");

@@ -343,25 +343,41 @@ llvm::DebugLoc CodeGenFunction::EmitReturnBlock() {
   return llvm::DebugLoc();
 }
 
+llvm::Constant *CodeGenFunction::EmitContractArgumentConstant(
+    const ContractStmt *S, ContractEvaluationSemantic Semantic,
+    ContractViolationDetection DetectMode) {
+
+  llvm::Constant *SemanticValue =
+      llvm::ConstantInt::get(IntTy, (int)S->getSemantic(getLangOpts()));
+  llvm::Constant *DetectModeValue =
+      llvm::ConstantInt::get(IntTy, (int)DetectMode);
+  ConstantAddress LocArg = CGM.GetAddrOfUnnamedGlobalConstantDecl(
+      getContext().BuildViolationObject(S));
+  llvm::Constant *Args[] = {SemanticValue, DetectModeValue,
+                            LocArg.getPointer()};
+  return llvm::ConstantStruct::getAnon(Args);
+}
+
 void CodeGenFunction::AddContractViolationIncomingBlock(
-    llvm::BasicBlock *Inc, ContractStmt const *CS) {
+    llvm::BasicBlock *Inc, ContractStmt const *CS,
+    ContractEvaluationSemantic Semantic, ContractViolationDetection Mode) {
   assert(ContractViolationBlock);
-  //    ConstantAddress Add = CGM.GetAddrOfUnnamedGlobalConstantDecl(
-  //       getContext().BuildViolationObject(CS, CS->getSemantic(getLangOpts()),
-  //       ContractViolationDetection::PredicateFailed));
+
   UnnamedGlobalConstantDecl *ViolationObj =
-      CGM.getContext().BuildViolationObject(
-          CS, ContractEvaluationSemantic::Enforce,
-          ContractViolationDetection::PredicateFailed);
+      CGM.getContext().BuildViolationObject(CS);
+
+  llvm::Constant *DetectionConstant = llvm::ConstantInt::get(IntTy, (int)Mode);
 
   ConstantAddress ArgValue =
-      CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);
+      CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj, ".contract.info");
   assert(ContractViolationPhi);
   ContractViolationPhi->addIncoming(ArgValue.getPointer(), Inc);
+  ContractViolationDetectionPhi->addIncoming(DetectionConstant, Inc);
+  assert(Semantic == ContractEvaluationSemantic::Enforce);
 }
 
 [[maybe_unused]] static void
-EmitContractViolationCallBlock(CodeGenFunction &CGF) {
+CreateContractViolationBlockForFunction(CodeGenFunction &CGF) {
   //  CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
 
   auto &Builder = CGF.Builder;
@@ -369,20 +385,25 @@ EmitContractViolationCallBlock(CodeGenFunction &CGF) {
   Builder.SetInsertPoint(CGF.ContractViolationBlock);
 
   CGF.ContractViolationPhi = Builder.CreatePHI(CGF.VoidPtrTy, 4);
+  CGF.ContractViolationDetectionPhi = Builder.CreatePHI(CGF.IntTy, 4);
+  llvm::Value *SemanticValue = llvm::ConstantInt::get(
+      CGF.IntTy, (int)ContractEvaluationSemantic::Enforce);
 
-  llvm::Value *ArgValue = CGF.ContractViolationPhi;
-  CanQualType ArgTypes[1] = {CGF.getContext().VoidPtrTy};
-  llvm::Value *Args[1] = {ArgValue};
+  CanQualType ArgTypes[3] = {CGF.getContext().UnsignedIntTy,
+                             CGF.getContext().UnsignedIntTy,
+                             CGF.getContext().VoidPtrTy};
+  llvm::Value *Args[3] = {SemanticValue, CGF.ContractViolationDetectionPhi,
+                          CGF.ContractViolationPhi};
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionDeclaration(CGF.getContext().VoidTy,
                                                        ArgTypes);
 
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
   llvm::FunctionCallee VFunc =
-      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_new");
+      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_v3");
 
-  CGF.EmitRuntimeCall(VFunc, Args);
-  Builder.CreateUnreachable();
+  CGF.EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
+
   Builder.ClearInsertionPoint();
 }
 
@@ -397,7 +418,7 @@ llvm::BasicBlock *CodeGenFunction::GetContractViolationBlock() {
   // Set up the terminate handler.  This block is inserted at the very
   // end of the function by FinishFunction.
   ContractViolationBlock = createBasicBlock("contract.violation.handler");
-  EmitContractViolationCallBlock(*this);
+  CreateContractViolationBlockForFunction(*this);
 
   Builder.restoreIP(SavedIP);
   return ContractViolationBlock;
@@ -425,29 +446,41 @@ llvm::BasicBlock *CodeGenFunction::GetContractViolationTrapBlock() {
   return ContractViolationTrapBlock;
 }
 void CodeGenFunction::EmitHandleContractViolationCall(
-    const ContractStmt &S, ContractViolationDetection ViolationDetectionMode) {
+    const ContractStmt &S, ContractViolationDetection *ViolationDetectionMode,
+    llvm::Value *ViolationDetectionValue) {
+  assert(ViolationDetectionMode || ViolationDetectionValue);
+
   auto &Ctx = getContext();
   ContractEvaluationSemantic EvalSemantic = S.getSemantic(getLangOpts());
-  UnnamedGlobalConstantDecl *ViolationObj =
-      Ctx.BuildViolationObject(&S, EvalSemantic, ViolationDetectionMode);
+  UnnamedGlobalConstantDecl *ViolationObj = Ctx.BuildViolationObject(&S);
 
   ConstantAddress ArgValue =
       CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);
 
-  CanQualType ArgTypes[1] = {Ctx.VoidPtrTy};
+  if (!ViolationDetectionValue) {
+    ViolationDetectionValue =
+        llvm::ConstantInt::get(IntTy, (int)*ViolationDetectionMode);
+  }
+
+  auto SemanticValue = llvm::ConstantInt::get(IntTy, (int)EvalSemantic);
+
+  CanQualType ArgTypes[3] = {Ctx.IntTy, Ctx.IntTy, Ctx.VoidPtrTy};
+
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionDeclaration(getContext().VoidTy,
                                                        ArgTypes);
-
+  StringRef TargetFuncName = "__handle_contract_violation_v3";
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc =
-      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_new");
+  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, TargetFuncName);
 
   if (EvalSemantic == ContractEvaluationSemantic::Enforce) {
-    llvm::Value *Args[1] = {ArgValue.getPointer()};
+    llvm::Value *Args[3] = {SemanticValue, ViolationDetectionValue,
+                            ArgValue.getPointer()};
     EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
   } else {
     CallArgList Args;
+    Args.add(RValue::get(SemanticValue), getContext().UnsignedIntTy);
+    Args.add(RValue::get(ViolationDetectionValue), getContext().UnsignedIntTy);
     Args.add(RValue::get(ArgValue.getPointer()), getContext().VoidPtrTy);
     EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
   }
@@ -521,8 +554,9 @@ void HandleContractStmtCatchBlock(CodeGenFunction &CGF, const ContractStmt &S) {
   // FIXME(EricWF): This is a terrible hack to allow easy generation of
   // a contract violation in a catch block.
   assert(CGF.InContractCatchBlock == true);
-  CGF.EmitHandleContractViolationCall(
-      S, ContractViolationDetection::ExceptionRaised);
+  ContractViolationDetection DetectMode =
+      ContractViolationDetection::ExceptionRaised;
+  CGF.EmitHandleContractViolationCall(S, &DetectMode);
   return;
 }
 
@@ -568,7 +602,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
   llvm::Value *BranchOn = nullptr;
   llvm::Value *ContractStateVal = nullptr;
-  if (false && StmtCanThrow(S.getCond())) {
+  if (getLangOpts().ContractExceptions && StmtCanThrow(S.getCond())) {
     RawAddress ContractState =
         CreateIRTemp(getContext().UnsignedIntTy, "cond.state");
     Builder.CreateStore(
@@ -606,6 +640,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
             CurContract = nullptr;
             InContractCatchBlock = false;
           });
+
       EnterCXXTryStmt(*TryStmt);
 
       llvm::Value *ArgValue = EmitScalarExpr(Expr);
@@ -617,7 +652,7 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
       ExitCXXTryStmt(*TryStmt);
     }
-
+    Builder.SetInsertPoint(createBasicBlock("after.foo"));
     ContractStateVal = Builder.CreateLoad(ContractState);
     BranchOn = Builder.CreateICmpEQ(
         ContractStateVal,
@@ -629,15 +664,19 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
     assert(Builder.GetInsertBlock());
     if (Semantic == ContractEvaluationSemantic::Enforce)
-      AddContractViolationIncomingBlock(Builder.GetInsertBlock(), &S);
+      AddContractViolationIncomingBlock(
+          Builder.GetInsertBlock(), &S, Semantic,
+          ContractViolationDetection::PredicateFailed);
     // auto *Block = Builder.GetInsertBlock();
     Builder.CreateCondBr(BranchOn, End, Violation);
   }
   if (Semantic == ContractEvaluationSemantic::Observe) {
 
     EmitBlock(Violation);
-    EmitHandleContractViolationCall(
-        S, ContractViolationDetection::PredicateFailed);
+
+    ContractViolationDetection DetectMode =
+        ContractViolationDetection::PredicateFailed;
+    EmitHandleContractViolationCall(S, &DetectMode);
     // Builder.CreateBr(End);
   }
 
@@ -2492,23 +2531,6 @@ llvm::BlockAddress *CodeGenFunction::GetAddrOfLabel(const LabelDecl *L) {
   IndirectBranch->addDestination(BB);
   return llvm::BlockAddress::get(CurFn, BB);
 }
-
-#if 0
-llvm::BasicBlock *CodeGenFunction::GetReportContractViolationBranch() {
-  // If we already made the indirect branch for indirect goto, return its block.
-  if (ReportContractViolationBranch) return ReportContractViolationBranch->getParent();
-
-  CGBuilderTy TmpBuilder(*this, createBasicBlock("indirectgoto"));
-
-  // Create the PHI node that indirect gotos will add entries to.
-  llvm::Value *DestVal = TmpBuilder.CreatePHI(Int8PtrTy, 0,
-                                              "contractviolation.goto.dest");
-
-  // Create the indirect branch instruction.
-  ReportContractViolationBranch = TmpBuilder.CreateIndirectBr(DestVal);
-  return ReportContractViolationBranch->getParent();
-}
-#endif
 
 llvm::BasicBlock *CodeGenFunction::GetIndirectGotoBlock() {
   // If we already made the indirect branch for indirect goto, return its block.

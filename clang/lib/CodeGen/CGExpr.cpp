@@ -2984,7 +2984,7 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
 
   // FIXME(EricWF): There's got to be more to this.
   if (const auto *RND = dyn_cast<ResultNameDecl>(ND)) {
-    if (ReturnValue.)
+
       return MakeAddrLValue(ReturnValue, T, AlignmentSource::Decl);
   }
 

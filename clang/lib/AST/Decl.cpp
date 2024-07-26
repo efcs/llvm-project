@@ -2013,7 +2013,7 @@ void DeclaratorDecl::setTrailingRequiresClause(Expr *TrailingRequiresClause) {
   getExtInfo()->TrailingRequiresClause = TrailingRequiresClause;
 }
 
-void DeclaratorDecl::setContracts(SmallVector<ContractStmt *> Contracts) {
+void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
   // Make sure the extended decl info is allocated.
   if (!hasExtInfo()) {
     // Save (non-extended) type source info pointer.
@@ -2023,8 +2023,28 @@ void DeclaratorDecl::setContracts(SmallVector<ContractStmt *> Contracts) {
     // Restore savedTInfo into (extended) decl info.
     getExtInfo()->TInfo = savedTInfo;
   }
-  // Set requires clause info.
-  getExtInfo()->Contracts = Contracts;
+
+  // FIXME(EricWF): This should be empty already
+  auto &Contracts = getExtInfo()->Contracts;
+  // FIXME(EricWF):
+  // When instantiating a template we set the contracts to
+  //  First, be the uninstantiated contracts from the template when we create
+  //  the initial declaration.
+  //  .
+  //  Then, set them to be the instantiated contracts, after the declaration is
+  //  complete and we're instantiating the function body.
+  assert(Contracts.empty() || NewContracts.size() == Contracts.size());
+  Contracts.clear();
+  Contracts.append(NewContracts.begin(), NewContracts.end());
+}
+
+void DeclaratorDecl::getContracts(ContractKind CK,
+                                  SmallVector<ContractStmt *> &In) const {
+  assert(CK == ContractKind::Pre || CK == ContractKind::Post);
+  for (auto *C : getContracts()) {
+    if (C->getContractKind() == CK)
+      In.push_back(C);
+  }
 }
 
 void DeclaratorDecl::setTemplateParameterListsInfo(
@@ -3043,7 +3063,7 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            bool UsesFPIntrin, bool isInlineSpecified,
                            ConstexprSpecKind ConstexprKind,
                            Expr *TrailingRequiresClause,
-                           SmallVector<ContractStmt *> Contracts)
+                           ArrayRef<ContractStmt *> Contracts)
     : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                      StartLoc),
       DeclContext(DK), redeclarable_base(C), Body(), ODRHash(0),
@@ -5404,7 +5424,7 @@ FunctionDecl *FunctionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
     bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-    Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts) {
+    Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts) {
   FunctionDecl *New = new (C, DC) FunctionDecl(
       Function, C, DC, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
       isInlineSpecified, ConstexprKind, TrailingRequiresClause, Contracts);

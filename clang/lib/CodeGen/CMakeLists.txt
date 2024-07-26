@@ -69,6 +69,7 @@ add_clang_library(clangCodeGen
   CGClass.cpp
   CGCleanup.cpp
   CGCoroutine.cpp
+  CGContracts.cpp
   CGDebugInfo.cpp
   CGDecl.cpp
   CGDeclCXX.cpp

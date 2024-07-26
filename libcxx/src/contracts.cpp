@@ -1,20 +1,25 @@
+#include "../include/contracts"
 #include <__config>
-#include <contracts>
 #include <exception>
 #include <iostream>
 
+using namespace std::contracts;
 
+struct std::contracts::_ContractViolationImpl {
+  _AssertKind kind              = _AssertKind::assert;
+  _EvaluationSemantic semantic  = _EvaluationSemantic::enforce;
+  _DetectionMode mode           = _DetectionMode::predicate_false;
+  const char* comment           = nullptr;
+  std::source_location location = std::source_location::current();
 
+  contract_violation __create_violation() const { return contract_violation{this}; }
+};
 
-namespace std::contracts {
+namespace {
 
-void invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
-  ::handle_contract_violation(violation);
-}
-
-static void display_contract_violation(const contract_violation& violation) noexcept {
+static void __default_violation_handler(const contract_violation& violation) {
   using namespace std::contracts;
-  std::cerr << violation.file_name() << ":" << violation.line() << ": ";
+  std::cerr << violation.location().file_name() << ":" << violation.location().line() << ": ";
   auto assert_str = [&]() -> std::pair<const char*, const char*> {
     switch (violation.kind()) {
     case _AssertKind::pre:
@@ -37,69 +42,118 @@ static void display_contract_violation(const contract_violation& violation) noex
   }
 }
 
-} // namespace std::contracts
+template <int N>
+struct _BuiltinContractStruct;
 
-struct _BuiltinContractStruct {
-  unsigned version;
+template <>
+struct _BuiltinContractStruct<0> {
+  enum { VERSION = 1 };
+  int version;
+};
+
+template <>
+struct _BuiltinContractStruct<1> {
+  enum { VERSION = 1 };
+  unsigned version; // the version of the struct
   const char* comment;
   const char* file;
   const char* function;
-  unsigned lineno;
+  unsigned lineno = 0;
   unsigned contract_kind;
   unsigned eval_semantic;
   unsigned detection_mode;
 };
 
-extern "C" {
-_LIBCPP_EXPORTED_FROM_ABI void __handle_contract_violation(
-    unsigned kind,
-    unsigned eval_semantic,
-    unsigned detection_mode,
-    const char* comment,
-    const char* file,
-    unsigned line) {
-  using namespace std::contracts;
+template <>
+struct _BuiltinContractStruct<2> {
+  enum { VERSION = 2 };
+  unsigned version; // the version of the struct
+  const char* comment;
+  const char* file;
+  const char* function;
+  unsigned lineno = 0;
+  unsigned contract_kind;
+  unsigned eval_semantic;
+};
 
-  using _InfoT = std::contracts::contract_violation::_Info;
-  _InfoT info = {.__kind_ = static_cast<_AssertKind>(kind),
-                 .__semantic_ = static_cast<_EvaluationSemantic>(eval_semantic),
-                 .__detection_mode_ = static_cast<_DetectionMode>(detection_mode),
-                 .__comment_ = comment,
-                 .__file_name_ = file,
-                 .__function_name_ = nullptr,
-                 .__line_ = line};
-  contract_violation violation(info);
-  if (::handle_contract_violation)
-    ::handle_contract_violation(violation);
-  else
-    std::contracts::display_contract_violation(violation);
+template <>
+struct _BuiltinContractStruct<3> {
+  enum { VERSION = 3 };
+  unsigned version; // the version of the struct
+  const char* file;
+  const char* function;
+  unsigned lineno = 0;
+  unsigned column = 0;
+  const char* comment;
+  unsigned contract_kind;
+};
 
-  if (info.__semantic_ == _EvaluationSemantic::enforce) {
-    std::terminate();
+union _BuiltinContractStructUnion {
+  _BuiltinContractStruct<0> v0;
+  _BuiltinContractStruct<1> v1;
+  _BuiltinContractStruct<2> v2;
+  _BuiltinContractStruct<3> v3;
+};
+
+_ContractViolationImpl create_impl(void* data, _EvaluationSemantic* sem = nullptr, _DetectionMode* mode = nullptr) {
+  _BuiltinContractStructUnion* data_union = static_cast<_BuiltinContractStructUnion*>(data);
+  switch (data_union->v0.version) {
+  case 1:
+    return _ContractViolationImpl{
+        .kind     = static_cast<_AssertKind>(data_union->v1.contract_kind),
+        .semantic = static_cast<_EvaluationSemantic>(data_union->v1.eval_semantic),
+        .mode     = static_cast<_DetectionMode>(data_union->v1.detection_mode),
+        .comment  = data_union->v1.comment,
+        .location = std::source_location::current()};
+  case 2:
+    return _ContractViolationImpl{
+        .kind     = static_cast<_AssertKind>(data_union->v2.contract_kind),
+        .semantic = static_cast<_EvaluationSemantic>(data_union->v2.eval_semantic),
+        .mode     = mode ? *mode : _DetectionMode::predicate_false,
+        .comment  = data_union->v2.comment,
+        .location = std::source_location::current()};
+  case 3:
+    return _ContractViolationImpl{
+        .kind     = static_cast<_AssertKind>(data_union->v3.contract_kind),
+        .semantic = sem ? *sem : _EvaluationSemantic::enforce,
+        .mode     = mode ? *mode : _DetectionMode::predicate_false,
+        .comment  = data_union->v3.comment,
+        .location = std::source_location::__create_from_pointer(
+            reinterpret_cast<const char*>(data) + offsetof(_BuiltinContractStruct<3>, file))};
+  default:
+    return _ContractViolationImpl{
+        .kind     = _AssertKind::assert,
+        .semantic = sem ? *sem : _EvaluationSemantic::enforce,
+        .mode     = mode ? *mode : _DetectionMode::predicate_false,
+        .comment  = "<unknown contract violation>",
+        .location = std::source_location()};
   }
 }
 
-_LIBCPP_EXPORTED_FROM_ABI void __handle_contract_violation_new(void* dataptr) noexcept {
-  using namespace std::contracts;
-  _BuiltinContractStruct* data = static_cast<_BuiltinContractStruct*>(dataptr);
+} // end namespace
 
-  using _InfoT = std::contracts::contract_violation::_Info;
-  _InfoT info  = {
-       .__kind_           = static_cast<_AssertKind>(data->contract_kind),
-       .__semantic_       = static_cast<_EvaluationSemantic>(data->eval_semantic),
-       .__detection_mode_ = static_cast<_DetectionMode>(data->detection_mode),
-       .__comment_        = data->comment,
-       .__file_name_      = data->file,
-       .__function_name_  = nullptr,
-       .__line_           = unsigned(data->lineno)};
-  contract_violation violation(info);
+void std::contracts::invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
+  __default_violation_handler(violation);
+}
+
+std::source_location contract_violation::location() const { return __pimpl_->location; }
+const char* contract_violation::comment() const noexcept { return __pimpl_->comment; }
+_DetectionMode contract_violation::detection_mode() const noexcept { return __pimpl_->mode; }
+assertion_kind contract_violation::kind() const noexcept { return __pimpl_->kind; }
+evaluation_semantic contract_violation::semantic() const noexcept { return __pimpl_->semantic; }
+
+extern "C" _LIBCPP_EXPORTED_FROM_ABI void
+__handle_contract_violation_v3(_EvaluationSemantic __semantic, _DetectionMode __mode, void* dataptr) {
+  using namespace std::contracts;
+  _ContractViolationImpl impl  = create_impl(dataptr, &__semantic, &__mode);
+  contract_violation violation = impl.__create_violation();
+
   if (::handle_contract_violation)
     ::handle_contract_violation(violation);
   else
-    std::contracts::display_contract_violation(violation);
+    invoke_default_contract_violation_handler(violation);
 
-  if (info.__semantic_ == _EvaluationSemantic::enforce) {
+  if (violation.semantic() == _EvaluationSemantic::enforce) {
     std::terminate();
   }
-}
 }

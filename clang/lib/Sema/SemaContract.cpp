@@ -114,7 +114,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   if (Res.isInvalid())
     return StmtError();
 
-  return ActOnFinishFullStmt(Res.get());
+  return Res;
 }
 
 /* FIXME(EricWF): Is this needed?

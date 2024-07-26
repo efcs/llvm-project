@@ -14,6 +14,7 @@
 #define LLVM_CLANG_LIB_CODEGEN_CODEGENFUNCTION_H
 
 #include "CGBuilder.h"
+#include "CGContracts.h"
 #include "CGDebugInfo.h"
 #include "CGLoopInfo.h"
 #include "CGValue.h"
@@ -740,16 +741,42 @@ public:
 
   unsigned NextCleanupDestIndex = 1;
 
+  // A contract enforce block is a block used to create and call the violation
+  // handler for contracts set to 'enforce'. Such contracts never return after
+  // reporting a violation.
+  //
+  // It is used to create a single
+  // block that can be used to handle all contract violations in a function.
+  //
+  // The block is created lazily, and is only created if a contract is emitted
+  // with an enforce semantic.
+  struct ContractEnforceBlockInfo {
+    llvm::BasicBlock *Block = nullptr;
+    llvm::PHINode *LocationSelect = nullptr;
+    llvm::PHINode *ViolationKindSelect = nullptr;
+  };
+
   /// ContractViolationBlock - Unified block for contract violation.
   llvm::BasicBlock *ContractViolationBlock = nullptr;
-  llvm::BasicBlock *ContractViolationTrapBlock = nullptr;
-  llvm::PHINode *ContractViolationPhi = nullptr;
-
-  llvm::BasicBlock *GetContractViolationTrapBlock();
-
   llvm::BasicBlock *GetContractViolationBlock();
   void AddContractViolationIncomingBlock(llvm::BasicBlock *Inc,
-                                         const ContractStmt *CS);
+                                         const ContractStmt *CS,
+                                         ContractEvaluationSemantic Semantic,
+                                         ContractViolationDetection Mode);
+
+  /// ContractViolationTrapBlock - Unified block for contract violation trap.
+  llvm::BasicBlock *ContractViolationTrapBlock = nullptr;
+  llvm::BasicBlock *GetContractViolationTrapBlock();
+
+  // FIXME(EricWF): Rather than
+  llvm::PHINode *ContractViolationPhi = nullptr;
+  llvm::PHINode *ContractViolationDetectionPhi = nullptr;
+  llvm::PHINode *ContractEvalSemanticPhi = nullptr;
+
+  llvm::Constant *
+  EmitContractArgumentConstant(const ContractStmt *S,
+                               ContractEvaluationSemantic Semantic,
+                               ContractViolationDetection DetectMode);
 
   /// EHResumeBlock - Unified block containing a call to llvm.eh.resume.
   llvm::BasicBlock *EHResumeBlock = nullptr;
@@ -4378,8 +4405,10 @@ public:
 
   void EmitContractStmt(const ContractStmt &S);
 
-  void EmitHandleContractViolationCall(const ContractStmt &S,
-                                       ContractViolationDetection);
+  void
+  EmitHandleContractViolationCall(const ContractStmt &S,
+                                  ContractViolationDetection * = nullptr,
+                                  llvm::Value *DetectionModeValue = nullptr);
   void NewEmitHandleContractViolationCall(const ContractStmt &S,
                                           llvm::Value *DidThrowFlag);
 

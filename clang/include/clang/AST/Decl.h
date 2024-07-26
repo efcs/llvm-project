@@ -79,6 +79,7 @@ class TypeAliasTemplateDecl;
 class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
+enum class ContractKind;
 
 /// The top declaration context.
 class TranslationUnitDecl : public Decl,
@@ -817,15 +818,17 @@ public:
                         : nullptr;
   }
 
-  SmallVector<ContractStmt *> getContracts() const {
+  ArrayRef<ContractStmt *> getContracts() const {
     if (hasExtInfo())
       return getExtInfo()->Contracts;
     return {};
   }
 
+  void getContracts(ContractKind CK, SmallVector<ContractStmt *> &In) const;
+
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
 
-  void setContracts(SmallVector<ContractStmt *> Contracts);
+  void setContracts(ArrayRef<ContractStmt *> Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2100,7 +2103,7 @@ protected:
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
                Expr *TrailingRequiresClause = nullptr,
-               SmallVector<ContractStmt *> Contracts = {});
+               ArrayRef<ContractStmt *> Contracts = {});
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2137,7 +2140,7 @@ public:
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
          Expr *TrailingRequiresClause = nullptr,
-         SmallVector<ContractStmt *> Contracts = {}) {
+         ArrayRef<ContractStmt *> Contracts = {}) {
 
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
@@ -2151,7 +2154,7 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause, SmallVector<ContractStmt *> Contracts);
+         Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 

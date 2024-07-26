@@ -32,6 +32,7 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
@@ -3194,8 +3195,9 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
 /// with automatic storage duration are const ([expr.prim.id.unqual])
 static ContractConstification getContractConstification(Sema &S,
                                                         const ValueDecl *VD) {
+  assert(VD);
 
-  if (!S.getCurScope()->isContractAssertScope() && !S.isContractStmtContext())
+  if (!S.isContractStmtContext() || S.isUnevaluatedContext())
     return CC_None;
 
   if (auto Var = dyn_cast<VarDecl>(VD)) {

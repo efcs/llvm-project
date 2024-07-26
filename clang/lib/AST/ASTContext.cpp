@@ -9538,6 +9538,132 @@ static TypedefDecl *CreateBuiltinSourceLocImplDecl(const ASTContext *Context) {
   return Context->buildImplicitTypedef(SourceLocImplTy, "__builtin_source_loc_impl_t");
 }
 
+enum ContractViolationDescriptorType {
+  DT_CStr,
+  DT_VoidPtr,
+  DT_Unsigned,
+  DT_Int,
+  DT_DescriptorTable
+};
+
+const char *
+GetContractViolationDescriptorTypeString(ContractViolationDescriptorType DT) {
+  switch (DT) {
+  case ContractViolationDescriptorType::DT_CStr:
+    return "const char*";
+  case ContractViolationDescriptorType::DT_VoidPtr:
+    return "void*";
+  case ContractViolationDescriptorType::DT_Unsigned:
+    return "unsigned";
+  case ContractViolationDescriptorType::DT_Int:
+    return "int";
+  case ContractViolationDescriptorType::DT_DescriptorTable:
+    return "descriptor_table*";
+  }
+}
+
+QualType GetContractViolationDescriptorType(ContractViolationDescriptorType DT,
+                                            const ASTContext *Context) {
+  switch (DT) {
+  case ContractViolationDescriptorType::DT_CStr:
+    return Context->getPointerType(Context->getConstType(Context->CharTy));
+  case ContractViolationDescriptorType::DT_VoidPtr:
+    return Context->VoidPtrTy;
+  case ContractViolationDescriptorType::DT_Unsigned:
+    return Context->UnsignedIntTy;
+  case ContractViolationDescriptorType::DT_Int:
+    return Context->IntTy;
+  case ContractViolationDescriptorType::DT_DescriptorTable:
+    return Context->VoidPtrTy;
+  }
+  llvm_unreachable("unhandled case");
+}
+
+struct ContractViolationDescriptorEntry {
+  const char *Name;
+  ContractViolationDescriptorType Type;
+};
+
+[[maybe_unused]] constexpr ContractViolationDescriptorEntry
+    ContractViolationDescriptorTableV1[] = {{"__file_", DT_CStr},
+                                            {"__function_", DT_CStr},
+                                            {"__line_", DT_Unsigned},
+                                            {"__column_", DT_Unsigned},
+                                            {"__message_", DT_CStr},
+                                            {"__contract_kind_", DT_Unsigned}
+
+};
+
+struct ContractViolationDescriptorTable {
+  unsigned version;
+
+  std::vector<ContractViolationDescriptorEntry> Entries;
+};
+
+[[maybe_unused]] static RecordDecl *
+CreateBuiltinContractViolationDescriptorEntryDecl(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT = Context->buildImplicitRecord(
+      "__builtin_contract_violation_descriptor_entry_t");
+  ViolationInfoT->startDefinition();
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  using Pt = std::pair<QualType, const char *>;
+  std::array<std::pair<QualType, const char *>, 3> FieldInfo = {
+      Pt{ConstStrLiteralTy, "__name_"}, Pt{ConstStrLiteralTy, "__type_"},
+      Pt{ConstStrLiteralTy, "__additional_info_"}};
+  const auto NumFields = FieldInfo.size();
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+
+  return ViolationInfoT;
+}
+
+[[maybe_unused]] static RecordDecl *
+CreateBuiltinContractDestriptorTable(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT = Context->buildImplicitRecord(
+      "__builtin_contract_violation_descriptor_entry_t");
+  ViolationInfoT->startDefinition();
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  using Pt = std::pair<QualType, const char *>;
+  std::array<std::pair<QualType, const char *>, 3> FieldInfo = {
+      Pt{ConstStrLiteralTy, "__name_"},
+      Pt{ConstStrLiteralTy, "__type_"},
+      Pt{ConstStrLiteralTy, "__size_"},
+  };
+  const auto NumFields = FieldInfo.size();
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+
+  return ViolationInfoT;
+}
+
 static RecordDecl *
 CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
   RecordDecl *ViolationInfoT =
@@ -9547,15 +9673,19 @@ CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
   QualType ConstStrLiteralTy =
       Context->getPointerType(Context->getConstType(Context->CharTy));
   using Pt = std::pair<QualType, const char *>;
-  std::array<std::pair<QualType, const char *>, 8> FieldInfo = {
+  std::array<std::pair<QualType, const char *>, 7> FieldInfo = {
       Pt{Context->UnsignedIntTy, "__version_"},
-      Pt{ConstStrLiteralTy, "__message_"},
-      Pt{ConstStrLiteralTy, "__file_"},
-      Pt{ConstStrLiteralTy, "__function_"},
+
+      // This prefix of  {file, function, line, colunm} is important, as it
+      // matches the layout of the source_location impl struct. This means we
+      // can use it to produce a valid source location object.
+      //
+      Pt{ConstStrLiteralTy, "__file_"}, Pt{ConstStrLiteralTy, "__function_"},
       Pt{Context->UnsignedIntTy, "__line_"},
-      Pt{Context->UnsignedIntTy, "__contract_kind_"},
-      Pt{Context->UnsignedIntTy, "__evaluation_semantic_"},
-      Pt{Context->UnsignedIntTy, "__detection_mode_"}};
+      Pt{Context->UnsignedIntTy, "__column_"},
+
+      Pt{ConstStrLiteralTy, "__message_"},
+      Pt{Context->UnsignedIntTy, "__contract_kind_"}};
   const auto NumFields = FieldInfo.size();
 
   // Create fields
@@ -9576,9 +9706,7 @@ CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
 }
 
 UnnamedGlobalConstantDecl *
-ASTContext::BuildViolationObject(const ContractStmt *CS,
-                                 ContractEvaluationSemantic CES,
-                                 ContractViolationDetection CVD) {
+ASTContext::BuildViolationObject(const ContractStmt *CS) {
   assert(CS);
   SourceLocation Loc = CS->getBeginLoc();
 
@@ -9603,7 +9731,7 @@ ASTContext::BuildViolationObject(const ContractStmt *CS,
   for (const FieldDecl *F : ImplDecl->fields()) {
     StringRef Name = F->getName();
     if (Name == "__version_") {
-      llvm::APSInt IntVal = Ctx.MakeIntValue(1, F->getType());
+      llvm::APSInt IntVal = Ctx.MakeIntValue(3, F->getType());
       Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
     } else if (Name == "__message_") {
       Value.getStructField(F->getFieldIndex()) =
@@ -9625,6 +9753,10 @@ ASTContext::BuildViolationObject(const ContractStmt *CS,
     } else if (Name == "__line_") {
       llvm::APSInt IntVal = Ctx.MakeIntValue(PLoc.getLine(), F->getType());
       Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+    } else if (Name == "__column_") {
+      llvm::APSInt IntVal = Ctx.MakeIntValue(PLoc.getColumn(), F->getType());
+      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+
     } else if (Name == "__contract_kind_") {
       unsigned ContractKindValue = [&]() {
         switch (CS->getContractKind()) {
@@ -9639,40 +9771,6 @@ ASTContext::BuildViolationObject(const ContractStmt *CS,
       }();
 
       llvm::APSInt IntVal = Ctx.MakeIntValue(ContractKindValue, F->getType());
-      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
-    } else if (Name == "__evaluation_semantic_") {
-
-      unsigned EvalSemantic = [&]() -> unsigned {
-        using EST = LangOptions::ContractEvaluationSemantic;
-        switch (CES) {
-        case EST::Enforce:
-          return 1;
-        case EST::Observe:
-          return 2;
-        case EST::Ignore:
-        case EST::QuickEnforce:
-        case EST::Invalid:
-          llvm_unreachable("cannot generate a call for this semantic");
-        }
-        llvm_unreachable("unhandled ContractEvaluationSemantic");
-      }();
-
-      llvm::APSInt IntVal = Ctx.MakeIntValue(EvalSemantic, F->getType());
-      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
-    } else if (Name == "__detection_mode_") {
-      unsigned DetectionMode = [&]() -> unsigned {
-        switch (CVD) {
-        case ContractViolationDetection::NoViolation:
-          llvm_unreachable("cannot build for no violation");
-        case ContractViolationDetection::PredicateFailed:
-          return 1;
-        case ContractViolationDetection::ExceptionRaised:
-          return 2;
-        }
-        llvm_unreachable("unhandled ContractViolationDetection");
-      }();
-
-      llvm::APSInt IntVal = Ctx.MakeIntValue(DetectionMode, F->getType());
       Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
     } else {
       assert(false &&

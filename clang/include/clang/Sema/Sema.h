@@ -13692,6 +13692,8 @@ public:
                                   ParmVarDecl *Param);
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
+  void InstantiateContracts(SourceLocation PointOfInstantiation,
+                            FunctionDecl *Function);
 
   /// Instantiate (or find existing instantiation of) a function template with a
   /// given set of template arguments.
