@@ -764,11 +764,23 @@ define void @foo(ptr %arg0, ptr %arg1) {
   // Check create(InsertBefore)
   sandboxir::LoadInst *NewLd =
       sandboxir::LoadInst::create(Ld->getType(), Arg1, Align(8),
-                                  /*InsertBefore=*/Ret, Ctx, "NewLd");
+                                  /*InsertBefore=*/Ret, Ctx,
+                                  /*IsVolatile=*/false, "NewLd");
+  // Checking if create() was volatile
+  EXPECT_FALSE(NewLd->isVolatile());
   EXPECT_EQ(NewLd->getType(), Ld->getType());
   EXPECT_EQ(NewLd->getPointerOperand(), Arg1);
   EXPECT_EQ(NewLd->getAlign(), 8);
   EXPECT_EQ(NewLd->getName(), "NewLd");
+
+  sandboxir::LoadInst *NewVLd =
+      sandboxir::LoadInst::create(Vld->getType(), Arg1, Align(8),
+                                  /*InsertBefore=*/Ret, Ctx,
+                                  /*IsVolatile=*/true, "NewVLd");
+
+  // Checking if create() was volatile
+  EXPECT_TRUE(NewVLd->isVolatile());
+  EXPECT_EQ(NewVLd->getName(), "NewVLd");
 }
 
 TEST_F(SandboxIRTest, StoreInst) {
@@ -1040,5 +1052,96 @@ define i8 @foo(i8 %arg) {
     EXPECT_EQ(Call->getCalledFunction(), &F);
     EXPECT_EQ(range_size(Call->args()), 1u);
     EXPECT_EQ(Call->getArgOperand(0), Arg0);
+  }
+}
+
+TEST_F(SandboxIRTest, InvokeInst) {
+  parseIR(C, R"IR(
+define void @foo(i8 %arg) {
+ bb0:
+   invoke i8 @foo(i8 %arg) to label %normal_bb
+                       unwind label %exception_bb
+ normal_bb:
+   ret void
+ exception_bb:
+   %lpad = landingpad { ptr, i32}
+           cleanup
+   ret void
+ other_bb:
+   ret void
+}
+)IR");
+  Function &LLVMF = *M->getFunction("foo");
+  sandboxir::Context Ctx(C);
+  auto &F = *Ctx.createFunction(&LLVMF);
+  auto *Arg = F.getArg(0);
+  auto *BB0 = cast<sandboxir::BasicBlock>(
+      Ctx.getValue(getBasicBlockByName(LLVMF, "bb0")));
+  auto *NormalBB = cast<sandboxir::BasicBlock>(
+      Ctx.getValue(getBasicBlockByName(LLVMF, "normal_bb")));
+  auto *ExceptionBB = cast<sandboxir::BasicBlock>(
+      Ctx.getValue(getBasicBlockByName(LLVMF, "exception_bb")));
+  auto *LandingPad = &*ExceptionBB->begin();
+  auto *OtherBB = cast<sandboxir::BasicBlock>(
+      Ctx.getValue(getBasicBlockByName(LLVMF, "other_bb")));
+  auto It = BB0->begin();
+  // Check classof(Instruction *).
+  auto *Invoke = cast<sandboxir::InvokeInst>(&*It++);
+
+  // Check getNormalDest().
+  EXPECT_EQ(Invoke->getNormalDest(), NormalBB);
+  // Check getUnwindDest().
+  EXPECT_EQ(Invoke->getUnwindDest(), ExceptionBB);
+  // Check getSuccessor().
+  EXPECT_EQ(Invoke->getSuccessor(0), NormalBB);
+  EXPECT_EQ(Invoke->getSuccessor(1), ExceptionBB);
+  // Check setNormalDest().
+  Invoke->setNormalDest(OtherBB);
+  EXPECT_EQ(Invoke->getNormalDest(), OtherBB);
+  EXPECT_EQ(Invoke->getUnwindDest(), ExceptionBB);
+  // Check setUnwindDest().
+  Invoke->setUnwindDest(OtherBB);
+  EXPECT_EQ(Invoke->getNormalDest(), OtherBB);
+  EXPECT_EQ(Invoke->getUnwindDest(), OtherBB);
+  // Check setSuccessor().
+  Invoke->setSuccessor(0, NormalBB);
+  EXPECT_EQ(Invoke->getNormalDest(), NormalBB);
+  Invoke->setSuccessor(1, ExceptionBB);
+  EXPECT_EQ(Invoke->getUnwindDest(), ExceptionBB);
+  // Check getLandingPadInst().
+  EXPECT_EQ(Invoke->getLandingPadInst(), LandingPad);
+
+  {
+    // Check create() WhereIt, WhereBB.
+    SmallVector<sandboxir::Value *> Args({Arg});
+    auto *InsertBefore = &*BB0->begin();
+    auto *NewInvoke = cast<sandboxir::InvokeInst>(sandboxir::InvokeInst::create(
+        F.getFunctionType(), &F, NormalBB, ExceptionBB, Args,
+        /*WhereIt=*/InsertBefore->getIterator(), /*WhereBB=*/BB0, Ctx));
+    EXPECT_EQ(NewInvoke->getNormalDest(), NormalBB);
+    EXPECT_EQ(NewInvoke->getUnwindDest(), ExceptionBB);
+    EXPECT_EQ(NewInvoke->getNextNode(), InsertBefore);
+  }
+  {
+    // Check create() InsertBefore.
+    SmallVector<sandboxir::Value *> Args({Arg});
+    auto *InsertBefore = &*BB0->begin();
+    auto *NewInvoke = cast<sandboxir::InvokeInst>(
+        sandboxir::InvokeInst::create(F.getFunctionType(), &F, NormalBB,
+                                      ExceptionBB, Args, InsertBefore, Ctx));
+    EXPECT_EQ(NewInvoke->getNormalDest(), NormalBB);
+    EXPECT_EQ(NewInvoke->getUnwindDest(), ExceptionBB);
+    EXPECT_EQ(NewInvoke->getNextNode(), InsertBefore);
+  }
+  {
+    // Check create() InsertAtEnd.
+    SmallVector<sandboxir::Value *> Args({Arg});
+    auto *NewInvoke = cast<sandboxir::InvokeInst>(sandboxir::InvokeInst::create(
+        F.getFunctionType(), &F, NormalBB, ExceptionBB, Args,
+        /*InsertAtEnd=*/BB0, Ctx));
+    EXPECT_EQ(NewInvoke->getNormalDest(), NormalBB);
+    EXPECT_EQ(NewInvoke->getUnwindDest(), ExceptionBB);
+    EXPECT_EQ(NewInvoke->getParent(), BB0);
+    EXPECT_EQ(NewInvoke->getNextNode(), nullptr);
   }
 }
