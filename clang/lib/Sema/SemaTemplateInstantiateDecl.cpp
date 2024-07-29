@@ -5195,8 +5195,11 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
           StmtResult NewStmt = SubstStmt(C, TemplateArgs);
           if (NewStmt.isInvalid()) {
             Function->setInvalidDecl();
-          } else {
-            NewContracts.push_back(NewStmt.getAs<ContractStmt>());
+          }
+          if (NewStmt.isUsable()) {
+            auto *NS = dyn_cast<ContractStmt>(NewStmt.get());
+            assert(NS);
+            NewContracts.push_back(NS);
           }
         }
         Function->setContracts(NewContracts);

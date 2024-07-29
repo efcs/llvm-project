@@ -2026,14 +2026,12 @@ void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
 
   // FIXME(EricWF): This should be empty already
   auto &Contracts = getExtInfo()->Contracts;
-  // FIXME(EricWF):
-  // When instantiating a template we set the contracts to
-  //  First, be the uninstantiated contracts from the template when we create
-  //  the initial declaration.
-  //  .
-  //  Then, set them to be the instantiated contracts, after the declaration is
-  //  complete and we're instantiating the function body.
-  assert(Contracts.empty() || NewContracts.size() == Contracts.size());
+
+  assert(
+      Contracts.empty() || NewContracts.size() == Contracts.size() ||
+      this->isInvalidDecl() &&
+          "Adding a different amount of contracts than were initially present");
+
   Contracts.clear();
   Contracts.append(NewContracts.begin(), NewContracts.end());
 }

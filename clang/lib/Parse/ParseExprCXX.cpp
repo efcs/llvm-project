@@ -1488,8 +1488,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                   tok::kw___private, tok::kw___global, tok::kw___local,
                   tok::kw___constant, tok::kw___generic, tok::kw_groupshared,
                   tok::kw_requires, tok::kw_noexcept) ||
-      isContractSpecifier() != ContractKeyword::None ||
-      Tok.isRegularKeywordAttribute() ||
+      isContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
       (Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 
   if (HasSpecifiers && !HasParentheses && !getLangOpts().CPlusPlus23) {
@@ -1590,9 +1589,11 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
 
-    auto RetType = Actions.GetTypeForDeclarator(D);
-    QualType RT = RetType->getType()->getAs<FunctionType>()->getReturnType();
-    MaybeParseFunctionContractSpecifierSeq(D.Contracts, RT);
+    if (isContractKeyword(Tok)) {
+      auto RetType = Actions.GetTypeForDeclarator(D);
+      QualType RT = RetType->getType()->getAs<FunctionType>()->getReturnType();
+      MaybeParseFunctionContractSpecifierSeq(D.Contracts, RT);
+    }
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute

@@ -2117,19 +2117,18 @@ private:
 
   //===--------------------------------------------------------------------===//
   // C++ Contracts
-  /*
-    ExceptionSpecificationType Parser::tryParseExceptionSpecification(
-      bool Delayed, SourceRange &SpecificationRange,
-      SmallVectorImpl<ParsedType> &DynamicExceptions,
-      SmallVectorImpl<SourceRange> &DynamicExceptionRanges,
-      ExprResult &NoexceptExpr, CachedTokens *&) {
-  */
+public:
   enum class ContractKeyword { None, Pre, Post };
-  ContractKeyword isContractSpecifier(const Token &Tok) const;
-  ContractKeyword isContractSpecifier() const {
-    return isContractSpecifier(Tok);
+  ContractKeyword getContractKeyword(const Token &Token) const;
+  ContractKeyword getContractKeyword() const { return getContractKeyword(Tok); }
+  bool isContractKeyword() const {
+    return getContractKeyword() != ContractKeyword::None;
+  }
+  bool isContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token) != ContractKeyword::None;
   }
 
+private:
   StmtResult ParseContractAssertStatement();
   void
   MaybeParseFunctionContractSpecifierSeq(SmallVector<ContractStmt *> &Contracts,

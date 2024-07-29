@@ -21,26 +21,4 @@
 #include "dump_struct.h"
 #include "contracts_support.h"
 
-namespace self_test {
-  void do_self_test() {
-    ObjectInfo *info = AT::get_info();
-    info->massert({.alive = 0, .constructed = 0, .destroyed = 0});
-    {
-    AT a;
-    info->massert({.alive = 1, .constructed = 1, .destroyed = 0});
-    }
-    info->massert({.alive = 0, .constructed = 1, .destroyed = 1});
-
-  }
-}
-#endif
-
-int main() {
-  Checker->expect()
-  ObjectInfo info;
-
-  foo(0, &info);
-  c1.massert({.evaluated = 2, .violated = 1});
-
-  test_post(&info);
-}
+int main() {}

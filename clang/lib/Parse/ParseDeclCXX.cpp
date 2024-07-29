@@ -2049,8 +2049,7 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeBracket();
         if (!SkipUntil(tok::r_square, StopAtSemi))
           break;
-      } else if (isContractSpecifier() != ContractKeyword::None &&
-                 NextToken().is(tok::l_paren)) {
+      } else if (isContractKeyword() && NextToken().is(tok::l_paren)) {
         ConsumeToken();
         ConsumeParen();
         if (!SkipUntil(tok::r_paren, StopAtSemi))
@@ -2573,11 +2572,12 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
   }
 }
 
-Parser::ContractKeyword Parser::isContractSpecifier(const Token &Tok) const {
-  if (!getLangOpts().Contracts || Tok.isNot(tok::identifier))
+Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
+  if (!getLangOpts().Contracts || Token.isNot(tok::identifier))
     return ContractKeyword::None;
 
-  const IdentifierInfo *II = Tok.getIdentifierInfo();
+  const IdentifierInfo *II = Token.getIdentifierInfo();
+  assert(II && "Missing identifier info");
 
   if (!Ident_pre) {
     Ident_pre = &PP.getIdentifierTable().get("pre");
@@ -2747,13 +2747,15 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
   }
 
   // FIXME(EricWF): Why is this here?
-  TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclaratorInfo);
-  assert(TInfo);
-  QualType RT = TInfo->getType();
-  if (TInfo->getType()->isFunctionType()) {
-    RT = RT->getAs<FunctionType>()->getReturnType();
+  if (isContractKeyword(Tok)) {
+    TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclaratorInfo);
+    assert(TInfo);
+    QualType RT = TInfo->getType();
+    if (TInfo->getType()->isFunctionType()) {
+      RT = RT->getAs<FunctionType>()->getReturnType();
+    }
+    MaybeParseFunctionContractSpecifierSeq(DeclaratorInfo.Contracts, RT);
   }
-  MaybeParseFunctionContractSpecifierSeq(DeclaratorInfo.Contracts, RT);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {
@@ -4361,8 +4363,10 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
 ///       attributed-identifier :
 void Parser::MaybeParseFunctionContractSpecifierSeq(
     SmallVector<ContractStmt *> &Contracts, QualType ReturnType) {
+  if (!getLangOpts().CPlusPlus || !getLangOpts().Contracts)
+    return;
   ContractKeyword CKK;
-  while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
+  while ((CKK = getContractKeyword(Tok)) != ContractKeyword::None) {
     StmtResult Contract = ParseFunctionContractSpecifier(ReturnType);
     if (Contract.isUsable()) {
       Contracts.push_back(Contract.getAs<ContractStmt>());
@@ -4375,7 +4379,7 @@ void Parser::MaybeLateParseFunctionContractSpecifierSeq(
   if (!getLangOpts().CPlusPlus || !getLangOpts().Contracts)
     return;
   ContractKeyword CKK;
-  while ((CKK = isContractSpecifier(Tok)) != ContractKeyword::None) {
+  while ((CKK = getContractKeyword(Tok)) != ContractKeyword::None) {
     CachedTokens Toks;
     if (!LateParseFunctionContractSpecifier(
             DeclaratorInfo, DeclaratorInfo.LateParsedContracts)) {
@@ -4384,19 +4388,22 @@ void Parser::MaybeLateParseFunctionContractSpecifierSeq(
   }
 }
 
-bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens& Toks) {
-  auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
-    switch (isContractSpecifier(Tok)) {
-    case ContractKeyword::Pre:
-      return std::make_pair(ContractKind::Pre, "pre");
-    case ContractKeyword::Post:
-      return std::make_pair(ContractKind::Post, "post");
-    default:
-      llvm_unreachable("unhandled case");
-    }
-  }();
+static std::pair<ContractKind, const char *>
+getContractKeywordInfo(Parser::ContractKeyword CK) {
+  switch (CK) {
+  case Parser::ContractKeyword::Pre:
+    return std::make_pair(ContractKind::Pre, "pre");
+  case Parser::ContractKeyword::Post:
+    return std::make_pair(ContractKind::Post, "post");
+  default:
+    llvm_unreachable("unhandled case");
+  }
+}
 
-    // Consume and cache the starting token.
+bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens& Toks) {
+  auto [CK, CKStr] = getContractKeywordInfo(getContractKeyword(Tok));
+
+  // Consume and cache the starting token.
   Token StartTok = Tok;
   SourceRange ContractRange = SourceRange(ConsumeToken());
 
@@ -4422,16 +4429,8 @@ bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, Cach
 }
 
 StmtResult Parser::ParseFunctionContractSpecifier(QualType RetType) {
-  auto [CK, CKStr] = [&]() -> std::pair<ContractKind, const char *> {
-    switch (isContractSpecifier(Tok)) {
-    case ContractKeyword::Pre:
-      return std::make_pair(ContractKind::Pre, "pre");
-    case ContractKeyword::Post:
-      return std::make_pair(ContractKind::Post, "post");
-    default:
-      llvm_unreachable("unhandled case");
-    }
-  }();
+  auto [CK, CKStr] = getContractKeywordInfo(getContractKeyword(Tok));
+
   SourceLocation KeywordLoc = Tok.getLocation();
   ConsumeToken();
 

@@ -383,6 +383,7 @@ namespace clang {
     RedeclarableResult VisitVarDeclImpl(VarDecl *D);
     void ReadVarDeclInit(VarDecl *VD);
     void VisitVarDecl(VarDecl *VD) { VisitVarDeclImpl(VD); }
+    void VisitResultNameDecl(ResultNameDecl *RD);
     void VisitImplicitParamDecl(ImplicitParamDecl *PD);
     void VisitParmVarDecl(ParmVarDecl *PD);
     void VisitDecompositionDecl(DecompositionDecl *DD);
@@ -899,6 +900,14 @@ void ASTDeclReader::VisitValueDecl(ValueDecl *VD) {
     DeferredTypeID = Record.getGlobalTypeID(Record.readInt());
   else
     VD->setType(Record.readType());
+}
+
+void ASTDeclReader::VisitResultNameDecl(ResultNameDecl *VD) {
+  VisitNamedDecl(VD);
+  bool IsCanonical = Record.readInt();
+  if (!IsCanonical) {
+    VD->setCanonicalResultNameDecl(readDeclAs<ResultNameDecl>());
+  }
 }
 
 void ASTDeclReader::VisitEnumConstantDecl(EnumConstantDecl *ECD) {
@@ -4030,6 +4039,9 @@ Decl *ASTReader::ReadDeclRecord(GlobalDeclID ID) {
     break;
   case DECL_FILE_SCOPE_ASM:
     D = FileScopeAsmDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_RESULT_NAME:
+    D = ResultNameDecl::CreateDeserialized(Context, ID);
     break;
   case DECL_TOP_LEVEL_STMT_DECL:
     D = TopLevelStmtDecl::CreateDeserialized(Context, ID);

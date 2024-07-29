@@ -13,11 +13,6 @@
 #ifndef LLVM_CLANG_LIB_CODEGEN_CGCONTRACTS_H
 #define LLVM_CLANG_LIB_CODEGEN_CGCONTRACTS_H
 
-#include "CGBuilder.h"
-#include "CGCall.h"
-#include "CGValue.h"
-#include "CodeGenFunction.h"
-#include "CodeGenTypes.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/Expr.h"
 #include "clang/AST/ExprCXX.h"
@@ -26,6 +21,8 @@
 #include "clang/AST/Type.h"
 #include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/TargetInfo.h"
+#include "llvm/IR/BasicBlock.h"
+#include "llvm/IR/Value.h"
 
 namespace llvm {
 class Value;
@@ -33,6 +30,20 @@ class Value;
 
 namespace clang {
 namespace CodeGen {
+class CodeGenFunction;
+class CodeGenModule;
+
+class CodeGenContracts {
+public:
+  CodeGenContracts(CodeGenFunction &CGF);
+
+  CodeGenFunction *operator->() { return &CGF; }
+  CodeGenFunction const *operator->() const { return &CGF; }
+
+  CodeGenFunction &CGF;
+  CodeGenModule &CGM;
+  const ASTContext &Ctx;
+};
 
 class CGContractInfo;
 

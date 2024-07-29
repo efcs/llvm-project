@@ -7654,7 +7654,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         if (Delayed) {
           MaybeLateParseFunctionContractSpecifierSeq(D);
         } else if (D.isFunctionDeclaratorAFunctionDeclaration() &&
-                   isContractSpecifier(Tok) != ContractKeyword::None) {
+                   isContractKeyword(Tok)) {
           // FIXME(EricWF): Should we wait until we contruct the function type
           // info to more easily extract the return type?
           QualType RetT;

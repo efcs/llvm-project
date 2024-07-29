@@ -864,8 +864,13 @@ protected:
     LLVM_PREFERRED_TYPE(ContractKind)
     unsigned ContractKind : 2;
 
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned ConditionCanThrow : 1;
+
+    enum { NumContractAssertBits = 4 };
+
     LLVM_PREFERRED_TYPE(unsigned)
-    unsigned NumAttrs : 32 - NumStmtBits - 3;
+    unsigned NumAttrs : 32 - NumStmtBits - NumContractAssertBits;
   };
 
   class CXXNewExprBitfields {

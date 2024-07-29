@@ -1674,7 +1674,7 @@ defm contracts : BoolFOption<"contracts",
   LangOpts<"Contracts">, DefaultFalse,
   PosFlag<SetTrue, [], [ClangOption, CC1Option, CLOption],
           "Enable support for C++ Contracts">,
-  NegFlag<SetFalse>>;
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
 
 
 def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-semantic=">,

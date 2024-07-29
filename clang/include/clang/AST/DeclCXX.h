@@ -4397,9 +4397,6 @@ public:
 /// into a diagnostic with <<.
 const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                       AccessSpecifier AS);
-                                      
-
-class MaterializedResultNameDecl;
 
 /// A result name introduces in a post condition. For instance, given:
 ///
@@ -4407,26 +4404,59 @@ class MaterializedResultNameDecl;
 ///
 /// Where `r` refers to the value returned by the function
 class ResultNameDecl : public ValueDecl {
-  MaterializedResultNameDecl *MaterializedDecl = nullptr;
 
-  ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id, QualType T)
-      : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T) {}
+  /// The canonical declaration of a result name is the result name declared in
+  /// the first post condition (with a result name) on a particular function.
+  ///
+  /// The canonical decl is used as the key for the value of the return value
+  /// during codegen and constant evaluation. This is necessary because the
+  /// changes to the return value in the post conditions must be visible to
+  /// subsequent post conditions.
+  ResultNameDecl *CanonicalResultNameDecl = nullptr;
+
+  ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id,
+                 QualType T, ResultNameDecl *CanonicalResultNameDecl = nullptr)
+      : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T),
+        CanonicalResultNameDecl(CanonicalResultNameDecl) {
+    assert(!CanonicalResultNameDecl ||
+           CanonicalResultNameDecl->CanonicalResultNameDecl == nullptr);
+    assert(!CanonicalResultNameDecl || CanonicalResultNameDecl->getType() == T);
+  }
 
   void anchor() override;
 
 public:
   friend class ASTDeclReader;
 
-  static ResultNameDecl *Create(ASTContext &C, DeclContext *DC,
-                             SourceLocation IdLoc, IdentifierInfo *Id,
-                             QualType T);
+  static ResultNameDecl *
+  Create(ASTContext &C, DeclContext *DC, SourceLocation IdLoc,
+         IdentifierInfo *Id, QualType T,
+         ResultNameDecl *CanonicalResultNameDecl = nullptr);
   static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   using ValueDecl::getDeclName;
   using ValueDecl::setType;
 
-  void setMaterializedResultNameDecl(MaterializedResultNameDecl *D) {
+  void setCanonicalResultNameDecl(ResultNameDecl *D) {
+    CanonicalResultNameDecl = D;
+  }
 
+  /// Returns true if this declaration is the canonical result name declaration
+  /// (This is true if it doesn't reference another result name).
+  bool isCanonicalResultNameDecl() const {
+    return CanonicalResultNameDecl == nullptr;
+  }
+
+  ResultNameDecl *getCanonicalResultNameDecl() {
+    if (CanonicalResultNameDecl)
+      return CanonicalResultNameDecl;
+    return this;
+  }
+
+  const ResultNameDecl *getCanonicalResultNameDecl() const {
+    if (CanonicalResultNameDecl)
+      return CanonicalResultNameDecl;
+    return this;
   }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

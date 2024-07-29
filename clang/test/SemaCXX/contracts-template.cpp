@@ -31,7 +31,10 @@ template void foo<NoBool>(); // expected-note {{requested here}}
 template <class T>
 struct Foo {
   template <class U = T>
-  void foo(U u = {}) pre(u) {}
+  void foo(U u = {})
+  pre(u) // expected-error {{value of type 'const NoBool' is not contextually convertible to 'bool'}}
+  post(u) // expected-error {{value of type 'const NoBool' is not contextually convertible to 'bool'}}
+  {}
 };
 
 void test_it() {
@@ -39,5 +42,5 @@ void test_it() {
   f.foo();
 
   Foo<NoBool> f2;
-  f2.foo();
+  f2.foo(); // expected-note {{requested here}}
 }
