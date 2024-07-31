@@ -2130,24 +2130,6 @@ public:
 
 private:
   StmtResult ParseContractAssertStatement();
-  void MaybeParseFunctionContractSpecifierSeq(Declarator &DeclarationInfo,
-                                              bool EnterScope,
-                                              QualType ReturnType = QualType());
-
-  StmtResult
-  ParseFunctionContractSpecifierOld(QualType ReturnType, bool EnterScope,
-                                    Declarator *DeclarationInfo = nullptr);
-
-  StmtResult
-  ParseFunctionContractSpecifierNew(QualType ReturnType, bool EnterScope,
-                                    Declarator *DeclarationInfo = nullptr);
-
-  StmtResult
-  ParseFunctionContractSpecifier(QualType ReturnType, bool EnterScope,
-                                 Declarator *DeclarationInfo = nullptr) {
-    return ParseFunctionContractSpecifierOld(ReturnType, EnterScope,
-                                             DeclarationInfo);
-  }
 
   bool ParseContractSpecifierSequence(Declarator &DeclarationInfo,
                                       bool EnterScope,

@@ -87,20 +87,6 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                               Attrs);
 }
 
-[[maybe_unused]] static void banner(const char *msg, int before_lines = 1,
-                                    int after_lines = 1) {
-  auto AddNewlines = [&](int num_newlines) {
-    for (int i = 0; i < num_newlines; ++i)
-      llvm::errs() << "\n";
-  };
-  AddNewlines(before_lines);
-  llvm::errs() << "=====================";
-  if (msg)
-    llvm::errs() << " " << msg << " ";
-  llvm::errs() << "=====================";
-  AddNewlines(after_lines);
-}
-
 static ResultNameDecl *extractResultName(DeclStmt *DS) {
   assert(DS && DS->isSingleDecl() && "Expected a single declaration");
   auto *D = DS->getSingleDecl();
