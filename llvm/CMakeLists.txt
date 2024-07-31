@@ -1429,7 +1429,20 @@ if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
 endif()
 
-if (ERICWF_DEBUG)
-    add_subdirectory(${LLVM_THIRD_PARTY_DIR}/ericwf-tests/ ${CMAKE_CURRENT_BINARY_DIR}/third-party/ericwf-tests)
+
+if (XCODE)
+  # For additional targets that you would like to add schemes, specify e.g:
+  #
+  #   -DLLVM_XCODE_EXTRA_TARGET_SCHEMES="TargetParserTests;SupportTests"
+  #
+  # at CMake configure time.
+  set(LLVM_XCODE_EXTRA_TARGET_SCHEMES "" CACHE STRING "Specifies an extra list of targets to turn into schemes")
+
+  foreach(target ${LLVM_XCODE_EXTRA_TARGET_SCHEMES})
+    set_target_properties(${target} PROPERTIES XCODE_GENERATE_SCHEME ON)
+  endforeach()
 endif()
 
+if (ERICWF_DEBUG)
+  add_subdirectory(${LLVM_THIRD_PARTY_DIR}/ericwf-tests/ ${CMAKE_CURRENT_BINARY_DIR}/third-party/ericwf-tests)
+endif()
