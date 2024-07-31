@@ -101,9 +101,11 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
-
+struct CurrentContractInfo;
 struct CGContractData;
 struct CGContractDataDeleter {
+  static CGContractData *Create();
+
   void operator()(CGContractData *) const;
 };
 
@@ -424,9 +426,15 @@ public:
   const Expr *RetExpr = nullptr;
 
   /// If a contract attribute is being visited, this holds the contract
-  const ContractStmt *CurContract = nullptr;
-  bool InContractCatchBlock = false;
-  std::unique_ptr<CGContractData, CGContractDataDeleter> CurContractData;
+  std::unique_ptr<CGContractData, CGContractDataDeleter> ContractData{
+      CGContractDataDeleter::Create()};
+
+  CurrentContractInfo *CurContract();
+
+  // This is only used when exceptions are fully disabled. In this case,
+  // an enforced contract violation always terminates the program, so we
+  // can jump to a shared cleanup block without having to worry about continuing
+  // or cleanups;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -749,43 +757,6 @@ public:
   RawAddress NormalCleanupDest = RawAddress::invalid();
 
   unsigned NextCleanupDestIndex = 1;
-
-  // A contract enforce block is a block used to create and call the violation
-  // handler for contracts set to 'enforce'. Such contracts never return after
-  // reporting a violation.
-  //
-  // It is used to create a single
-  // block that can be used to handle all contract violations in a function.
-  //
-  // The block is created lazily, and is only created if a contract is emitted
-  // with an enforce semantic.
-  struct ContractEnforceBlockInfo {
-    llvm::BasicBlock *Block = nullptr;
-    llvm::PHINode *LocationSelect = nullptr;
-    llvm::PHINode *ViolationKindSelect = nullptr;
-  };
-
-  /// ContractViolationBlock - Unified block for contract violation.
-  llvm::BasicBlock *ContractViolationBlock = nullptr;
-  llvm::BasicBlock *GetContractViolationBlock();
-  void AddContractViolationIncomingBlock(llvm::BasicBlock *Inc,
-                                         const ContractStmt *CS,
-                                         ContractEvaluationSemantic Semantic,
-                                         ContractViolationDetection Mode);
-
-  /// ContractViolationTrapBlock - Unified block for contract violation trap.
-  llvm::BasicBlock *ContractViolationTrapBlock = nullptr;
-  llvm::BasicBlock *GetContractViolationTrapBlock();
-
-  // FIXME(EricWF): Rather than
-  llvm::PHINode *ContractViolationPhi = nullptr;
-  llvm::PHINode *ContractViolationDetectionPhi = nullptr;
-  llvm::PHINode *ContractEvalSemanticPhi = nullptr;
-
-  llvm::Constant *
-  EmitContractArgumentConstant(const ContractStmt *S,
-                               ContractEvaluationSemantic Semantic,
-                               ContractViolationDetection DetectMode);
 
   /// EHResumeBlock - Unified block containing a call to llvm.eh.resume.
   llvm::BasicBlock *EHResumeBlock = nullptr;
@@ -4424,25 +4395,20 @@ public:
   LValue EmitObjCSelectorLValue(const ObjCSelectorExpr *E);
   void   EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
 
+  llvm::BasicBlock *GetSharedContractViolationTrapBlock(bool Create = true);
+  llvm::BasicBlock *GetSharedContractViolationEnforceBlock(bool Create = true);
+
   void EmitContractStmt(const ContractStmt &S);
-  void EmitContractStmtNew(const ContractStmt &S);
 
 private:
   void EmitContractStmtAsTryBody(const ContractStmt &);
   void EmitContractStmtAsCatchBody(const ContractStmt &S);
   void EmitContractStmtAsFullStmt(const ContractStmt &S);
-  void EmitContractStmtAsNonThrowing(const ContractStmt &S);
-  void EmitContractStmtAsThrowing(const ContractStmt &S);
 
 public:
-  void
-  EmitHandleContractViolationCall(const ContractStmt &S,
-                                  ContractEvaluationSemantic Semantic,
-                                  ContractViolationDetection DetectionMode);
-  void EmitHandleContractViolationCall(const ContractStmt &S,
-                                       llvm::Constant *Semantic,
+  void EmitHandleContractViolationCall(llvm::Constant *Semantic,
                                        llvm::Constant *DetectionMode,
-                                       llvm::Constant *ViolationDataGV,
+                                       llvm::Value *ViolationDataGV,
                                        bool IsNoReturn);
 
   //===--------------------------------------------------------------------===//

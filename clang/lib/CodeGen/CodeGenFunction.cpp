@@ -493,8 +493,8 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     }
   }
 
-  EmitIfUsed(*this, ContractViolationBlock);
-  EmitIfUsed(*this, ContractViolationTrapBlock);
+  EmitIfUsed(*this, GetSharedContractViolationEnforceBlock(false));
+  EmitIfUsed(*this, GetSharedContractViolationTrapBlock(false));
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
   EmitIfUsed(*this, TerminateHandler);

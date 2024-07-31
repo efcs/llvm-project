@@ -22,6 +22,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Module.h"
@@ -33,141 +34,103 @@
 using namespace clang;
 using namespace CodeGen;
 
+constexpr ContractEvaluationSemantic Enforce =
+    ContractEvaluationSemantic::Enforce;
+constexpr ContractEvaluationSemantic QuickEnforce =
+    ContractEvaluationSemantic::QuickEnforce;
+constexpr ContractEvaluationSemantic Observe =
+    ContractEvaluationSemantic::Observe;
+constexpr ContractEvaluationSemantic Ignore =
+    ContractEvaluationSemantic::Ignore;
+
+constexpr ContractViolationDetection PredicateFailed =
+    ContractViolationDetection::PredicateFailed;
+constexpr ContractViolationDetection ExceptionRaised =
+    ContractViolationDetection::ExceptionRaised;
+
+namespace clang::CodeGen {
 enum ContractCheckpoint {
   EmittingContract,
   EmittingTryBody,
   EmittingCatchBody,
 };
+enum ContractEmissionStyle {
+  Inline,
+  SharedEnforce,
+  SharedTrap,
+};
 
-struct clang::CodeGen::CGContractData {
+template <class T>
+static llvm::Constant *CreateConstantInt(CodeGenFunction &CGF, T Sem) {
+  static_assert(std::is_same_v<T, ContractEvaluationSemantic> ||
+                std::is_same_v<T, ContractViolationDetection>);
+  return llvm::ConstantInt::get(CGF.IntTy, (int)Sem);
+}
+
+struct CurrentContractInfo {
   bool isTrap() const {
     return Semantic == ContractEvaluationSemantic::QuickEnforce;
   }
 
-  bool isEnforce() const {
-    return Semantic == ContractEvaluationSemantic::Enforce;
-  }
-
-  bool isObserve() const {
-    return Semantic == ContractEvaluationSemantic::Observe;
-  }
-
   const ContractStmt *Contract;
+  ContractEmissionStyle Style;
   ContractCheckpoint Checkpoint = EmittingContract;
   ContractEvaluationSemantic Semantic;
 
   llvm::BasicBlock *Violation = nullptr;
   llvm::BasicBlock *End = nullptr;
+
   llvm::Constant *ViolationInfoGV = nullptr;
   Address EHPredicateStore = Address::invalid();
 };
 
-void CGContractDataDeleter::operator()(CGContractData *Data) const {
-  delete Data;
-}
+// A contract enforce block is a block used to create and call the violation
+// handler for contracts set to 'enforce'. Such contracts never return after
+// reporting a violation.
+//
+// It is used to create a single
+// block that can be used to handle all contract violations in a function.
+//
+// The block is created lazily, and is only created if a contract is emitted
+// with an enforce semantic.
+struct SharedEnforceBlock {
+  static SharedEnforceBlock Create(CodeGenFunction &CGF) {
+    SharedEnforceBlock This;
+    This.Block = CGF.createBasicBlock("contract.violation.handler");
 
-CodeGenContracts::CodeGenContracts(CodeGenFunction &CGF)
-    : CGF(CGF), CGM(CGF.CGM), Ctx(CGF.getContext()) {}
+    auto SavedIP = CGF.Builder.saveAndClearIP();
 
-ContractViolationBlock::ContractViolationBlock(CodeGen::CodeGenFunction &CGF,
-                                               ContractEvaluationSemantic Sem)
-    : Semantic(Sem) {}
+    CGF.Builder.SetInsertPoint(This.Block);
+    This.IncomingPHI = CGF.Builder.CreatePHI(CGF.VoidPtrTy, 4);
 
-llvm::Constant *CodeGenFunction::EmitContractArgumentConstant(
-    const ContractStmt *S, ContractEvaluationSemantic Semantic,
-    ContractViolationDetection DetectMode) {
+    CGF.EmitHandleContractViolationCall(CreateConstantInt(CGF, Enforce),
+                                        CreateConstantInt(CGF, PredicateFailed),
+                                        This.IncomingPHI,
+                                        /*IsNoReturn=*/true);
 
-  llvm::Constant *SemanticValue =
-      llvm::ConstantInt::get(IntTy, (int)S->getSemantic(getLangOpts()));
-  llvm::Constant *DetectModeValue =
-      llvm::ConstantInt::get(IntTy, (int)DetectMode);
-  ConstantAddress LocArg =
-      CGM.GetAddrOfUnnamedGlobalConstantDecl(getContext().BuildViolationObject(
-          S, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl)));
-  llvm::Constant *Args[] = {SemanticValue, DetectModeValue,
-                            LocArg.getPointer()};
-  return llvm::ConstantStruct::getAnon(Args);
-}
+    CGF.Builder.ClearInsertionPoint();
+    CGF.Builder.restoreIP(SavedIP);
 
-void CodeGenFunction::AddContractViolationIncomingBlock(
-    llvm::BasicBlock *Inc, ContractStmt const *CS,
-    ContractEvaluationSemantic Semantic, ContractViolationDetection Mode) {
-  assert(ContractViolationBlock);
+    return This;
+  }
 
-  UnnamedGlobalConstantDecl *ViolationObj =
-      CGM.getContext().BuildViolationObject(
-          CS, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl));
+  llvm::BasicBlock *Block = nullptr;
+  llvm::PHINode *IncomingPHI = nullptr;
 
-  llvm::Constant *DetectionConstant = llvm::ConstantInt::get(IntTy, (int)Mode);
+private:
+  SharedEnforceBlock() = default;
+};
 
-  ConstantAddress ArgValue =
-      CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj, ".contract.info");
-  assert(ContractViolationPhi);
-  ContractViolationPhi->addIncoming(ArgValue.getPointer(), Inc);
-  ContractViolationDetectionPhi->addIncoming(DetectionConstant, Inc);
-  assert(Semantic == ContractEvaluationSemantic::Enforce);
-}
-
-[[maybe_unused]] static void
-CreateContractViolationBlockForFunction(CodeGenFunction &CGF) {
-  //  CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
-
+static llvm::BasicBlock *CreateTrapBlock(CodeGenFunction &CGF) {
   auto &Builder = CGF.Builder;
-  auto &CGM = CGF.CGM;
-  Builder.SetInsertPoint(CGF.ContractViolationBlock);
-
-  CGF.ContractViolationPhi = Builder.CreatePHI(CGF.VoidPtrTy, 4);
-  CGF.ContractViolationDetectionPhi = Builder.CreatePHI(CGF.IntTy, 4);
-  llvm::Value *SemanticValue = llvm::ConstantInt::get(
-      CGF.IntTy, (int)ContractEvaluationSemantic::Enforce);
-
-  CanQualType ArgTypes[3] = {CGF.getContext().UnsignedIntTy,
-                             CGF.getContext().UnsignedIntTy,
-                             CGF.getContext().VoidPtrTy};
-  llvm::Value *Args[3] = {SemanticValue, CGF.ContractViolationDetectionPhi,
-                          CGF.ContractViolationPhi};
-  const CGFunctionInfo &VFuncInfo =
-      CGM.getTypes().arrangeBuiltinFunctionDeclaration(CGF.getContext().VoidTy,
-                                                       ArgTypes);
-
-  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc =
-      CGM.CreateRuntimeFunction(VFTy, "__handle_contract_violation_v3");
-
-  CGF.EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
-
-  Builder.ClearInsertionPoint();
-}
-
-llvm::BasicBlock *CodeGenFunction::GetContractViolationBlock() {
-  if (ContractViolationBlock)
-    return ContractViolationBlock;
-
-  assert(!ContractViolationPhi);
-
-  CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
-
-  // Set up the terminate handler.  This block is inserted at the very
-  // end of the function by FinishFunction.
-  ContractViolationBlock = createBasicBlock("contract.violation.handler");
-  CreateContractViolationBlockForFunction(*this);
-
-  Builder.restoreIP(SavedIP);
-  return ContractViolationBlock;
-}
-
-llvm::BasicBlock *CodeGenFunction::GetContractViolationTrapBlock() {
-  if (ContractViolationTrapBlock)
-    return ContractViolationTrapBlock;
-
   CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
   // Set up the terminate handler.  This block is inserted at the very
   // end of the function by FinishFunction.
-  ContractViolationTrapBlock =
-      createBasicBlock("contract.violation.trap.handler");
+  llvm::BasicBlock *ContractViolationTrapBlock =
+      CGF.createBasicBlock("contract.violation.trap.handler");
   Builder.SetInsertPoint(ContractViolationTrapBlock);
 
-  llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+  llvm::CallInst *TrapCall = CGF.EmitTrapCall(llvm::Intrinsic::trap);
   TrapCall->setDoesNotReturn();
   TrapCall->setDoesNotThrow();
 
@@ -178,28 +141,79 @@ llvm::BasicBlock *CodeGenFunction::GetContractViolationTrapBlock() {
   return ContractViolationTrapBlock;
 }
 
-void CodeGenFunction::EmitHandleContractViolationCall(
-    const ContractStmt &S, ContractEvaluationSemantic Semantic,
-    ContractViolationDetection ViolationDetectionMode) {
-  assert(CurContractData && CurContractData->Contract == &S);
+struct SharedTrapBlock {
+  static SharedTrapBlock Create(CodeGenFunction &CGF) {
+    SharedTrapBlock This;
+    This.Block = CreateTrapBlock(CGF);
+    return This;
+  }
 
-  assert(Semantic == ContractEvaluationSemantic::Enforce ||
-         Semantic == ContractEvaluationSemantic::Observe);
+  llvm::BasicBlock *Block = nullptr;
 
-  llvm::Constant *SemanticVal = llvm::ConstantInt::get(IntTy, (int)Semantic);
-  llvm::Constant *DetectionModeVal =
-      llvm::ConstantInt::get(IntTy, (int)ViolationDetectionMode);
-  assert(CurContractData->ViolationInfoGV);
-  return EmitHandleContractViolationCall(
-      S, SemanticVal, DetectionModeVal,
-      CurContractData->ViolationInfoGV->getPointer(),
-      /*IsNoReturn=*/Semantic == ContractEvaluationSemantic::Enforce);
+private:
+  SharedTrapBlock() = default;
+};
+
+struct CGContractData {
+  std::optional<SharedEnforceBlock> EnforceBlock;
+  std::optional<SharedTrapBlock> TrapBlock;
+  std::optional<CurrentContractInfo> CurContract;
+
+  SharedTrapBlock &GetSharedTrapBlock(CodeGenFunction &CGF) {
+    if (!TrapBlock)
+      TrapBlock = SharedTrapBlock::Create(CGF);
+    return *TrapBlock;
+  }
+
+  SharedEnforceBlock &GetSharedEnforceBlock(CodeGenFunction &CGF) {
+    if (!EnforceBlock)
+      EnforceBlock = SharedEnforceBlock::Create(CGF);
+    return *EnforceBlock;
+  }
+};
+
+} // namespace clang::CodeGen
+
+CurrentContractInfo *CodeGenFunction::CurContract() {
+  return ContractData->CurContract ? &ContractData->CurContract.value()
+                                   : nullptr;
+}
+
+struct CurrentContractRAII {
+  CurrentContractRAII(CodeGenFunction &CGF, CurrentContractInfo CurContract)
+      : CGF(CGF) {
+    assert(!CGF.ContractData->CurContract);
+    CGF.ContractData->CurContract.emplace(std::move(CurContract));
+  }
+  ~CurrentContractRAII() {
+    assert(CGF.ContractData->CurContract);
+    CGF.ContractData->CurContract.reset();
+  }
+  CodeGenFunction &CGF;
+};
+
+CGContractData *CGContractDataDeleter::Create() { return new CGContractData(); }
+void CGContractDataDeleter::operator()(CGContractData *Data) const {
+  delete Data;
+}
+
+llvm::BasicBlock *
+CodeGenFunction::GetSharedContractViolationEnforceBlock(bool Create) {
+  if (!ContractData->EnforceBlock && !Create)
+    return nullptr;
+  return ContractData->GetSharedEnforceBlock(*this).Block;
+}
+
+llvm::BasicBlock *
+CodeGenFunction::GetSharedContractViolationTrapBlock(bool Create) {
+  if (!ContractData->TrapBlock && !Create)
+    return nullptr;
+  return ContractData->GetSharedTrapBlock(*this).Block;
 }
 
 void CodeGenFunction::EmitHandleContractViolationCall(
-    const ContractStmt &S, llvm::Constant *EvalSemantic,
-    llvm::Constant *DetectionMode, llvm::Constant *ViolationInfoGV,
-    bool IsNoReturn) {
+    llvm::Constant *EvalSemantic, llvm::Constant *DetectionMode,
+    llvm::Value *ViolationInfoGV, bool IsNoReturn) {
   auto &Ctx = getContext();
 
   CanQualType ArgTypes[3] = {Ctx.IntTy, Ctx.IntTy, Ctx.VoidPtrTy};
@@ -214,6 +228,8 @@ void CodeGenFunction::EmitHandleContractViolationCall(
   if (IsNoReturn) {
     llvm::Value *Args[3] = {EvalSemantic, DetectionMode, ViolationInfoGV};
     EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
+
+    Builder.ClearInsertionPoint();
   } else {
     CallArgList Args;
     Args.add(RValue::get(EvalSemantic), getContext().UnsignedIntTy);
@@ -269,176 +285,14 @@ static bool StmtCanThrow(const Stmt *S) {
   return false;
 }
 
-template <class OnEnd> struct ScopeGuard {
-  OnEnd End;
-  template <class OnStart> ScopeGuard(OnStart Start, OnEnd End) : End(End) {
-    Start();
-  }
-  bool Enabled = true;
-  void Disable() { Enabled = false; }
-
-  ~ScopeGuard() {
-    if (Enabled) {
-      End();
-    }
-  }
-};
-
-template <class OnStart, class OnEnd>
-ScopeGuard(OnStart, OnEnd) -> ScopeGuard<OnEnd>;
-
-void HandleContractStmtCatchBlock(CodeGenFunction &CGF, const ContractStmt &S) {
-  // FIXME(EricWF): This is a terrible hack to allow easy generation of
-  // a contract violation in a catch block.
-  assert(CGF.InContractCatchBlock == true);
-  ContractViolationDetection DetectMode =
-      ContractViolationDetection::ExceptionRaised;
-  CGF.EmitHandleContractViolationCall(S, DetectMode);
-  return;
-}
-
 // Emit the contract expression.
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
-  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
-  // block that reports contract violations that have thrown. In order to do
-  // this without building additional AST nodes, use this Stmt as the body
-  // of the catch block, detecting when we're inside the catch block to only
-  // emit the violation.
-  if (&S == CurContract) {
-    return HandleContractStmtCatchBlock(*this, S);
-  } else {
-    assert(CurContract == nullptr);
-  }
-
-  const Expr *Expr = S.getCond();
-  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
-
-  // FIXME(EricWF): I think there's a lot more to do that simply this.
-  if (Semantic == LangOptions::ContractEvaluationSemantic::Ignore)
-    return;
-
-  assert(Builder.GetInsertBlock());
-  EnsureInsertPoint();
-  llvm::BasicBlock *End = createBasicBlock("contract.end");
-
-  llvm::BasicBlock *Violation = nullptr;
-  bool IsObserving = Semantic == ContractEvaluationSemantic::Observe;
-  if (Semantic == ContractEvaluationSemantic::Enforce) {
-    Violation = GetContractViolationBlock();
-    assert(Violation);
-  } else if (Semantic == ContractEvaluationSemantic::QuickEnforce) {
-
-    Violation = GetContractViolationTrapBlock();
-    assert(Violation);
-  } else {
-    assert(IsObserving);
-    Violation = createBasicBlock("contract.violation.observe");
-  }
-
-  CXXTryStmt *TryStmt = nullptr;
-
-  llvm::Value *BranchOn = nullptr;
-  llvm::Value *ContractStateVal = nullptr;
-  if (getLangOpts().ContractExceptions && StmtCanThrow(S.getCond())) {
-    RawAddress ContractState =
-        CreateIRTemp(getContext().UnsignedIntTy, "cond.state");
-    Builder.CreateStore(
-        llvm::ConstantInt::get(Int32Ty,
-                               (int)ContractViolationDetection::NoViolation),
-        ContractState);
-
-    auto Loc = S.getCond()->getExprLoc();
-    llvm::SmallVector<Stmt *> CatchStmts;
-    // FIXME(EricWF): THIS IS A TERRIBLE HACK.
-    //   In order to emit the contract assertion violation in the catch block
-    //   we add the current statement to a dummy handler, and then detect
-    //   when we're inside that dummy handler to only emit the violation
-    //
-    // This should have some other representation, but I don't want to eagerly
-    // build all these nodes in the AST.
-    CatchStmts.push_back(const_cast<ContractStmt *>(&S));
-    auto *CatchStmt = CompoundStmt::Create(getContext(), CatchStmts,
-                                           FPOptionsOverride(), Loc, Loc);
-    auto *Catch = new (getContext())
-        CXXCatchStmt(Loc, /*exDecl=*/nullptr, /*block=*/CatchStmt);
-    llvm::SmallVector<Stmt *> Stmts;
-
-    auto *TryBody = CompoundStmt::Create(getContext(), Stmts,
-                                         FPOptionsOverride(), Loc, Loc);
-    TryStmt = CXXTryStmt::Create(getContext(), Loc, TryBody, Catch);
-    assert(TryStmt);
-    {
-      ScopeGuard EnterContractStmt(
-          [&]() {
-            CurContract = &S;
-            InContractCatchBlock = true;
-          },
-          [&]() {
-            CurContract = nullptr;
-            InContractCatchBlock = false;
-          });
-
-      EnterCXXTryStmt(*TryStmt);
-
-      llvm::Value *ArgValue = EmitScalarExpr(Expr);
-      auto SelectedVal = Builder.CreateSelect(
-          ArgValue,
-          Builder.getInt32((int)ContractViolationDetection::NoViolation),
-          Builder.getInt32((int)ContractViolationDetection::PredicateFailed));
-      Builder.CreateStore(SelectedVal, ContractState);
-
-      ExitCXXTryStmt(*TryStmt);
-    }
-    Builder.SetInsertPoint(createBasicBlock("after.foo"));
-    ContractStateVal = Builder.CreateLoad(ContractState);
-    BranchOn = Builder.CreateICmpEQ(
-        ContractStateVal,
-        Builder.getInt32((int)ContractViolationDetection::NoViolation));
-    Builder.CreateCondBr(BranchOn, End, Violation);
-  } else {
-
-    BranchOn = EmitScalarExpr(Expr);
-
-    assert(Builder.GetInsertBlock());
-    if (Semantic == ContractEvaluationSemantic::Enforce)
-      AddContractViolationIncomingBlock(
-          Builder.GetInsertBlock(), &S, Semantic,
-          ContractViolationDetection::PredicateFailed);
-    // auto *Block = Builder.GetInsertBlock();
-    Builder.CreateCondBr(BranchOn, End, Violation);
-  }
-  if (Semantic == ContractEvaluationSemantic::Observe) {
-
-    EmitBlock(Violation);
-
-    ContractViolationDetection DetectMode =
-        ContractViolationDetection::PredicateFailed;
-    EmitHandleContractViolationCall(S, &DetectMode);
-    // Builder.CreateBr(End);
-  }
-
-  EmitBlock(End);
-}
-
-struct CodeGenFoo : CodeGenFunction {
-
-  void EmitNonThrowingContract(const ContractStmt &S);
-};
-
-CodeGenFoo &GetFoo(CodeGenFunction &CGF) {
-  return static_cast<CodeGenFoo &>(CGF);
-}
-
-void CodeGenFoo::EmitNonThrowingContract(const clang::ContractStmt &S) {}
-
-// Emit the contract expression.
-void CodeGenFunction::EmitContractStmtNew(const ContractStmt &S) {
-  assert(!CurContractData);
-  if (!CurContractData) {
+  assert(!CurContract() || CurContract()->Contract == &S);
+  if (!CurContract()) {
     return EmitContractStmtAsFullStmt(S);
-  } else if (CurContractData->Checkpoint == EmittingTryBody) {
+  } else if (CurContract()->Checkpoint == EmittingTryBody) {
     return EmitContractStmtAsTryBody(S);
-  } else if (CurContractData->Checkpoint == EmittingCatchBody) {
+  } else if (CurContract()->Checkpoint == EmittingCatchBody) {
     return EmitContractStmtAsCatchBody(S);
   } else {
     llvm_unreachable("Invalid checkpoint");
@@ -446,73 +300,34 @@ void CodeGenFunction::EmitContractStmtNew(const ContractStmt &S) {
 }
 
 void CodeGenFunction::EmitContractStmtAsTryBody(const ContractStmt &S) {
-  assert(CurContractData && CurContractData->Contract == &S &&
-         CurContractData->Checkpoint == EmittingTryBody);
-  Builder.CreateStore(EmitScalarExpr(S.getCond()),
-                      CurContractData->EHPredicateStore);
+  assert(CurContract() && CurContract()->Contract == &S &&
+         CurContract()->Checkpoint == EmittingTryBody);
+
+  if (CurContract()->isTrap()) {
+    auto *EndTryBlock = createBasicBlock("contract.end.try");
+    EmitBranchOnBoolExpr(S.getCond(), EndTryBlock, CurContract()->Violation, 0);
+    EmitBlock(EndTryBlock);
+  } else {
+    Builder.CreateStore(EmitScalarExpr(S.getCond()),
+                        CurContract()->EHPredicateStore);
+  }
 }
 
 void CodeGenFunction::EmitContractStmtAsCatchBody(const ContractStmt &S) {
-  assert(CurContractData && CurContractData->Contract == &S &&
-         CurContractData->Checkpoint == EmittingCatchBody);
-  EmitHandleContractViolationCall(S, CurContractData->Semantic,
-                                  ContractViolationDetection::ExceptionRaised);
-}
+  assert(CurContract() && CurContract()->Contract == &S &&
+         CurContract()->Checkpoint == EmittingCatchBody);
+  auto CurInfo = CurContract();
 
-static void EmitSimpleContract(CodeGenFunction &CGF, llvm::Value *PredValue) {
-  auto &Ctx = CGF.getContext();
-  auto &Builder = CGF.Builder;
-  auto [Contract, Checkpoint, Semantic, Violation, End, _1, _2] =
-      *CGF.CurContractData;
-  CGF.EmitBranchOnBoolExpr(PredValue, End, Violation);
-  Builder.SetInsertPoint(Violation);
-  CGF.EmitHandleContractViolationCall(
-      *Contract, Semantic, ContractViolationDetection::PredicateFailed);
-  Builder.CreateBr(End);
-  CGF.EmitBlock(End);
-}
-
-void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
-  assert(CurContractData == nullptr);
-  using CES = ContractEvaluationSemantic;
-
-  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
-  // block that reports contract violations that have thrown. In order to do
-  // this without building additional AST nodes, use this Stmt as the body
-  // of the catch block, detecting when we're inside the catch block to only
-  // emit the violation.
-
-  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
-
-  // FIXME(EricWF): I think there's a lot more to do that simply this.
-  if (Semantic == CES::Ignore)
-    return;
-
-  bool ContractCanThrow = StmtCanThrow(S.getCond());
-  const bool EmitAsThrowing =
-      ContractCanThrow && getLangOpts().ContractExceptions;
-
-  CurContractData.reset(
-      new CGContractData{.Contract = &S,
-                         .Checkpoint = EmittingContract,
-                         .Semantic = Semantic,
-                         .Violation = createBasicBlock("contract.violation"),
-                         .End = createBasicBlock("contract.end")});
-  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
-    CurContractData->ViolationInfoGV =
-        CGM.GetAddrOfUnnamedGlobalConstantDecl(
-               getContext().BuildViolationObject(
-                   &S, dyn_cast_or_null<FunctionDecl>(CurFuncDecl)))
-            .getPointer();
-  }
-
-  if (EmitAsThrowing) {
-    return EmitContractStmtAsThrowing(S);
+  if (CurContract()->Style == SharedTrap) {
+    Builder.CreateBr(CurContract()->Violation);
   } else {
-    return EmitSimpleContract(*this, EmitScalarExpr(S.getCond()));
+    // We have to emit the contract violation block inside the catch block so
+    // that the handler can see the exception via std::current_exception
+    EmitHandleContractViolationCall(
+        CreateConstantInt(*this, CurInfo->Semantic),
+        CreateConstantInt(*this, ExceptionRaised), CurInfo->ViolationInfoGV,
+        /*IsNoReturn=*/CurInfo->Semantic == Enforce);
   }
-
-  llvm_unreachable("Done handling things");
 }
 
 static CXXTryStmt *BuildTryCatch(const ContractStmt &S, CodeGenFunction &CGF) {
@@ -539,27 +354,114 @@ static CXXTryStmt *BuildTryCatch(const ContractStmt &S, CodeGenFunction &CGF) {
   return CXXTryStmt::Create(Ctx, Loc, TryBody, Catch);
 }
 
-void CodeGenFunction::EmitContractStmtAsThrowing(const ContractStmt &S) {
-  assert(CurContractData && CurContractData->Contract == &S &&
-         CurContractData->Checkpoint == EmittingContract);
+void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
+  assert(CurContract() == nullptr);
+  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
+  // block that reports contract violations that have thrown. In order to do
+  // this without building additional AST nodes, use this Stmt as the body
+  // of the catch block, detecting when we're inside the catch block to only
+  // emit the violation.
 
-  CurContractData->EHPredicateStore = CreateTempAlloca(
-      Builder.getInt1Ty(), CharUnits::One(), "contract.pred.value");
-  // Set the initial value to true. If the contract throws, we'll see the true
-  // value after the catch block is done handling the exception.
-  Builder.CreateStore(Builder.getTrue(), CurContractData->EHPredicateStore);
+  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
 
-  assert(Builder.GetInsertBlock());
-  EnsureInsertPoint();
+  // FIXME(EricWF): I think there's a lot more to do that simply this.
+  if (Semantic == Ignore)
+    return;
 
-  auto *Try = BuildTryCatch(S, *this);
-  EnterCXXTryStmt(*Try);
-  CurContractData->Checkpoint = EmittingTryBody;
-  EmitStmt(Try->getTryBlock());
-  CurContractData->Checkpoint = EmittingCatchBody;
-  ExitCXXTryStmt(*Try);
-  CurContractData->Checkpoint = EmittingContract;
+  const auto Style = [&]() {
+    switch (Semantic) {
+    case Enforce: {
+      if (!getLangOpts().Exceptions)
+        return SharedEnforce;
+    }
+      LLVM_FALLTHROUGH;
+    case Observe:
+      return Inline;
+    case QuickEnforce:
+      return SharedTrap;
+    case ContractEvaluationSemantic::Ignore:
+    case ContractEvaluationSemantic::Invalid:
+      llvm_unreachable("unhandled semantic");
+    }
+  }();
 
-  auto *PredVal = Builder.CreateLoad(CurContractData->EHPredicateStore);
-  EmitSimpleContract(*this, PredVal);
+  auto Violation = [&]() {
+    switch (Style) {
+    case Inline:
+      return createBasicBlock("contract.violation");
+    case SharedEnforce:
+      return GetSharedContractViolationEnforceBlock();
+    case SharedTrap:
+      return GetSharedContractViolationTrapBlock();
+    }
+  }();
+
+  llvm::BasicBlock *End = createBasicBlock("contract.end");
+
+  llvm::Constant *ViolationInfo = nullptr;
+  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
+    ViolationInfo = CGM.GetAddrOfUnnamedGlobalConstantDecl(
+                           getContext().BuildViolationObject(
+                               &S, dyn_cast_or_null<FunctionDecl>(CurFuncDecl)))
+                        .getPointer();
+  }
+
+  CurrentContractRAII CurContractRAII(*this,
+                                      {.Contract = &S,
+                                       .Style = Style,
+                                       .Checkpoint = EmittingContract,
+                                       .Semantic = Semantic,
+                                       .Violation = Violation,
+                                       .End = End,
+                                       .ViolationInfoGV = ViolationInfo});
+
+  llvm::Value *BranchOn;
+  if (getLangOpts().Exceptions && StmtCanThrow(S.getCond())) {
+
+    assert(Style == Inline || Style == SharedTrap);
+    CurContract()->EHPredicateStore = CreateTempAlloca(
+        Builder.getInt1Ty(), CharUnits::One(), "contract.pred.value");
+    // Set the initial value to true. If the contract throws, we'll see the true
+    // value after the catch block is done handling the exception.
+    Builder.CreateStore(Builder.getTrue(), CurContract()->EHPredicateStore);
+
+    assert(Builder.GetInsertBlock());
+    EnsureInsertPoint();
+
+    auto *Try = BuildTryCatch(S, *this);
+    EnterCXXTryStmt(*Try);
+    CurContract()->Checkpoint = EmittingTryBody;
+    EmitStmt(Try->getTryBlock());
+    CurContract()->Checkpoint = EmittingCatchBody;
+    ExitCXXTryStmt(*Try);
+    CurContract()->Checkpoint = EmittingContract;
+
+    BranchOn = Builder.CreateLoad(CurContract()->EHPredicateStore);
+  } else {
+    BranchOn = EmitScalarExpr(S.getCond());
+  }
+
+  if (Style == SharedEnforce) {
+    assert(!getLangOpts().Exceptions);
+    EnsureInsertPoint();
+    ContractData->GetSharedEnforceBlock(*this).IncomingPHI->addIncoming(
+        ViolationInfo, Builder.GetInsertBlock());
+  }
+
+  Builder.CreateCondBr(BranchOn, End, Violation);
+
+  // If we're creating a trap, the violation block will be created once for the
+  // function. Otherwise, we need to create a call to the violation handler.
+  if (CurContract()->Style == Inline) {
+    EmitBlock(CurContract()->Violation);
+    Builder.SetInsertPoint(CurContract()->Violation);
+    EmitHandleContractViolationCall(CreateConstantInt(*this, Semantic),
+                                    CreateConstantInt(*this, PredicateFailed),
+                                    CurContract()->ViolationInfoGV,
+                                    /*IsNoReturn=*/Semantic == Enforce);
+    if (Semantic != Enforce)
+      Builder.CreateBr(End);
+  }
+
+  EmitBlock(End);
 }

@@ -1691,7 +1691,7 @@ def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group
            "sequence of one or more group names, each prefixed by '+' or '-'.">;
 
 defm contract_exceptions : BoolFOption<"contract-exceptions",
-  LangOpts<"ContractExceptions">, DefaultFalse,
+  LangOpts<"ContractExceptions">, DefaultTrue,
   PosFlag<SetTrue, [], [ClangOption, CC1Option],
           "Enable contract violation on exception">,
   NegFlag<SetFalse>>;

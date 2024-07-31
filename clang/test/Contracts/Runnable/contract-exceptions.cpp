@@ -27,7 +27,7 @@ struct X {
 };
 
 
-int main() {
+void f() {
   X<ONS::O> x;
   x.foo();
 
