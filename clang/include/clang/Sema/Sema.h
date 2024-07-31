@@ -2730,6 +2730,8 @@ public:
   ///@{
 
 public:
+  void ActOnStartFunctionContractStmt(DeclaratorDecl *DD);
+
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultNameDecl,
                                  ParsedAttributes &Attrs);
@@ -2743,16 +2745,7 @@ public:
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                Expr *Cond, DeclStmt *ResultNameDecl,
                                ArrayRef<const Attr *> Attrs);
-  struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S);
-    ~ContractScopeRAII();
 
-    ContractScopeRAII(ContractScopeRAII const &) = delete;
-
-    Sema *S;
-    QualType OldCXXThisType;
-    bool OldIsContractScope;
-  };
   ///@}
 
   //
@@ -6390,7 +6383,6 @@ public:
     bool InDiscardedStatement;
     bool InImmediateFunctionContext;
     bool InImmediateEscalatingFunctionContext;
-    bool InContractStatement = false;
     bool IsCurrentlyCheckingDefaultArgumentOrInitializer = false;
 
     // We are in a constant context, but we also allow
@@ -6402,6 +6394,9 @@ public:
     /// lifetime-extended, even if they're not bound to a reference (for
     /// example, in a for-range initializer).
     bool InLifetimeExtendingContext = false;
+
+    /// Whether we're currently evaluating the predicate of a contract assertion
+    bool InContractAssertion = false;
 
     // When evaluating immediate functions in the initializer of a default
     // argument or default member initializer, this is the declaration whose
@@ -6471,7 +6466,7 @@ public:
               InDiscardedStatement);
     }
 
-    bool isContractStatementContext() const { return InContractStatement; }
+    bool isContractAssertionContext() const { return InContractAssertion; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6501,9 +6496,25 @@ public:
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
 
-  bool isContractStmtContext() const {
-    return ExprEvalContexts.back().InContractStatement;
+  bool isContractAssertionContext() const {
+    return ExprEvalContexts.back().InContractAssertion;
   }
+
+  struct ContractScopeRAII {
+    ContractScopeRAII(Sema &S) : S(S) {
+      assert(S.ExprEvalContexts.back().InContractAssertion == false);
+      S.ExprEvalContexts.back().InContractAssertion = true;
+    }
+
+    ContractScopeRAII(ContractScopeRAII const &) = delete;
+
+    ~ContractScopeRAII() {
+      assert(S.ExprEvalContexts.back().InContractAssertion == true);
+      S.ExprEvalContexts.back().InContractAssertion = false;
+    }
+
+    Sema &S;
+  };
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored

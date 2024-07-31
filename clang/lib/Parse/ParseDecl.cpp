@@ -2326,7 +2326,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     ParseTrailingRequiresClause(D);
 
   // FIXME(EricWF): What are we doing here?
-  // MaybeParseFunctionContractSpecifierSeq(D);
+  ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2584,7 +2584,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       // FIXME(EricWF): Is this the correct place?
       // Yes: Though parsing here means we need to reenter the correct scope
       // and context ourselves, it means we hve the function return type.
-      // MaybeParseFunctionContractSpecifierSeq(D);
+      ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
       D.complete(ThisDecl);
@@ -7439,7 +7439,7 @@ void Parser::ParseParenDeclarator(Declarator &D) {
 
 void Parser::InitCXXThisScopeForDeclaratorIfRelevant(
     const Declarator &D, const DeclSpec &DS,
-    std::optional<Sema::CXXThisScopeRAII> &ThisScope) {
+    std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst) {
   // C++11 [expr.prim.general]p3:
   //   If a declaration declares a member function or member function
   //   template of a class X, the expression this is a prvalue of type
@@ -7459,7 +7459,8 @@ void Parser::InitCXXThisScopeForDeclaratorIfRelevant(
     return;
 
   Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers());
-  if (D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14)
+  if ((D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14) ||
+      AddConst)
     Q.addConst();
   // FIXME: Collect C++ address spaces.
   // If there are multiple different address spaces, the source is invalid.
@@ -7650,24 +7651,17 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         TrailingReturnTypeLoc = Range.getBegin();
         EndLoc = Range.getEnd();
       }
-      if (getLangOpts().Contracts) {
+      if (isContractKeyword(Tok)) {
         if (Delayed) {
           MaybeLateParseFunctionContractSpecifierSeq(D);
         } else if (D.isFunctionDeclaratorAFunctionDeclaration() &&
                    isContractKeyword(Tok)) {
           // FIXME(EricWF): Should we wait until we contruct the function type
           // info to more easily extract the return type?
-          QualType RetT;
-          if (TrailingReturnType.isUsable())
-            RetT = TrailingReturnType.get().get();
-          else {
-            //  We don't have the full function type yet, so the type we
-            // get back will just the the return type _hopefully_
-            TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(D);
-            assert(!TInfo->getType()->isFunctionType());
-            RetT = TInfo->getType();
-          }
-          MaybeParseFunctionContractSpecifierSeq(D.Contracts, RetT);
+          // QualType RetT;
+          // if (TrailingReturnType.isUsable())
+          // RetT = TrailingReturnType.get().get();
+          // ParseContractSpecifierSequence(D, false, RetT);
         }
       }
     } else {

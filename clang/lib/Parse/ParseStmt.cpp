@@ -1952,10 +1952,10 @@ StmtResult Parser::ParseDoStatement() {
   SourceLocation Start = Tok.getLocation();
   ExprResult Cond = ParseExpression();
   // Correct the typos in condition before closing the scope.
-  if (Cond.isUsable())
+  if (Cond.isUsable()) {
     Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
                                              /*RecoverUncorrectedTypos=*/true);
-  else {
+  } else {
     if (!Tok.isOneOf(tok::r_paren, tok::r_square, tok::r_brace))
       SkipUntil(tok::semi);
     Cond = Actions.CreateRecoveryExpr(

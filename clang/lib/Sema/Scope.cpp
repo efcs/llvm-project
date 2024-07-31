@@ -48,13 +48,6 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     if (parent->getFlags() & OpenMPOrderClauseScope)
       Flags |= OpenMPOrderClauseScope;
 
-    // FIXME(EricWF): I don't think we need to propagate the ContractAssertScope
-    // to child scopes.
-    // The only child scopes that can occur should be that of lambda expressions
-    // but the constification of the captures should already have been handled
-    // before we get here(?)
-    //
-    // Flags |= parent->getFlags() & ContractAssertScope;
   } else {
     Depth = 0;
     PrototypeDepth = 0;
@@ -130,11 +123,6 @@ void Scope::AddFlags(unsigned FlagsToSet) {
   if (FlagsToSet & ContinueScope) {
     assert((Flags & ContinueScope) == 0 && "Already set");
     ContinueParent = this;
-  }
-  if (FlagsToSet & ContractAssertScope) {
-    assert((Flags & ContractAssertScope) == 0 && "Already set");
-    // Do I need to create and set a new parent for contract assert scope?
-    // FIXME(EricWF): Maybe do this?
   }
 
   Flags |= FlagsToSet;

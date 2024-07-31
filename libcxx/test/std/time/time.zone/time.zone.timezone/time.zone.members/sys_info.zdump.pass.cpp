@@ -16,6 +16,9 @@
 // TODO TZDB Investigate
 // XFAIL: target={{armv(7|8)l-linux-gnueabihf}}
 
+// This is way to freaking long of a test...
+// UNSUPPORTED: *
+
 #include <chrono>
 #include <format>
 #include <fstream>

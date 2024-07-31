@@ -123,7 +123,7 @@ bool ContractOptions::validateContractGroup(
   if (auto Pos = GroupName.find_first_not_of("abcdefghijklmnopqrstuvwxyz"
                                              "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
                                              "0123456789"
-                                             "_.");
+                                             "_.-");
       Pos != StringRef::npos) {
     Diagnoser(CGD::InvalidChar, GroupName, GroupName.substr(Pos, 1));
     return false;

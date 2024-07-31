@@ -8596,6 +8596,9 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
 
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
+      nullptr);
 
   Sema::ContractScopeRAII ContractScope(getSema());
 

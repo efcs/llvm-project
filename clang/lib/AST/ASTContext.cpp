@@ -9718,7 +9718,8 @@ CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
 }
 
 UnnamedGlobalConstantDecl *
-ASTContext::BuildViolationObject(const ContractStmt *CS) {
+ASTContext::BuildViolationObject(const ContractStmt *CS,
+                                 const FunctionDecl *CurDecl) {
   assert(CS);
   SourceLocation Loc = CS->getBeginLoc();
 
@@ -9756,7 +9757,6 @@ ASTContext::BuildViolationObject(const ContractStmt *CS) {
     } else if (Name == "__function_") {
       // Note: this emits the PrettyFunction name -- different than what
       // __builtin_FUNCTION() above returns!
-      const NamedDecl *CurDecl = nullptr;
       Value.getStructField(F->getFieldIndex()) = MakeStringLiteral(
           CurDecl && !isa<TranslationUnitDecl>(CurDecl)
               ? StringRef(PredefinedExpr::ComputeName(

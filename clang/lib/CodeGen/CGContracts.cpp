@@ -47,8 +47,9 @@ llvm::Constant *CodeGenFunction::EmitContractArgumentConstant(
       llvm::ConstantInt::get(IntTy, (int)S->getSemantic(getLangOpts()));
   llvm::Constant *DetectModeValue =
       llvm::ConstantInt::get(IntTy, (int)DetectMode);
-  ConstantAddress LocArg = CGM.GetAddrOfUnnamedGlobalConstantDecl(
-      getContext().BuildViolationObject(S));
+  ConstantAddress LocArg =
+      CGM.GetAddrOfUnnamedGlobalConstantDecl(getContext().BuildViolationObject(
+          S, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl)));
   llvm::Constant *Args[] = {SemanticValue, DetectModeValue,
                             LocArg.getPointer()};
   return llvm::ConstantStruct::getAnon(Args);
@@ -60,7 +61,8 @@ void CodeGenFunction::AddContractViolationIncomingBlock(
   assert(ContractViolationBlock);
 
   UnnamedGlobalConstantDecl *ViolationObj =
-      CGM.getContext().BuildViolationObject(CS);
+      CGM.getContext().BuildViolationObject(
+          CS, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl));
 
   llvm::Constant *DetectionConstant = llvm::ConstantInt::get(IntTy, (int)Mode);
 
@@ -148,7 +150,8 @@ void CodeGenFunction::EmitHandleContractViolationCall(
 
   auto &Ctx = getContext();
   ContractEvaluationSemantic EvalSemantic = S.getSemantic(getLangOpts());
-  UnnamedGlobalConstantDecl *ViolationObj = Ctx.BuildViolationObject(&S);
+  UnnamedGlobalConstantDecl *ViolationObj = Ctx.BuildViolationObject(
+      &S, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl));
 
   ConstantAddress ArgValue =
       CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);

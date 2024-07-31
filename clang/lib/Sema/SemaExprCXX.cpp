@@ -1259,7 +1259,8 @@ QualType Sema::getCurrentThisType() {
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
                                                     CurContext, Context);
-  if (!ThisTy.isNull() && currentEvaluationContext().InContractStatement) {
+  if (!ThisTy.isNull() &&
+      currentEvaluationContext().isContractAssertionContext()) {
     return adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
   }
   return ThisTy;

@@ -2130,10 +2130,30 @@ public:
 
 private:
   StmtResult ParseContractAssertStatement();
-  void
-  MaybeParseFunctionContractSpecifierSeq(SmallVector<ContractStmt *> &Contracts,
-                                         QualType ReturnType);
-  StmtResult ParseFunctionContractSpecifier(QualType ReturnType);
+  void MaybeParseFunctionContractSpecifierSeq(Declarator &DeclarationInfo,
+                                              bool EnterScope,
+                                              QualType ReturnType = QualType());
+
+  StmtResult
+  ParseFunctionContractSpecifierOld(QualType ReturnType, bool EnterScope,
+                                    Declarator *DeclarationInfo = nullptr);
+
+  StmtResult
+  ParseFunctionContractSpecifierNew(QualType ReturnType, bool EnterScope,
+                                    Declarator *DeclarationInfo = nullptr);
+
+  StmtResult
+  ParseFunctionContractSpecifier(QualType ReturnType, bool EnterScope,
+                                 Declarator *DeclarationInfo = nullptr) {
+    return ParseFunctionContractSpecifierOld(ReturnType, EnterScope,
+                                             DeclarationInfo);
+  }
+
+  bool ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+                                      bool EnterScope,
+                                      QualType TrailingReturnType = QualType());
+  StmtResult ParseFunctionContractSpecifierImpl(QualType RetType);
+
   void MaybeLateParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
   bool LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens & ContractToks);
 
@@ -3257,7 +3277,7 @@ private:
                                bool IsAmbiguous, bool RequiresArg = false);
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst = false);
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,
                          SourceLocation &RefQualifierLoc);
   bool isFunctionDeclaratorIdentifierList();

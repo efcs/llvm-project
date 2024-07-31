@@ -14,6 +14,7 @@
 #define LLVM_CLANG_SEMA_SCOPE_H
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -647,22 +648,6 @@ public:
 
   void dumpImpl(raw_ostream &OS) const;
   void dump() const;
-};
-
-struct EnterContractAssertScopeRAII {
-  Scope *S;
-  bool WasContractAssertScope;
-
-  EnterContractAssertScopeRAII(Scope *S)
-      : S(S), WasContractAssertScope(S->isContractAssertScope()) {
-    S->setFlags(S->getFlags() | Scope::ContractAssertScope);
-  }
-  ~EnterContractAssertScopeRAII() {
-    assert(S->getFlags() & Scope::ContractAssertScope);
-    if (!WasContractAssertScope) {
-      S->setFlags(S->getFlags() & ~Scope::ContractAssertScope);
-    }
-  }
 };
 
 } // namespace clang

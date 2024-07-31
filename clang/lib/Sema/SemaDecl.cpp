@@ -2179,6 +2179,24 @@ void Sema::ActOnPopScope(SourceLocation Loc, Scope *S) {
   S->applyNRVO();
 
   if (S->decl_empty()) return;
+  if (!(S->getFlags() & (Scope::DeclScope | Scope::TemplateParamScope))) {
+    llvm::errs() << "\n\n\n";
+    llvm::errs() << "Scope at " << Loc.printToString(Context.getSourceManager())
+                 << " has decls but isn't a decl scope\n";
+    llvm::errs() << "\n\n\n";
+    auto *P = S;
+    while (P) {
+      P->dump();
+      if (auto Ent = P->getEntity(); Ent) {
+        Ent->dumpDeclContext();
+      } else {
+        llvm::errs() << "NO Entity\n";
+      }
+      llvm::errs() << "\n===================================\n";
+      P = P->getParent();
+    }
+    llvm::errs() << "\n\n\n";
+  }
   assert((S->getFlags() & (Scope::DeclScope | Scope::TemplateParamScope)) &&
          "Scope shouldn't contain decls!");
 

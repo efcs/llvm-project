@@ -1589,11 +1589,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
 
-    if (isContractKeyword(Tok)) {
-      auto RetType = Actions.GetTypeForDeclarator(D);
-      QualType RT = RetType->getType()->getAs<FunctionType>()->getReturnType();
-      MaybeParseFunctionContractSpecifierSeq(D.Contracts, RT);
-    }
+    ParseContractSpecifierSequence(D, /*EnterScope=*/true);
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute

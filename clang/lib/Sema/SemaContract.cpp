@@ -77,7 +77,7 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    ArrayRef<const Attr *> Attrs) {
   assert((CK == ContractKind::Post || ResultNameDecl == nullptr) &&
          "ResultNameDecl only allowed for postconditions");
-  assert(currentEvaluationContext().InContractStatement &&
+  assert(currentEvaluationContext().isContractAssertionContext() &&
          "Wrong context for statement");
   ExprResult E = ActOnContractAssertCondition(Cond);
   if (E.isInvalid())
@@ -85,6 +85,20 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
 
   return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl,
                               Attrs);
+}
+
+[[maybe_unused]] static void banner(const char *msg, int before_lines = 1,
+                                    int after_lines = 1) {
+  auto AddNewlines = [&](int num_newlines) {
+    for (int i = 0; i < num_newlines; ++i)
+      llvm::errs() << "\n";
+  };
+  AddNewlines(before_lines);
+  llvm::errs() << "=====================";
+  if (msg)
+    llvm::errs() << " " << msg << " ";
+  llvm::errs() << "=====================";
+  AddNewlines(after_lines);
 }
 
 static ResultNameDecl *extractResultName(DeclStmt *DS) {
@@ -114,25 +128,8 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   if (Res.isInvalid())
     return StmtError();
 
-  return Res;
+  return ActOnFinishFullStmt(Res.get());
 }
-
-/* FIXME(EricWF): Is this needed?
- *
-void Sema::ActOnStartContracts(Scope *S, Declarator &D) {
-  if (!D.isFunctionDeclarator())
-    return;
-  auto &FTI = D.getFunctionTypeInfo();
-  if (!FTI.Params)
-    return;
-  for (auto &Param : ArrayRef<DeclaratorChunk::ParamInfo>(FTI.Params,
-                                                          FTI.NumParams)) {
-    auto *ParamDecl = cast<NamedDecl>(Param.Param);
-    if (ParamDecl->getDeclName())
-      PushOnScopeChains(ParamDecl, S, false);//AddToContext=false);
-  }
-}
-*/
 
 /// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
 /// to introduce parameters into function prototype scope.
@@ -141,29 +138,7 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
                                            IdentifierInfo *II) {
   // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
-  //CheckFunctionOrTemplateParamDeclarator(S, D);
-#if 0
-  QualType RetType;
 
-  TypeSourceInfo *TInfo = GetTypeForDeclarator(FuncDecl);
-  TInfo->getType().dump();
-  assert(TInfo);
-  if (TInfo->getType()->isFunctionType() || TInfo->getType()->isFunctionProtoType()) {
-    assert((TInfo->getType()->isFunctionProtoType() ||
-            TInfo->getType()->isFunctionType()) &&
-           "no type from declarator in ActOnResultNameDeclarator");
-    assert(TInfo && TInfo->getType()->isFunctionType() &&
-           "no type from declarator in ActOnParamDeclarator");
-    RetType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
-  }
-else if (FuncDecl.hasTrailingReturnType()) {
-    RetType = GetTypeFromParser(FuncDecl.getTrailingReturnType());
-  } else {
-    // We haven't yet turned the declarator into a function type.
-    RetType = TInfo->getType();
-  }
-
-#endif
   if (RetType->isVoidType())  {
     Diag(IDLoc, diag::err_void_result_name) << II;
     return StmtError();
@@ -193,8 +168,7 @@ else if (FuncDecl.hasTrailingReturnType()) {
         Diag(PVD->getLocation(), diag::note_previous_declaration);
       } else {
         // FIXME(EricWF): Is this an error?
-        PrevDecl->dumpColor();
-        Diag(IDLoc, diag::err_redefinition_different_kind) << II;
+        Diag(IDLoc, diag::warn_shadow_field) << II;
         Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
       }
     }
@@ -208,29 +182,16 @@ else if (FuncDecl.hasTrailingReturnType()) {
                      IDLoc, II, RetType);
 
   // CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
-  // assert(S->isContractAssertScope());
-  assert(S->isFunctionPrototypeScope());
-  assert(S->getFunctionPrototypeDepth() >= 1);
-  //New->setDeclContext(getScopeForContext(S->getFunctionPrototypeDepth() - 1,
-   //                 S->getNextFunctionPrototypeIndex());
+
+  assert(S->isContractAssertScope());
+  // assert(S->isFunctionPrototypeScope());
+  // assert(S->getFunctionPrototypeDepth() >= 1);
+  // New->setDeclContext(getScopeForContext(S->getFunctionPrototypeDepth() - 1),
+  //                  S->getNextFunctionPrototypeIndex());
 
   // Add the parameter declaration into this scope.
   S->AddDecl(New);
   IdResolver.AddDecl(New);
 
   return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
-}
-
-Sema::ContractScopeRAII::ContractScopeRAII(Sema &SemaRef)
-    : S(&SemaRef), OldCXXThisType(SemaRef.CXXThisTypeOverride),
-      OldIsContractScope(SemaRef.ExprEvalContexts.back().InContractStatement) {
-  QualType NewT = S->CXXThisTypeOverride;
-
-  S->CXXThisTypeOverride = NewT;
-  S->ExprEvalContexts.back().InContractStatement = true;
-}
-
-Sema::ContractScopeRAII::~ContractScopeRAII() {
-  S->CXXThisTypeOverride = OldCXXThisType;
-  S->ExprEvalContexts.back().InContractStatement = OldIsContractScope;
 }

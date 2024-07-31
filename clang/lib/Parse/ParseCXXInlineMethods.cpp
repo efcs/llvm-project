@@ -610,21 +610,9 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
       FunctionToPush = cast<FunctionDecl>(LM.Method);
     Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
     QualType RetType = FunctionToPush->getReturnType();
-
-    // Push a function scope so that tryCaptureVariable() can properly visit
-    // function scopes involving function parameters that are referenced inside
-    // the noexcept specifier e.g. through a lambda expression.
-    // Example:
-    // struct X {
-    //   void ICE(int val) noexcept(noexcept([val]{}));
-    // };
-    // Setup the CurScope to match the function DeclContext - we have such
-    // assumption in IsInFnTryBlockHandler().
     ParseScope FnScope(this, Scope::FnScope);
     Sema::ContextRAII FnContext(Actions, FunctionToPush,
                                 /*NewThisContext=*/false);
-    Sema::FunctionScopeRAII PopFnContext(Actions);
-    Actions.PushFunctionScope();
 
     Sema::CXXThisScopeRAII ThisScope(
         Actions, Method ? Method->getParent() : nullptr,
@@ -634,7 +622,16 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     // Parse the exception-specification.
     SmallVector<ContractStmt *> Contracts;
     assert(FunctionToPush->getContracts().empty());
-    MaybeParseFunctionContractSpecifierSeq(Contracts, RetType);
+
+    while (isContractKeyword(Tok)) {
+      StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
+      if (Contract.isUsable()) {
+        Contracts.push_back(Contract.getAs<ContractStmt>());
+      } else {
+        FunctionToPush->setInvalidDecl(true);
+      }
+    }
+
     FunctionToPush->setContracts(Contracts);
     // There could be leftover tokens (e.g. because of an error).
     // Skip through until we reach the original token position.

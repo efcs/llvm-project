@@ -2222,7 +2222,9 @@ public:
   }
 
   Decl *getBuiltinContractViolationRecordDecl() const;
-  UnnamedGlobalConstantDecl *BuildViolationObject(const ContractStmt *CS);
+  UnnamedGlobalConstantDecl *
+  BuildViolationObject(const ContractStmt *CS,
+                       const FunctionDecl *CurDecl = nullptr);
   /// Return whether a declaration to a builtin is allowed to be
   /// overloaded/redeclared.
   bool canBuiltinBeRedeclared(const FunctionDecl *) const;

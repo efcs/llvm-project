@@ -3205,7 +3205,7 @@ static ContractConstification getContractConstification(Sema &S,
                                                         const ValueDecl *VD) {
   assert(VD);
 
-  if (!S.isContractStmtContext() || S.isUnevaluatedContext())
+  if (!S.isContractAssertionContext() || S.isUnevaluatedContext())
     return CC_None;
 
   if (auto Var = dyn_cast<VarDecl>(VD)) {
