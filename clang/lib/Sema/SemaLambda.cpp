@@ -1389,6 +1389,7 @@ void Sema::ActOnLambdaClosureParameters(
 void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
                                         Declarator &ParamInfo,
                                         const DeclSpec &DS) {
+  ArrayRef<ContractStmt *> Contracts = ParamInfo.Contracts;
 
   LambdaScopeInfo *LSI = getCurrentLambdaScopeUnsafe(*this);
   LSI->CallOperator->setConstexprKind(DS.getConstexprSpecifier());
@@ -1410,6 +1411,7 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
 
   CXXRecordDecl *Class = LSI->Lambda;
   CXXMethodDecl *Method = LSI->CallOperator;
+  Method->setContracts(Contracts);
 
   TypeSourceInfo *MethodTyInfo = getLambdaType(
       *this, Intro, ParamInfo, getCurScope(), TypeLoc, ExplicitResultType);
