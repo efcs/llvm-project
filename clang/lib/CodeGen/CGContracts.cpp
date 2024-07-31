@@ -28,9 +28,43 @@
 #include "llvm/Support/ScopedPrinter.h"
 #include <algorithm>
 #include <cstdio>
+#include <optional>
 
 using namespace clang;
 using namespace CodeGen;
+
+enum ContractCheckpoint {
+  EmittingContract,
+  EmittingTryBody,
+  EmittingCatchBody,
+};
+
+struct clang::CodeGen::CGContractData {
+  bool isTrap() const {
+    return Semantic == ContractEvaluationSemantic::QuickEnforce;
+  }
+
+  bool isEnforce() const {
+    return Semantic == ContractEvaluationSemantic::Enforce;
+  }
+
+  bool isObserve() const {
+    return Semantic == ContractEvaluationSemantic::Observe;
+  }
+
+  const ContractStmt *Contract;
+  ContractCheckpoint Checkpoint = EmittingContract;
+  ContractEvaluationSemantic Semantic;
+
+  llvm::BasicBlock *Violation = nullptr;
+  llvm::BasicBlock *End = nullptr;
+  llvm::Constant *ViolationInfoGV = nullptr;
+  Address EHPredicateStore = Address::invalid();
+};
+
+void CGContractDataDeleter::operator()(CGContractData *Data) const {
+  delete Data;
+}
 
 CodeGenContracts::CodeGenContracts(CodeGenFunction &CGF)
     : CGF(CGF), CGM(CGF.CGM), Ctx(CGF.getContext()) {}
@@ -143,25 +177,30 @@ llvm::BasicBlock *CodeGenFunction::GetContractViolationTrapBlock() {
   Builder.restoreIP(SavedIP);
   return ContractViolationTrapBlock;
 }
+
 void CodeGenFunction::EmitHandleContractViolationCall(
-    const ContractStmt &S, ContractViolationDetection *ViolationDetectionMode,
-    llvm::Value *ViolationDetectionValue) {
-  assert(ViolationDetectionMode || ViolationDetectionValue);
+    const ContractStmt &S, ContractEvaluationSemantic Semantic,
+    ContractViolationDetection ViolationDetectionMode) {
+  assert(CurContractData && CurContractData->Contract == &S);
 
+  assert(Semantic == ContractEvaluationSemantic::Enforce ||
+         Semantic == ContractEvaluationSemantic::Observe);
+
+  llvm::Constant *SemanticVal = llvm::ConstantInt::get(IntTy, (int)Semantic);
+  llvm::Constant *DetectionModeVal =
+      llvm::ConstantInt::get(IntTy, (int)ViolationDetectionMode);
+  assert(CurContractData->ViolationInfoGV);
+  return EmitHandleContractViolationCall(
+      S, SemanticVal, DetectionModeVal,
+      CurContractData->ViolationInfoGV->getPointer(),
+      /*IsNoReturn=*/Semantic == ContractEvaluationSemantic::Enforce);
+}
+
+void CodeGenFunction::EmitHandleContractViolationCall(
+    const ContractStmt &S, llvm::Constant *EvalSemantic,
+    llvm::Constant *DetectionMode, llvm::Constant *ViolationInfoGV,
+    bool IsNoReturn) {
   auto &Ctx = getContext();
-  ContractEvaluationSemantic EvalSemantic = S.getSemantic(getLangOpts());
-  UnnamedGlobalConstantDecl *ViolationObj = Ctx.BuildViolationObject(
-      &S, dyn_cast_or_null<FunctionDecl>(this->CurFuncDecl));
-
-  ConstantAddress ArgValue =
-      CGM.GetAddrOfUnnamedGlobalConstantDecl(ViolationObj);
-
-  if (!ViolationDetectionValue) {
-    ViolationDetectionValue =
-        llvm::ConstantInt::get(IntTy, (int)*ViolationDetectionMode);
-  }
-
-  auto SemanticValue = llvm::ConstantInt::get(IntTy, (int)EvalSemantic);
 
   CanQualType ArgTypes[3] = {Ctx.IntTy, Ctx.IntTy, Ctx.VoidPtrTy};
 
@@ -172,15 +211,14 @@ void CodeGenFunction::EmitHandleContractViolationCall(
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
   llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, TargetFuncName);
 
-  if (EvalSemantic == ContractEvaluationSemantic::Enforce) {
-    llvm::Value *Args[3] = {SemanticValue, ViolationDetectionValue,
-                            ArgValue.getPointer()};
+  if (IsNoReturn) {
+    llvm::Value *Args[3] = {EvalSemantic, DetectionMode, ViolationInfoGV};
     EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
   } else {
     CallArgList Args;
-    Args.add(RValue::get(SemanticValue), getContext().UnsignedIntTy);
-    Args.add(RValue::get(ViolationDetectionValue), getContext().UnsignedIntTy);
-    Args.add(RValue::get(ArgValue.getPointer()), getContext().VoidPtrTy);
+    Args.add(RValue::get(EvalSemantic), getContext().UnsignedIntTy);
+    Args.add(RValue::get(DetectionMode), getContext().UnsignedIntTy);
+    Args.add(RValue::get(ViolationInfoGV), getContext().VoidPtrTy);
     EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
   }
 
@@ -255,7 +293,7 @@ void HandleContractStmtCatchBlock(CodeGenFunction &CGF, const ContractStmt &S) {
   assert(CGF.InContractCatchBlock == true);
   ContractViolationDetection DetectMode =
       ContractViolationDetection::ExceptionRaised;
-  CGF.EmitHandleContractViolationCall(S, &DetectMode);
+  CGF.EmitHandleContractViolationCall(S, DetectMode);
   return;
 }
 
@@ -380,4 +418,148 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   }
 
   EmitBlock(End);
+}
+
+struct CodeGenFoo : CodeGenFunction {
+
+  void EmitNonThrowingContract(const ContractStmt &S);
+};
+
+CodeGenFoo &GetFoo(CodeGenFunction &CGF) {
+  return static_cast<CodeGenFoo &>(CGF);
+}
+
+void CodeGenFoo::EmitNonThrowingContract(const clang::ContractStmt &S) {}
+
+// Emit the contract expression.
+void CodeGenFunction::EmitContractStmtNew(const ContractStmt &S) {
+  assert(!CurContractData);
+  if (!CurContractData) {
+    return EmitContractStmtAsFullStmt(S);
+  } else if (CurContractData->Checkpoint == EmittingTryBody) {
+    return EmitContractStmtAsTryBody(S);
+  } else if (CurContractData->Checkpoint == EmittingCatchBody) {
+    return EmitContractStmtAsCatchBody(S);
+  } else {
+    llvm_unreachable("Invalid checkpoint");
+  }
+}
+
+void CodeGenFunction::EmitContractStmtAsTryBody(const ContractStmt &S) {
+  assert(CurContractData && CurContractData->Contract == &S &&
+         CurContractData->Checkpoint == EmittingTryBody);
+  Builder.CreateStore(EmitScalarExpr(S.getCond()),
+                      CurContractData->EHPredicateStore);
+}
+
+void CodeGenFunction::EmitContractStmtAsCatchBody(const ContractStmt &S) {
+  assert(CurContractData && CurContractData->Contract == &S &&
+         CurContractData->Checkpoint == EmittingCatchBody);
+  EmitHandleContractViolationCall(S, CurContractData->Semantic,
+                                  ContractViolationDetection::ExceptionRaised);
+}
+
+static void EmitSimpleContract(CodeGenFunction &CGF, llvm::Value *PredValue) {
+  auto &Ctx = CGF.getContext();
+  auto &Builder = CGF.Builder;
+  auto [Contract, Checkpoint, Semantic, Violation, End, _1, _2] =
+      *CGF.CurContractData;
+  CGF.EmitBranchOnBoolExpr(PredValue, End, Violation);
+  Builder.SetInsertPoint(Violation);
+  CGF.EmitHandleContractViolationCall(
+      *Contract, Semantic, ContractViolationDetection::PredicateFailed);
+  Builder.CreateBr(End);
+  CGF.EmitBlock(End);
+}
+
+void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
+  assert(CurContractData == nullptr);
+  using CES = ContractEvaluationSemantic;
+
+  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
+  // block that reports contract violations that have thrown. In order to do
+  // this without building additional AST nodes, use this Stmt as the body
+  // of the catch block, detecting when we're inside the catch block to only
+  // emit the violation.
+
+  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
+
+  // FIXME(EricWF): I think there's a lot more to do that simply this.
+  if (Semantic == CES::Ignore)
+    return;
+
+  bool ContractCanThrow = StmtCanThrow(S.getCond());
+  const bool EmitAsThrowing =
+      ContractCanThrow && getLangOpts().ContractExceptions;
+
+  CurContractData.reset(
+      new CGContractData{.Contract = &S,
+                         .Checkpoint = EmittingContract,
+                         .Semantic = Semantic,
+                         .Violation = createBasicBlock("contract.violation"),
+                         .End = createBasicBlock("contract.end")});
+  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
+    CurContractData->ViolationInfoGV =
+        CGM.GetAddrOfUnnamedGlobalConstantDecl(
+               getContext().BuildViolationObject(
+                   &S, dyn_cast_or_null<FunctionDecl>(CurFuncDecl)))
+            .getPointer();
+  }
+
+  if (EmitAsThrowing) {
+    return EmitContractStmtAsThrowing(S);
+  } else {
+    return EmitSimpleContract(*this, EmitScalarExpr(S.getCond()));
+  }
+
+  llvm_unreachable("Done handling things");
+}
+
+static CXXTryStmt *BuildTryCatch(const ContractStmt &S, CodeGenFunction &CGF) {
+  auto &Ctx = CGF.getContext();
+  auto Loc = S.getCond()->getExprLoc();
+
+  llvm::SmallVector<Stmt *> BodyStmts;
+  BodyStmts.push_back(const_cast<ContractStmt *>(&S));
+
+  // FIXME(EricWF): THIS IS A TERRIBLE HACK.
+  //   In order to emit the contract assertion violation in the catch block
+  //   we add the current statement to a dummy handler, and then detect
+  //   when we're inside that dummy handler to only emit the violation
+  //
+  // This should have some other representation, but I don't want to eagerly
+  // build all these nodes in the AST.
+
+  auto *CatchStmt =
+      CompoundStmt::Create(Ctx, BodyStmts, FPOptionsOverride(), Loc, Loc);
+  auto *Catch =
+      new (Ctx) CXXCatchStmt(Loc, /*exDecl=*/nullptr, /*block=*/CatchStmt);
+  auto *TryBody =
+      CompoundStmt::Create(Ctx, BodyStmts, FPOptionsOverride(), Loc, Loc);
+  return CXXTryStmt::Create(Ctx, Loc, TryBody, Catch);
+}
+
+void CodeGenFunction::EmitContractStmtAsThrowing(const ContractStmt &S) {
+  assert(CurContractData && CurContractData->Contract == &S &&
+         CurContractData->Checkpoint == EmittingContract);
+
+  CurContractData->EHPredicateStore = CreateTempAlloca(
+      Builder.getInt1Ty(), CharUnits::One(), "contract.pred.value");
+  // Set the initial value to true. If the contract throws, we'll see the true
+  // value after the catch block is done handling the exception.
+  Builder.CreateStore(Builder.getTrue(), CurContractData->EHPredicateStore);
+
+  assert(Builder.GetInsertBlock());
+  EnsureInsertPoint();
+
+  auto *Try = BuildTryCatch(S, *this);
+  EnterCXXTryStmt(*Try);
+  CurContractData->Checkpoint = EmittingTryBody;
+  EmitStmt(Try->getTryBlock());
+  CurContractData->Checkpoint = EmittingCatchBody;
+  ExitCXXTryStmt(*Try);
+  CurContractData->Checkpoint = EmittingContract;
+
+  auto *PredVal = Builder.CreateLoad(CurContractData->EHPredicateStore);
+  EmitSimpleContract(*this, PredVal);
 }

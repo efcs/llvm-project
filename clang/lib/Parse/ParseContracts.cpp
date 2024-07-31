@@ -20,7 +20,8 @@
 using namespace clang;
 
 Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
-  if (!getLangOpts().Contracts || Token.isNot(tok::identifier))
+  // We offer the reserved keywords as identifiers in C++11 mode.
+  if (!getLangOpts().CPlusPlus11 || Token.isNot(tok::identifier))
     return ContractKeyword::None;
 
   const IdentifierInfo *II = Token.getIdentifierInfo();
@@ -28,13 +29,16 @@ Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
 
   if (!Ident_pre) {
     Ident_pre = &PP.getIdentifierTable().get("pre");
+    Ident___pre = &PP.getIdentifierTable().get("__pre");
+
     Ident_post = &PP.getIdentifierTable().get("post");
+    Ident___post = &PP.getIdentifierTable().get("__post");
   }
 
-  if (II == Ident_pre)
+  if ((II == Ident_pre && getLangOpts().Contracts) || II == Ident___pre)
     return ContractKeyword::Pre;
 
-  if (II == Ident_post)
+  if ((II == Ident_post && getLangOpts().Contracts) || II == Ident___post)
     return ContractKeyword::Post;
 
   return ContractKeyword::None;

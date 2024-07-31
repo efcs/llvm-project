@@ -432,7 +432,7 @@ CXX20_KEYWORD(requires              , 0)
 
 // C++ contracts keywords
 CONTRACTS_KEYWORD(contract_assert)
-ALIAS("__contract_assert"        , contract_assert      , KEYCXX)
+ALIAS("__contract_assert"        , contract_assert      , KEYCXX11)
 
 // Not a CXX20_KEYWORD because it is disabled by -fno-char8_t.
 KEYWORD(char8_t                     , CHAR8SUPPORT)

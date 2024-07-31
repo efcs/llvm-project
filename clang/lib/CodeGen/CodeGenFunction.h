@@ -102,6 +102,11 @@ class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
 
+struct CGContractData;
+struct CGContractDataDeleter {
+  void operator()(CGContractData *) const;
+};
+
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
 /// CGExprAgg?
@@ -421,6 +426,7 @@ public:
   /// If a contract attribute is being visited, this holds the contract
   const ContractStmt *CurContract = nullptr;
   bool InContractCatchBlock = false;
+  std::unique_ptr<CGContractData, CGContractDataDeleter> CurContractData;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -4416,13 +4422,25 @@ public:
   void   EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
 
   void EmitContractStmt(const ContractStmt &S);
+  void EmitContractStmtNew(const ContractStmt &S);
 
+private:
+  void EmitContractStmtAsTryBody(const ContractStmt &);
+  void EmitContractStmtAsCatchBody(const ContractStmt &S);
+  void EmitContractStmtAsFullStmt(const ContractStmt &S);
+  void EmitContractStmtAsNonThrowing(const ContractStmt &S);
+  void EmitContractStmtAsThrowing(const ContractStmt &S);
+
+public:
   void
   EmitHandleContractViolationCall(const ContractStmt &S,
-                                  ContractViolationDetection * = nullptr,
-                                  llvm::Value *DetectionModeValue = nullptr);
-  void NewEmitHandleContractViolationCall(const ContractStmt &S,
-                                          llvm::Value *DidThrowFlag);
+                                  ContractEvaluationSemantic Semantic,
+                                  ContractViolationDetection DetectionMode);
+  void EmitHandleContractViolationCall(const ContractStmt &S,
+                                       llvm::Constant *Semantic,
+                                       llvm::Constant *DetectionMode,
+                                       llvm::Constant *ViolationDataGV,
+                                       bool IsNoReturn);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission

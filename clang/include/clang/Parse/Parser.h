@@ -171,7 +171,9 @@ class Parser : public CodeCompletionHandler {
 
   // C++2c(?) contextual keywords.
   mutable IdentifierInfo *Ident_pre;
+  mutable IdentifierInfo *Ident___pre;
   mutable IdentifierInfo *Ident_post;
+  mutable IdentifierInfo *Ident___post;
 
   // C++ type trait keywords that can be reverted to identifiers and still be
   // used as type traits.

@@ -517,7 +517,9 @@ void Parser::Initialize() {
   Ident_import = nullptr;
   Ident_module = nullptr;
   Ident_pre = nullptr;
+  Ident___pre = nullptr;
   Ident_post = nullptr;
+  Ident___post = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 

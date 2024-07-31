@@ -5227,13 +5227,21 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
 }
 
 static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
+  using CES = ContractEvaluationSemantic;
+  auto &Ctx = Info.Ctx;
+  CES Sem = S->getSemantic(Ctx.getLangOpts());
+  if (Sem == CES::Ignore)
+    return true;
+
   const Expr *E = S->getCond();
   APSInt Desired;
   if (!EvaluateInteger(E, Desired, Info)) {
     return false;
   }
   if (!Desired) {
-    Info.CCEDiag(E, diag::note_constexpr_contract_failure);
+
+    Info.CCEDiag(E, Sem == CES::Observe ? diag::warn_constexpr_contract_failure
+                                        : diag::err_constexpr_contract_failure);
     return false;
   }
   return true;
