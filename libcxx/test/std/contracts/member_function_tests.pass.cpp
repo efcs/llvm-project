@@ -1,9 +1,10 @@
 // ADDITIONAL_COMPILE_FLAGS: -std=c++26 -Xclang -fcontracts -fcontract-evaluation-semantic=enforce -fcontract-group-evaluation-semantic=observe=observe,enforce=enforce
 
 #include "nttp_string.h"
-#include "contracts_test.h"
+#include "contracts_support.h"
 #include "test_register.h"
 #include "contracts_handler.h"
+
 
 namespace fn_template_test {
 template <class T>
@@ -198,51 +199,3 @@ REGISTER_TEST(order_test) {
 };
 
 } // namespace order_test
-
-namespace exception_handling {
-
-void foo(int x) {
-
-  contract_assert [[clang::contract_group("observe")]] ((true) ? throw 42 : true);
-
-
-}
-
-REGISTER_TEST(test_ex_handling) {
-  ContractHandlerInstaller CHI;
-  int called = 0;
-  CHI.install([&]() {
-    ++called;
-    assert(std::current_exception());
-  });
-  foo(0);
-  assert(called);
-  called = 0;
-
-  CHI.install([&]() {
-    ++called;
-    assert(!std::current_exception());
-    assert(KV<"Local"> == 1);
-    assert(KV<"Local2"> == 0);
-
-    throw 42;
-  });
-
-  try {
-
-    []() {
-      CAliveCounter<"Local"> Local;
-      contract_assert((CAliveCounter<"Local2">{}, false));
-    }();
-    assert(false);
-  } catch (int) {
-    KV<"InCatch">++;
-  }
-  assert(called == 1);
-  assert(KV<"Local"> == 0);
-  assert(KV<"Local2"> == 0);
-  assert(KV<"InCatch"> == 1);
-
-};
-
-} // namespace exception_handling

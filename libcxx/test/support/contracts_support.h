@@ -6,6 +6,7 @@
 #include <variant>
 #include <optional>
 #include <iostream>
+#include <functional>
 #include <string_view>
 #include <tuple>
 #include <regex>
@@ -15,9 +16,17 @@
 #include <format>
 #include <fstream>
 #include <cassert>
-
+#include <set>
+#include <map>
 #include "dump_struct.h"
 #include "nttp_string.h"
+
+#pragma clang diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-variable"
+#pragma GCC diagnostic ignored "-Wunused"
+#pragma GCC diagnostic ignored "-Wunused-template"
+#pragma GCC diagnostic ignored "-Wunused-parameter"
+
 
 #define COUNTERS_EQ(list, ...) assert(eq(list, {__VA_ARGS__}))
 #define SLOC(name) std::source_location name = std::source_location::current()
@@ -564,6 +573,7 @@ template <TStr Str, class ValueT = int>
 auto& KV = get_or_insert<ValueT>(Str.str());
 
 struct NamedCounter {
+  constexpr NamedCounter(const char* name, int* counter, SLOC(loc)) : Name(get_global_string(name ? name : "")), Counter(counter), LastLoc(loc) {}
   constexpr NamedCounter(const char* name, SLOC(loc)) :  Name(get_global_string( name ? name : "")),
                                                         Counter(&get_or_insert<int>(std::string(Name))), LastLoc(loc) {}
   constexpr NamedCounter(TStr name, SLOC(loc)) : Name(get_global_string(name.sv())), Counter(&get_or_insert<int>(name.str())), LastLoc(loc) {}
@@ -608,8 +618,23 @@ struct NamedCounter {
     return LHS;
   }
 
-  friend auto operator<=>(NamedCounter& LHS, int RHS) {
-    return *LHS.Counter <=> RHS;
+  friend NamedCounter& operator-=(NamedCounter& LHS, int RHS) {
+    *LHS.Counter -= RHS;
+    return LHS;
+  }
+
+  bool operator==(int RHS) const {
+    return *Counter == RHS;
+  }
+
+  auto operator<=>(int RHS) const {
+    return *Counter <=> RHS;
+  }
+
+  int consume() {
+    int tmp = *Counter;
+    *Counter = 0;
+    return tmp;
   }
 
   bool assert_eq(int RHS, SLOC(loc)) {
@@ -657,7 +682,7 @@ struct NamedCounter {
 
 
 template <TStr Key>
-auto NC = NamedCounter{Key.str(), &KV<Key>};
+auto NC = NamedCounter{get_global_string(Key.str()).data(), &KV<Key>};
 
 
 inline bool count(bool value) {
@@ -734,39 +759,44 @@ template <TStr... Key>
 auto CounterGroup = std::tuple<AsType<Key, int&>...>{GetCounterStore<int>()[Key.str()]...};
 
 struct AliveCounter {
-  explicit AliveCounter(const char* key) : Counter(&CounterStore[key]) {
-    assert(Counter && *Counter >= 0);
-    *Counter += 1;
+  explicit AliveCounter(NamedCounter counter, SLOC(loc)) : Counter(counter) {
+    assert(Counter >= 0);
+    Counter += 1;
+  }
+  explicit AliveCounter(const char* key, SLOC(loc)) : Counter(key, loc) {
+    assert(Counter >= 0);
+    Counter += 1;
   }
 
   AliveCounter(nullptr_t) = delete;
   AliveCounter(void*)     = delete;
 
-  constexpr AliveCounter(int* dest) : Counter(dest) {
-    assert(Counter && *Counter >= 0);
-    *Counter += 1;
+  constexpr AliveCounter(int* dest, SLOC(loc)) : Counter("", dest, loc) {
+    assert(Counter >= 0);
+    Counter += 1;
   }
 
   constexpr AliveCounter(AliveCounter const& RHS) : Counter(RHS.Counter) {
-    assert(Counter && *Counter >= 0);
-    *Counter += 1;
+    assert(Counter >= 0);
+    Counter += 1;
   }
 
   ~AliveCounter() {
-    assert(*Counter >= 1);
-    *Counter -= 1;
+    assert(Counter >= 1);
+    Counter -= 1;
   }
 
-  int* Counter;
+  NamedCounter Counter;
 };
 
 template <TStr Key>
 struct CAliveCounter : private AliveCounter {
-  CAliveCounter() : AliveCounter(&KV<Key>) {}
+  CAliveCounter(SLOC(loc)) : AliveCounter(Key.sv().data(), loc) {}
   CAliveCounter(CAliveCounter const& RHS) : AliveCounter(RHS) {}
 
   ~CAliveCounter() = default;
 };
 
+#pragma clang diagnostic pop
 
 #endif // LIBCXX_TEST_CONTRACTS_SUPPORT_H
