@@ -14347,6 +14347,27 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
     // do this lazily, because the result might depend on things that change
     // later, such as which constexpr functions happen to be defined.
     SmallVector<PartialDiagnosticAt, 8> Notes;
+
+    // Evaluate the initializer to see if it's a constant initializer.
+    //
+    // For variables that can fallback to dynamic initialization
+    // C++ contracts require us to do this in two phases:
+    //
+    // (1) evaluate the initalizer with all contracts disabled. If it succeeds
+    //     the variable is 'constant initialized'. Otherwise, perform dynamic
+    //     initialization.
+    //
+    // (2) On success, reevaluate the initializer with contracts having
+    //     their user-specified
+    //     semantics. If it fails, we need to diagnose the failure instead
+    //     of falling back to dynamic initializer.
+    //
+    // FIXME(EricWF): Technically we're required to do this check for constexpr
+    // variables too, since the initializer may be non-constant only when
+    // contracts are enabled.
+    bool ConstantInitializerIsRequired =
+        var->isConstexpr() || (GlobalStorage && var->hasAttr<ConstInitAttr>());
+
     if (!getLangOpts().CPlusPlus11 && !getLangOpts().C23) {
       // Prior to C++11, in contexts where a constant initializer is required,
       // the set of valid constant initializers is described by syntactic rules
@@ -14366,8 +14387,26 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
         Notes.back().second << CacheCulprit->getSourceRange();
       }
     } else {
-      // Evaluate the initializer to see if it's a constant initializer.
-      HasConstInit = var->checkForConstantInitialization(Notes);
+      HasConstInit = var->checkForConstantInitialization(
+          Notes,
+          /*EnableContracts=*/ConstantInitializerIsRequired);
+    }
+
+    if (HasConstInit && getLangOpts().Contracts &&
+        !ConstantInitializerIsRequired) {
+      if (!var->recheckForConstantInitialization(Notes,
+                                                 /*EnableContracts=*/true)) {
+        // If we have a contract failure, we need to diagnose it.
+        // We need to clear the notes, as we will re-diagnose the contract
+        // failure.
+        SourceLocation DiagLoc = var->getLocation();
+        Diag(DiagLoc,
+             diag::err_initialization_of_constant_initialized_variable_failed)
+            << var;
+        Diag(DiagLoc, diag::note_initialization_changed_contract_semantic);
+        for (unsigned I = 0, N = Notes.size(); I != N; ++I)
+          Diag(Notes[I].first, Notes[I].second);
+      }
     }
 
     if (HasConstInit) {

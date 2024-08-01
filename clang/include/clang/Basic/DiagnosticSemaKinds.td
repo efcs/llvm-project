@@ -11959,6 +11959,10 @@ def warn_constexpr_contract_failure : Warning<
     ShowInSystemHeader, ShowInSystemMacro,
     InGroup<ContractViolation>;
 
+def err_initialization_of_constant_initialized_variable_failed : Error<
+    "initialization of constant-initialized variable failed">;
+def note_initialization_changed_contract_semantic : Note<
+    "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<

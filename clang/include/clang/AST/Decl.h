@@ -1369,7 +1369,8 @@ public:
 
 private:
   APValue *evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitialization) const;
+                             bool IsConstantInitialization,
+                             bool EnableContracts) const;
 
 public:
   /// Return the already-evaluated value of this variable's
@@ -1401,8 +1402,13 @@ public:
   /// Evaluate the initializer of this variable to determine whether it's a
   /// constant initializer. Should only be called once, after completing the
   /// definition of the variable.
-  bool checkForConstantInitialization(
-      SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+  bool
+  checkForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                 bool EnableContracts = true) const;
+
+  bool
+  recheckForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                   bool EnableContracts = true) const;
 
   void setInitStyle(InitializationStyle Style) {
     VarDeclBits.InitStyle = Style;

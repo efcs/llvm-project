@@ -5229,6 +5229,10 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
 static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
   using CES = ContractEvaluationSemantic;
   auto &Ctx = Info.Ctx;
+
+  if (!Info.EvaluateContracts)
+    return true;
+
   CES Sem = S->getSemantic(Ctx.getLangOpts());
   if (Sem == CES::Ignore)
     return true;
@@ -16366,7 +16370,8 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
 bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
                                  const VarDecl *VD,
                                  SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                                 bool IsConstantInitialization) const {
+                                 bool IsConstantInitialization,
+                                 bool EvaluateContracts) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
 
@@ -16387,6 +16392,7 @@ bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
                     : EvalInfo::EM_ConstantFold);
   Info.setEvaluatingDecl(VD, Value);
   Info.InConstantContext = IsConstantInitialization;
+  Info.EvaluateContracts = EvaluateContracts;
 
   SourceLocation DeclLoc = VD->getLocation();
   QualType DeclTy = VD->getType();
