@@ -2701,6 +2701,11 @@ bool VarDecl::recheckForConstantInitialization(
   assert(!getInit()->isValueDependent());
   Eval->WasEvaluated = false;
 
+  // Wipe out the previously computed value.
+  // FIXME(EricWF): We should diagnose with the initializer produces a different
+  // value the second time around.
+  Eval->Evaluated = APValue();
+  
   // Evaluate the initializer to check whether it's a constant expression.
   return evaluateValueImpl(Notes, true, EnableContracts) && Notes.empty();
 }
