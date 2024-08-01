@@ -49,14 +49,27 @@ constexpr ContractViolationDetection ExceptionRaised =
     ContractViolationDetection::ExceptionRaised;
 
 namespace clang::CodeGen {
+
 enum ContractCheckpoint {
   EmittingContract,
   EmittingTryBody,
   EmittingCatchBody,
 };
+
 enum ContractEmissionStyle {
+  /// Emit the contract violation as an inline basic block immediatly following
+  /// the predicate. The basic block is not shared by other contracts.
   Inline,
+
+  /// Emit a single shared contract violation handler per-function.
+  /// This only works when exceptions are disabled, otherwise the violation
+  /// handler
+  /// may throw from the violation handler.
   SharedEnforce,
+
+  /// Emit a single shared contract violation handler per-function.
+  ///
+  /// We branch directly there skipping all cleanups.
   SharedTrap,
 };
 
@@ -216,11 +229,13 @@ void CodeGenFunction::EmitHandleContractViolationCall(
     llvm::Value *ViolationInfoGV, bool IsNoReturn) {
   auto &Ctx = getContext();
 
-  CanQualType ArgTypes[3] = {Ctx.IntTy, Ctx.IntTy, Ctx.VoidPtrTy};
+  CanQualType ArgTypes[3] = {Ctx.UnsignedIntTy, Ctx.UnsignedIntTy,
+                             Ctx.VoidPtrTy};
 
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionDeclaration(getContext().VoidTy,
                                                        ArgTypes);
+
   StringRef TargetFuncName = "__handle_contract_violation_v3";
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
   llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, TargetFuncName);
@@ -228,7 +243,6 @@ void CodeGenFunction::EmitHandleContractViolationCall(
   if (IsNoReturn) {
     llvm::Value *Args[3] = {EvalSemantic, DetectionMode, ViolationInfoGV};
     EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
-
     Builder.ClearInsertionPoint();
   } else {
     CallArgList Args;
@@ -265,6 +279,9 @@ static bool StmtCanThrow(const Stmt *S) {
 
     // Fall through to visit the children.
   }
+
+  if (isa<CXXThrowExpr>(S))
+    return true;
 
   if (const auto *TE = dyn_cast<CXXBindTemporaryExpr>(S)) {
     // Special handling of CXXBindTemporaryExpr here as calling of Dtor of the

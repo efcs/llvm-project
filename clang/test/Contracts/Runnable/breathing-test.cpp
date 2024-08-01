@@ -3,14 +3,11 @@
 
 #include "contracts.h"
 #include "contracts-runtime.h"
-#include "assert.h"
+#include "my_assert.h"
 
 using namespace std::contracts;
 
-constinit int count = 0;
-void handle_contract_violation(contract_violation const& vio) {
-  count += 1;
-}
+
 
 void test(int x) pre(x) post(x) { contract_assert(x); }
 
