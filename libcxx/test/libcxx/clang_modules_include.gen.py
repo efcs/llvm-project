@@ -61,8 +61,6 @@ print(f"""\
 // TODO: Investigate this failure
 // UNSUPPORTED: LIBCXX-FREEBSD-FIXME
 
-// XFAIL: contracts
-
 @import std;
 
 """)

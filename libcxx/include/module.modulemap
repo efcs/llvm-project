@@ -51,6 +51,10 @@ module std_concepts [system] {
   header "concepts"
   export *
 }
+module std_contracts [system] {
+  header "contracts"
+  export *
+}
 module std_condition_variable [system] {
   header "condition_variable"
   export *

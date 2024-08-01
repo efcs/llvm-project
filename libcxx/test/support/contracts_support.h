@@ -13,8 +13,13 @@
 #include <unordered_map>
 #include <string>
 #include <format>
-#include "dump_struct.h"
+#include <fstream>
+#include <cassert>
 
+#include "dump_struct.h"
+#include "nttp_string.h"
+
+#define COUNTERS_EQ(list, ...) assert(eq(list, {__VA_ARGS__}))
 #define SLOC(name) std::source_location name = std::source_location::current()
 
 using std::contracts::contract_violation;
@@ -72,9 +77,19 @@ struct ContractLoc;
 #define QUICK_ENFORCE [[clang::contract_group("quick_enforce")]]
 #define IGNORE [[clang::contract_group("ignore")]]
 
+
+std::string to_string(std::source_location loc, bool add_newline = true) {
+  std::string tmp = std::format("    {}:{}: ", loc.file_name(), loc.line());
+  if (loc.function_name())
+    tmp += std::format("in {}", loc.function_name());
+  if (add_newline)
+    tmp += '\n';
+  return tmp;
+}
+
 std::string to_string(contract_violation const& vio) {
   std::string tmp = "Contract Violation: \n";
-  tmp += std::format("    {}:{}: \n", vio.location().file_name(), vio.location().line());
+  tmp += to_string(vio.location());
   tmp += std::format(
       "    assertion_kind: {}\n    detection_kind: {}\n     semantic: {}\n     comment: \"{}\"\n",
       enum_to_string(vio.kind()),
@@ -336,6 +351,13 @@ constexpr ContractLoc capture_loc_at(unsigned offset, const char* file = __FILE_
   return ContractLoc(line + offset, file);
 }
 
+using ContractHandlerType = std::function<void(std::contracts::contract_violation const&)>;
+
+inline ContractHandlerType *get_contract_handler() {
+  static ContractHandlerType handler;
+  return &handler;
+}
+
 struct ContractChecker {
   static ContractChecker* instance() {
     static ContractChecker checker;
@@ -346,6 +368,23 @@ struct ContractChecker {
     auto vio = expected_violations.front();
     expected_violations.pop_front();
     return vio;
+  }
+
+  void operator()(std::contracts::contract_violation const& V) {
+    ++violation_count;
+    std::cerr << to_string(V) << std::endl;
+
+    if (expected_violations.empty()) {
+      std::cerr << "Unexpected violation: " << V.comment() << std::endl;
+      return;
+    }
+    auto next_vio     = pop_front();
+    bool has_mismatch = next_vio.diagnose_mismatch(V);
+    if (!has_mismatch && V.semantic() == observe)
+      return;
+    if (!has_mismatch && V.semantic() == enforce) {
+      std::exit(0);
+    }
   }
 
   void push_back(ExpectedViolation vio) { expected_violations.push_back(vio); }
@@ -387,51 +426,15 @@ struct ContractChecker {
     return this;
   }
 
-  void handle_contract_violation(contract_violation const& V) {
-    ++violation_count;
-    std::cerr << to_string(V) << std::endl;
-
-    if (expected_violations.empty()) {
-      std::cerr << "Unexpected violation: " << V.comment() << std::endl;
-      return;
-    }
-    auto next_vio     = pop_front();
-    bool has_mismatch = next_vio.diagnose_mismatch(V);
-    if (!has_mismatch && V.semantic() == observe)
-      return;
-    if (!has_mismatch && V.semantic() == enforce) {
-      std::exit(0);
-    }
-  }
-
   std::deque<ExpectedViolation> expected_violations;
   unsigned violation_count = 0;
 };
 auto Checker = ContractChecker::instance();
 
-int violation_count = 0;
-void handle_contract_violation(contract_violation const& V) {
-  violation_count += 1;
-  std::cout << "Here with " << V.comment() << std::endl;
-  Checker->handle_contract_violation(V);
-}
+
 
 struct ContractTester;
 
-template <class Func>
-auto make_evaluator(Func f) {
-  if constexpr (std::is_invocable_v<Func>) {
-    return [f = f](const ContractTester&) { f(); };
-  } else {
-    static_assert(std::is_invocable_r_v<void, Func, const ContractTester&>);
-    return f;
-  }
-}
-
-template <class Func>
-constexpr bool is_contract_eval_pred() {
-  return std::is_invocable_r_v<void, Func, const ContractTester&> || std::is_invocable_r_v<void, Func>;
-}
 
 struct ContractTesterArgs {
   int evaluated = -1;
@@ -439,22 +442,34 @@ struct ContractTesterArgs {
 };
 
 struct ContractTester {
+
+
+  template <class Func>
+  static auto make_evaluator(Func f) {
+    if constexpr (std::is_invocable_v<Func>) {
+      return [f = f](const ContractTester&) { f(); };
+    } else {
+      static_assert(std::is_invocable_r_v<void, Func, const ContractTester&>);
+      return f;
+    }
+  }
+
   using EvalFuncT = std::function<void(const ContractTester&)>;
 
-  constexpr ContractTester() = default;
-  constexpr ContractTester(ContractTester*&& other) : ContractTester(*other) {}
+  ContractTester() = default;
+  ContractTester(ContractTester*&& other) : ContractTester(*other) {}
 
   bool operator()(bool value) const {
     evaluation_count += 1;
     bool result = value;
     if (xon_eval) {
-      xon_eval.value()(*this);
+      xon_eval(*this);
     }
     if (xon_failure && !result) {
-      xon_failure.value()(*this);
+      xon_failure(*this);
     }
     if (xon_success && result) {
-      xon_success.value()(*this);
+      xon_success(*this);
     }
     if (!result)
       violation_count += 1;
@@ -492,10 +507,7 @@ struct ContractTester {
   }
 
   void do_assertion(std::string msg, std::source_location loc) const {
-    std::string tmp;
-    if (loc.file_name()) {
-      tmp += std::format("{}:{} in {}\n", loc.file_name(), loc.line(), loc.function_name());
-    }
+    std::string tmp = ::to_string(loc);
     tmp += std::format("Assertion failed: {}\n", msg);
     tmp += to_string();
     std::cerr << tmp << std::endl;
@@ -515,10 +527,246 @@ struct ContractTester {
   std::string_view name        = "";
   mutable int evaluation_count = 0;
   mutable int violation_count  = 0;
-  std::optional<EvalFuncT> xon_eval;
-  std::optional<EvalFuncT> xon_failure;
-  std::optional<EvalFuncT> xon_success;
+  EvalFuncT xon_eval;
+  EvalFuncT xon_failure;
+  EvalFuncT xon_success;
   bool default_evaluation_result = true;
 };
+
+
+std::string_view get_global_string(std::string_view sv) {
+  static std::set<std::string> strings;
+  auto result = strings.insert(std::string(sv));
+  return *result.first;
+}
+
+
+template <class ValueT>
+std::map<std::string, ValueT>& GetCounterStore() {
+  static std::map<std::string, ValueT> CounterStore;
+  return CounterStore;
+}
+
+template <class ValueT = int, class ...Args>
+ValueT& get_or_insert(std::string Key, Args&& ...args) {
+  auto &store = GetCounterStore<ValueT>();
+  auto pos = store.find(Key);
+  if (pos != store.end()) {
+    return pos->second;
+  }
+
+  return store.emplace(
+                  std::piecewise_construct, std::forward_as_tuple(Key), std::forward_as_tuple(std::forward<Args>(args)...)).first->second;
+
+}
+
+template <TStr Str, class ValueT = int>
+auto& KV = get_or_insert<ValueT>(Str.str());
+
+struct NamedCounter {
+  constexpr NamedCounter(const char* name, SLOC(loc)) :  Name(get_global_string( name ? name : "")),
+                                                        Counter(&get_or_insert<int>(std::string(Name))), LastLoc(loc) {}
+  constexpr NamedCounter(TStr name, SLOC(loc)) : Name(get_global_string(name.sv())), Counter(&get_or_insert<int>(name.str())), LastLoc(loc) {}
+
+  NamedCounter& loc(SLOC(xloc)) {
+    LastLoc = xloc;
+    return *this;
+  }
+
+  friend NamedCounter operator+(NamedCounter& LHS, int RHS) {
+    *LHS.Counter += RHS;
+    return LHS;
+  }
+
+  friend NamedCounter operator-(NamedCounter& LHS, int RHS) {
+    *LHS.Counter -= RHS;
+    return LHS;
+  }
+
+  friend NamedCounter& operator++(NamedCounter& LHS) {
+    *LHS.Counter += 1;
+    return LHS;
+  }
+
+  friend NamedCounter& operator--(NamedCounter& LHS) {
+    *LHS.Counter -= 1;
+    return LHS;
+  }
+
+  friend NamedCounter operator++(NamedCounter& LHS, int) {
+    *LHS.Counter += 1;
+    return LHS;
+  }
+
+  friend NamedCounter operator--(NamedCounter& LHS, int) {
+    *LHS.Counter -= 1;
+    return LHS;
+  }
+
+  friend NamedCounter& operator+=(NamedCounter& LHS, int RHS) {
+    *LHS.Counter += RHS;
+    return LHS;
+  }
+
+  friend auto operator<=>(NamedCounter& LHS, int RHS) {
+    return *LHS.Counter <=> RHS;
+  }
+
+  bool assert_eq(int RHS, SLOC(loc)) {
+    if (*Counter == RHS)
+      return true;
+    report_difference(RHS, "==", loc);
+    return false;
+  }
+
+  bool assert_ne(int RHS, SLOC(loc)) {
+    if (*Counter != RHS)
+      return true;
+    report_difference(RHS, "!=", loc);
+    return false;
+  }
+
+  bool assert_gt(int RHS, SLOC(loc)) {
+    if (*Counter > RHS)
+      return true;
+    report_difference(RHS, ">", loc);
+    return false;
+  }
+
+  bool assert_lt(int RHS, SLOC(loc)) {
+    if (*Counter < RHS)
+      return true;
+    report_difference(RHS, "<", loc);
+    return false;
+  }
+
+  void report_difference(int RHS, const char* op, SLOC(loc)) {
+    std::cerr << to_string(loc) << ": ";
+    std::cerr << "Error: Counter(" << *Counter << ") " << op << " " << RHS << " failed. " << std::endl;
+    if (LastLoc.function_name()) {
+      std::cerr << "Counter last seen near: " << to_string(LastLoc);
+    }
+  }
+
+
+
+  std::string_view Name;
+  int *Counter;
+  std::source_location LastLoc;
+};
+
+
+template <TStr Key>
+auto NC = NamedCounter{Key.str(), &KV<Key>};
+
+
+inline bool count(bool value) {
+  KV<"AssertCounter"> += 1;
+  return value;
+}
+
+
+
+template <class... Args, class T>
+inline bool eq(std::tuple<Args...>& list, std::initializer_list<T> il) {
+  auto initlist_to_tuple = [](auto il) {
+    constexpr int N = sizeof...(Args);
+    assert(il.size() == N);
+    std::array<T, N> arr = {};
+    std::copy(il.begin(), il.end(), arr.begin());
+    return std::tuple_cat(arr);
+  };
+
+  auto tup2           = initlist_to_tuple(il);
+  decltype(tup2) tup3 = list;
+  bool result         = (list == tup2);
+  if (!result) {
+    auto vector_to_str = [](auto ...vargs) {
+      std::string tmp = "[";
+      bool first      = true;
+      std::vector V = {vargs...};
+      for (auto vv : V) {
+        if (!first) {
+          tmp += ", ";
+        }
+        first = false;
+        tmp += std::to_string(vv);
+      }
+      return tmp + "]";
+    };
+
+    std::string expect_str = std::apply(vector_to_str, tup2);
+    std::string actual_str = std::apply(vector_to_str, tup3);
+
+    std::cout << "Expected: " << expect_str << "\n";
+    std::cout << "Actual:   " << actual_str << "\n";
+    std::cout << std::endl;
+  }
+  return result;
+}
+
+template <class T = int, class... Args>
+inline void reset(std::tuple<Args&...> const& list) {
+  auto Reseter = [](auto& ...args) { ((args = {}), ...); };
+  std::apply(Reseter, list);
+}
+
+
+template <class T>
+struct CounterStoreT {
+  decltype(auto) get() { return GetCounterStore<T>(); }
+
+  decltype(auto) operator[](std::string_view key) { return get()[std::string(key)]; }
+
+  decltype(auto) at(std::string_view key) { return get().at(std::string(key)); }
+
+  std::map<std::string, int>* operator->() { return &get(); }
+};
+constinit CounterStoreT<int> CounterStore;
+
+template <auto, class T>
+using AsType = T;
+
+template <TStr Key>
+auto Counter = std::ref(CounterStore[Key.str()]);
+
+template <TStr... Key>
+auto CounterGroup = std::tuple<AsType<Key, int&>...>{GetCounterStore<int>()[Key.str()]...};
+
+struct AliveCounter {
+  explicit AliveCounter(const char* key) : Counter(&CounterStore[key]) {
+    assert(Counter && *Counter >= 0);
+    *Counter += 1;
+  }
+
+  AliveCounter(nullptr_t) = delete;
+  AliveCounter(void*)     = delete;
+
+  constexpr AliveCounter(int* dest) : Counter(dest) {
+    assert(Counter && *Counter >= 0);
+    *Counter += 1;
+  }
+
+  constexpr AliveCounter(AliveCounter const& RHS) : Counter(RHS.Counter) {
+    assert(Counter && *Counter >= 0);
+    *Counter += 1;
+  }
+
+  ~AliveCounter() {
+    assert(*Counter >= 1);
+    *Counter -= 1;
+  }
+
+  int* Counter;
+};
+
+template <TStr Key>
+struct CAliveCounter : private AliveCounter {
+  CAliveCounter() : AliveCounter(&KV<Key>) {}
+  CAliveCounter(CAliveCounter const& RHS) : AliveCounter(RHS) {}
+
+  ~CAliveCounter() = default;
+};
+
 
 #endif // LIBCXX_TEST_CONTRACTS_SUPPORT_H

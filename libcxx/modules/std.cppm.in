@@ -166,6 +166,7 @@ module;
 #include <variant>
 #include <vector>
 #include <version>
+#include <contracts>
 
 // *** Headers not yet available ***
 //

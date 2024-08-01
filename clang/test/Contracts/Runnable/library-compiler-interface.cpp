@@ -67,8 +67,7 @@ extern "C" void __handle_contract_violation_v3(unsigned __sem, unsigned __mode, 
   std::source_location loc = std::source_location::__create_from_pointer(SourceLoc);
   assert(expected_loc.file_name());
   assert(location_equals(loc, expected_loc, expected_line_offset));
-  _ContractViolationImpl impl{.kind = cs->contract_kind,
-
+  _ContractViolationImpl impl{.kind = static_cast<assertion_kind>(cs->contract_kind),
                               .semantic = sem,
                               .mode = mode,
                               .comment = cs->comment};

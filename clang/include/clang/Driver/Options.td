@@ -1692,9 +1692,10 @@ def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group
 
 defm contract_exceptions : BoolFOption<"contract-exceptions",
   LangOpts<"ContractExceptions">, DefaultTrue,
-  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+  PosFlag<SetTrue, [], [ClangOption],
           "Enable contract violation on exception">,
-  NegFlag<SetFalse>>;
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract violations on exception">>;
 
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",
