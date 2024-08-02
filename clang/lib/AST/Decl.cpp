@@ -2697,7 +2697,7 @@ bool VarDecl::recheckForConstantInitialization(
   assert((getASTContext().getLangOpts().CPlusPlus ||
           getASTContext().getLangOpts().C23) &&
          "only meaningful in C++/C23");
-
+  assert(Notes.empty() && "Reevaluating with old notes?");
   assert(!getInit()->isValueDependent());
   Eval->WasEvaluated = false;
 
@@ -2705,8 +2705,7 @@ bool VarDecl::recheckForConstantInitialization(
   // FIXME(EricWF): We should diagnose with the initializer produces a different
   // value the second time around.
   Eval->Evaluated = APValue();
-  
-  // Evaluate the initializer to check whether it's a constant expression.
+
   return evaluateValueImpl(Notes, true, EnableContracts) && Notes.empty();
 }
 

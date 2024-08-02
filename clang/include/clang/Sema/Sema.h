@@ -2730,8 +2730,6 @@ public:
   ///@{
 
 public:
-  void ActOnStartFunctionContractStmt(DeclaratorDecl *DD);
-
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultNameDecl,
                                  ParsedAttributes &Attrs);
@@ -2745,6 +2743,10 @@ public:
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                Expr *Cond, DeclStmt *ResultNameDecl,
                                ArrayRef<const Attr *> Attrs);
+
+  // Returrn true if
+  bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
+                                       FunctionDecl *NewDecl);
 
   ///@}
 

@@ -13,6 +13,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ASTLambda.h"
+#include "clang/AST/ASTStructuralEquivalence.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/CharUnits.h"
 #include "clang/AST/DeclObjC.h"
@@ -180,4 +181,108 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
   IdResolver.AddDecl(New);
 
   return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
+}
+
+bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
+                                           FunctionDecl *NewDecl) {
+  ArrayRef<const ContractStmt *> OrigContracts = OrigDecl->getContracts();
+  ArrayRef<const ContractStmt *> NewContracts = NewDecl->getContracts();
+
+  enum DifferenceKind {
+    DK_None = -1,
+    DK_OrigMissing,
+    DK_NumContracts,
+    DK_Kind,
+    DK_ResultName,
+    DK_Cond
+  };
+  unsigned ContractIndex = 0;
+
+  // p2900 [basic.contract.func]
+  // A declaration E of a function f that is not a first declaration shall have
+  // either no function contract-specifier-seq or the same
+  // function-contract-specifier-seq as any first declaration D reachable from
+  // E.
+  const DifferenceKind DK = [&] {
+    // Contracts may be omitted from following declarations.
+    if (NewContracts.empty())
+      return DK_None;
+
+    // ... But if they exist, they must be present on the original declaration.
+    if (OrigContracts.empty())
+      return DK_OrigMissing;
+    if (OrigContracts.size() != NewContracts.size())
+      return DK_NumContracts;
+
+    // ... And if they exist on the original declaration, they must be the same.
+    for (; ContractIndex < OrigContracts.size(); ++ContractIndex) {
+      auto *OC = OrigContracts[ContractIndex];
+      auto *NC = NewContracts[ContractIndex];
+
+      if (OC->getContractKind() != NC->getContractKind())
+        return DK_Kind;
+      if (OC->hasResultNameDecl() != NC->hasResultNameDecl())
+        return DK_ResultName;
+      if (!Context.hasSameExpr(OC->getCond(), NC->getCond()))
+        return DK_Cond;
+    }
+    return DK_None;
+  }();
+
+  // Nothing to diagnose.
+  if (DK == DK_None)
+    return false;
+
+  SourceRange NewContractRange = SourceRange(
+      NewContracts.front()->getBeginLoc(), NewContracts.back()->getEndLoc());
+  SourceRange OrigContractRange =
+      OrigContracts.empty()
+          ? SourceRange(OrigDecl->getEndLoc(), OrigDecl->getEndLoc())
+          : SourceRange(OrigContracts.front()->getBeginLoc(),
+                        OrigContracts.back()->getEndLoc());
+
+  // Otherwise, we're producing a diagnostic.
+  Diag(NewDecl->getLocation(), diag::err_function_different_contract_seq)
+      << isa<CXXMethodDecl>(NewDecl);
+
+  if (DK == DK_NumContracts) {
+    Diag(NewContractRange.getBegin(),
+         diag::note_contract_spec_seq_arity_mismatch)
+        << (NewContracts.size() > OrigContracts.size()) << NewContracts.size()
+        << OrigContracts.size() << NewContractRange;
+  }
+
+  if (DK == DK_OrigMissing || DK == DK_NumContracts) {
+    Diag(OrigDecl->getLocation(), diag::note_previous_contract_spec_seq)
+        << DK << OrigDecl->getSourceRange() << OrigContracts.size()
+        << OrigContractRange;
+    return true;
+  }
+
+  auto *OC = OrigContracts[ContractIndex];
+  auto *NC = NewContracts[ContractIndex];
+
+  auto GetRangeForNote = [&](const ContractStmt *CS) {
+    switch (DK) {
+    case DK_Kind:
+      return SourceRange(CS->getBeginLoc(), CS->getBeginLoc());
+    case DK_ResultName:
+      return CS->hasResultNameDecl() ? CS->getResultNameDecl()->getSourceRange()
+                                     : CS->getCond()->getSourceRange();
+    case DK_Cond:
+      return CS->getCond()->getSourceRange();
+    case DK_OrigMissing:
+    case DK_NumContracts:
+    case DK_None:
+      llvm_unreachable("unhandled enum value");
+    }
+  };
+
+  Diag(NC->getBeginLoc(), diag::note_mismatched_contract)
+      << GetRangeForNote(NC);
+  Diag(OC->getBeginLoc(), diag::note_previous_contracts)
+      << DK << (int)OC->getContractKind() << OC->hasResultNameDecl()
+      << GetRangeForNote(OC);
+
+  return true;
 }

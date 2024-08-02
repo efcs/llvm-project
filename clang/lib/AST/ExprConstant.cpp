@@ -5243,10 +5243,10 @@ static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
     return false;
   }
   if (!Desired) {
-
     Info.CCEDiag(E, Sem == CES::Observe ? diag::warn_constexpr_contract_failure
-                                        : diag::err_constexpr_contract_failure);
-    return false;
+                                        : diag::err_constexpr_contract_failure)
+        << E->getSourceRange();
+    return Sem == CES::Observe;
   }
   return true;
 }

@@ -3080,6 +3080,7 @@ def err_unsupported_placeholder_constraint : Error<
   "constrained placeholder types other than simple 'auto' on non-type template "
   "parameters not supported yet">;
 
+
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
 def err_template_different_type_constraint : Error<
@@ -11936,7 +11937,6 @@ def err_contract_group_attribute_invalid_group : Error<
     "|<cannot-happen-here>"
     "}0">;
 
-
 def err_contract_group_redeclared : Error<
   "clang::contract_group attribute appears more than once">;
 
@@ -11963,6 +11963,25 @@ def err_initialization_of_constant_initialized_variable_failed : Error<
     "initialization of constant-initialized variable failed">;
 def note_initialization_changed_contract_semantic : Note<
     "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
+
+// Redeclaration of contract attributes
+def err_function_different_contract_seq : Error<
+  "%select{function|method}0 %select{redeclaration|out-of-line definition}0 differs in contract specifier sequence">;
+def note_contract_spec_seq_arity_mismatch : Note<
+  "declared with too %select{many|few}0 contracts here (actual %1 vs expected %2)">;
+def note_previous_contract_spec_seq : Note<
+  "previously declared %select{without|with %1}0 contracts here">;
+
+def note_mismatched_contract : Note<
+  "in contract specified here">;
+def note_previous_contracts : Note<
+  "contract previously specified %select{"
+  "<ERROR>"
+  "|<ERROR>"
+  "|as '%sub{select_contract_kind}1'"
+  "|%select{without|with}2 result name"
+  "|with a non-equivalent condition}0">;
+
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<

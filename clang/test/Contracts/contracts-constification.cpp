@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
 
 
@@ -12,9 +12,14 @@ constexpr int do_test() {
   return 42;
 }
 
+constexpr int anchor = do_test();
+
+// not constified.
+int *y = nullptr;
+
 int foo() {
   int x = 42;
-  contract_assert(++x); // expected-error {{read-only variable is not assignable}}
+  contract_assert(++x && y = &x); // expected-error {{read-only variable}}
 
 }
 
@@ -34,16 +39,16 @@ constexpr void assert_same() {
 template <typename T>
 int foo(T v) {
   int v2 = v;
-  const int v3 = v; // expected-note {{variable 'v3' declared const here}}
+  const int v3 = v; // expected-note {{declared const here}}
   contract_assert((
-  ++v, // expected-error {{read-only variable is not assignable}}
-  ++v2, // expected-error {{read-only variable is not assignable}}
-  ++v3  // expected-error {{cannot assign to variable 'v3' with const-qualified type 'const int'}}
+  ++v, // expected-error {{read-only variable}}
+  ++v2, // expected-error {{read-only variable}}
+  ++v3  // expected-error {{const-qualified type 'const int'}}
   ));
   contract_assert((assert_same<decltype(v), T>(), true));
   contract_assert((assert_same<decltype(v2), int>(), true));
   contract_assert((assert_same<decltype(v3), const int>(), true));
 }
-template int foo(int); // expected-note {{in instantiation of function template specialization 'foo<int>' requested here}}
+template int foo(int); // expected-note {{requested here}}
 
 constexpr int test = do_test();

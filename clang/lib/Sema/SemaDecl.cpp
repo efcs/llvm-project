@@ -3994,6 +3994,9 @@ bool Sema::MergeFunctionDecl(FunctionDecl *New, NamedDecl *&OldD, Scope *S,
     if (CheckEquivalentExceptionSpec(Old, New))
       return true;
 
+    if (CheckEquivalentContractSequence(Old, New))
+      return true;
+
     // C++11 [dcl.attr.noreturn]p1:
     //   The first declaration of a function shall specify the noreturn
     //   attribute if any declaration of that function specifies the noreturn
@@ -14387,11 +14390,25 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
         Notes.back().second << CacheCulprit->getSourceRange();
       }
     } else {
+      // p2900 [expr.const]p2
+      // A variable or temporary object o is constant-initialized if
+      // ...
+      //    its initialization is a constant expression when interpreted
+      //    ... with all contract assertions having the ignore evaluation
+      //    semantic.
+
       HasConstInit = var->checkForConstantInitialization(
           Notes,
           /*EnableContracts=*/ConstantInitializerIsRequired);
     }
 
+    // p2900 [intro.compliance]p2
+    // If a program contains ...
+    //    - a contract assertion ([basic.contract.eval]) evaluated with a
+    //    checking semantic
+    //      in a manifestly constant-evaluated context resulting in a contract
+    //      violation
+    //  ... shall issue a diagnostic.
     if (HasConstInit && getLangOpts().Contracts &&
         !ConstantInitializerIsRequired) {
       if (!var->recheckForConstantInitialization(Notes,
@@ -14400,6 +14417,8 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
         // We need to clear the notes, as we will re-diagnose the contract
         // failure.
         SourceLocation DiagLoc = var->getLocation();
+        // FIXME(EricWF): This diagnostic is bad. What do we say here? Normally
+        // this error would have been eaten.
         Diag(DiagLoc,
              diag::err_initialization_of_constant_initialized_variable_failed)
             << var;
