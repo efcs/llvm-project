@@ -3669,6 +3669,18 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
 
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
 
+
+FunctionDecl *FunctionDecl::getDeclForContracts() {
+  // Try getting the contracts from the defining decl, and if those aren't present
+  // use the contracts on the first declaration.
+  if (auto *Def = getDefinition(); Def && !Def->getContracts().empty())
+    return Def;
+  return getFirstDecl();
+}
+const FunctionDecl *FunctionDecl::getDeclForContracts() const {
+  return const_cast<FunctionDecl *>(this)->getDeclForContracts();
+}
+
 /// Returns a value indicating whether this function corresponds to a builtin
 /// function.
 ///

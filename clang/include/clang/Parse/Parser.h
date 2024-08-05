@@ -2142,6 +2142,7 @@ private:
   void MaybeLateParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
   bool LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens & ContractToks);
 
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, FunctionDecl *FD);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.

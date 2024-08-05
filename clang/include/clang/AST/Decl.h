@@ -2664,6 +2664,10 @@ public:
     return const_cast<FunctionDecl*>(this)->getCanonicalDecl();
   }
 
+
+  FunctionDecl *getDeclForContracts();
+  const FunctionDecl *getDeclForContracts() const;
+
   unsigned getBuiltinID(bool ConsiderWrapperFunctions = false) const;
 
   // ArrayRef interface to parameters.
