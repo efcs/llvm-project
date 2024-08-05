@@ -9,7 +9,7 @@ on:
   push:
     branches:
       - 'eric-contracts'
-    
+
 
 concurrency:
   # Skip intermediate builds: always.
