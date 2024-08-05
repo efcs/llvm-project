@@ -1922,7 +1922,6 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
 }
 
 void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
-  assert(false);
   StringRef Name = "";
   if (IdentifierInfo *II = RND->getIdentifier()) {
     Name =

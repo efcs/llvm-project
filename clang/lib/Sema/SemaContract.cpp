@@ -362,11 +362,11 @@ struct RebuildFunctionContracts
 // This is probably BAD BAD NOT GOOD.
 // But it works nicely.
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
-  assert(Def->hasBody() && Def->isThisDeclarationADefinition());
-
   auto *First = Def->getFirstDecl();
   if (First == Def || !First->hasContracts() || Def->hasContracts())
     return;
+
+  assert(Def->hasBody() && Def->isThisDeclarationADefinition());
 
   RebuildFunctionContracts Rebuilder(*this, First, Def);
   for (auto *CS : First->getContracts()) {
