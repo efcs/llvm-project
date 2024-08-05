@@ -310,7 +310,7 @@ public:
   // is disallowed despite being a continue scope.
   void setIsConditionVarScope(bool InConditionVarScope) {
     Flags = (Flags & ~ConditionVarScope) |
-            (InConditionVarScope ? ConditionVarScope : 0);
+            (InConditionVarScope ? ConditionVarScope : ScopeFlags(0));
   }
 
   bool isConditionVarScope() const {
