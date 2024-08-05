@@ -233,6 +233,49 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(QualType RetType) {
   return ContractStmt;
 }
 
+bool Parser::ParseLexedFunctionContractsInScope(
+    CachedTokens &ContractToks, SmallVector<ContractStmt *> &Contracts,
+    QualType RetType) {
+  // Add the 'stop' token.
+  Token LastContractToken = ContractToks.back();
+  Token ContractEnd;
+  ContractEnd.startToken();
+  ContractEnd.setKind(tok::eof);
+  ContractEnd.setLocation(LastContractToken.getEndLoc());
+  ContractEnd.setEofData(&Contracts);
+  ContractToks.push_back(ContractEnd);
+
+  // Parse the default argument from its saved token stream.
+  ContractToks.push_back(Tok); // So that the current token doesn't get lost
+  PP.EnterTokenStream(ContractToks, true, /*IsReinject*/ true);
+
+  // Consume the previously-pushed token.
+  ConsumeAnyToken();
+
+  while (isContractKeyword(Tok)) {
+    StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
+    if (Contract.isUsable()) {
+      Contracts.push_back(Contract.getAs<ContractStmt>());
+    } else {
+      return false;
+    }
+  }
+  Actions.ActOnFinishContractSpecifierSequence(Contracts);
+
+  // There could be leftover tokens (e.g. because of an error).
+  // Skip through until we reach the original token position.
+  while (Tok.isNot(tok::eof))
+    ConsumeAnyToken();
+
+  // Clean up the remaining EOF token.
+  if (Tok.is(tok::eof) && Tok.getEofData() == &Contracts)
+    ConsumeAnyToken();
+
+  ContractToks.clear();
+
+  return true;
+}
+
 bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDecl *FD) {
 
   // Add the 'stop' token.
@@ -264,6 +307,14 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
     FunctionToPush = FunTmpl->getTemplatedDecl();
   else
     FunctionToPush = cast<FunctionDecl>(FD);
+
+  ParseScope ProtoScope(this, Scope::DeclScope | Scope::FunctionPrototypeScope |
+                                  Scope::FunctionDeclarationScope);
+
+  for (auto *Param : FunctionToPush->parameters()) {
+    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
+  }
+
   Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
   QualType RetType = FunctionToPush->getReturnType();
   ParseScope FnScope(this, Scope::FnScope);
@@ -287,6 +338,7 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
       FunctionToPush->setInvalidDecl(true);
     }
   }
+  Actions.ActOnFinishContractSpecifierSequence(Contracts);
 
   FunctionToPush->setContracts(Contracts);
   // There could be leftover tokens (e.g. because of an error).

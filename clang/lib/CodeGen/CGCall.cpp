@@ -3817,13 +3817,6 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     return;
   }
 
-  // Functions with no result always return void.
-  if (!ReturnValue.isValid()) {
-    EmitPostContracts(nullptr);
-    Builder.CreateRetVoid();
-    return;
-  }
-
   llvm::DebugLoc RetDbgLoc;
   llvm::Value *RV = nullptr;
   QualType RetTy = FI.getReturnType();
@@ -4001,12 +3994,28 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
 
 void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
   SmallVector<const ContractStmt *, 4> PostContracts;
+
+  ResultNameDecl *RND = nullptr;
   if (auto *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl)) {
     for (auto *CA : FD->getContracts()) {
       if (CA->getContractKind() == ContractKind::Post) {
         PostContracts.push_back(CA);
+        if (CA->hasResultNameDecl() && !RND)
+          RND = CA->getResultNameDecl()->getCanonicalResultNameDecl();
       }
     }
+  }
+  std::optional<OpaqueValueExpr> OVEStore;
+  std::optional<OpaqueValueMapping> OVEBind;
+  if (RND && RV) {
+    OVEStore.emplace(RND->getLocation(), RND->getType(), VK_LValue, OK_Ordinary,
+                     nullptr);
+    // llvm::Value *SLocPtr = Builder.CreateLoad(ReturnLocation,
+    // "return.sloc.load");
+    OVEBind.emplace(*this, &OVEStore.value(),
+                    MakeAddrLValue(ReturnValue, RND->getType()));
+  }
+  if (RND && RV) {
   }
 
   for (auto *CA : PostContracts) {

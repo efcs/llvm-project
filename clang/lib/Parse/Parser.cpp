@@ -1526,7 +1526,15 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   if (LateParsedAttrs)
     ParseLexedAttributeList(*LateParsedAttrs, Res, false, true);
 
-  return ParseFunctionStatementBody(Res, BodyScope);
+  Decl *FuncWithBody = ParseFunctionStatementBody(Res, BodyScope);
+  if (!FuncWithBody || FuncWithBody->isInvalidDecl())
+    return FuncWithBody;
+  FunctionDecl *FD = cast<FunctionDecl>(FuncWithBody);
+  if (!D.LateParsedContracts.empty()) {
+    assert(!FD->getReturnType()->isUndeducedAutoType());
+    ParseLexedFunctionContracts(D.LateParsedContracts, FD);
+  }
+  return FuncWithBody;
 }
 
 void Parser::SkipFunctionBody() {

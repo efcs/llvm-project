@@ -2370,7 +2370,9 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     ParseTrailingRequiresClause(D);
 
   // FIXME(EricWF): What are we doing here?
-  ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+  LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+
+  // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2554,6 +2556,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       if (auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl))
         VD->setObjCForDecl(true);
     }
+
     Actions.FinalizeDeclaration(ThisDecl);
     D.complete(ThisDecl);
     return Actions.FinalizeDeclaratorGroup(getCurScope(), DS, ThisDecl);
@@ -2564,6 +2567,12 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       ParseDeclarationAfterDeclaratorAndAttributes(D, TemplateInfo, FRI);
   if (LateParsedAttrs.size() > 0)
     ParseLexedAttributeList(LateParsedAttrs, FirstDecl, true, false);
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(FirstDecl)) {
+    if (!FD->isInvalidDecl() && !D.LateParsedContracts.empty()) {
+      assert(!FD->isThisDeclarationADefinition());
+      ParseLexedFunctionContracts(D.LateParsedContracts, FD);
+    }
+  }
   D.complete(FirstDecl);
   if (FirstDecl)
     DeclsInGroup.push_back(FirstDecl);
@@ -2628,7 +2637,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       // FIXME(EricWF): Is this the correct place?
       // Yes: Though parsing here means we need to reenter the correct scope
       // and context ourselves, it means we hve the function return type.
-      ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+      // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
       D.complete(ThisDecl);

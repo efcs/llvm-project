@@ -288,6 +288,11 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
   return true;
 }
 
+/// ActOnFinishContractSpecifierSequence - This is called after a
+/// contract-specifier-seq has been parsed.
+///
+/// It's primary job is to set the canonical result name decl for each result
+/// name.
 void Sema::ActOnFinishContractSpecifierSequence(
     SmallVector<ContractStmt *> Contracts) {
   if (Contracts.empty())
