@@ -1,0 +1,31 @@
+name: EricWF Contracts Nightly Release flow
+
+permissions:
+  contents: write
+
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'eric-contracts'
+    paths:
+      - 'clang/**'
+      - 'libcxx/**'
+      - '!llvm/**'
+
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  check_clang:
+    if: github.repository_owner == 'efcs'
+    name: Test clang
+    uses: ./.github/workflows/llvm-project-tests.yml
+    with:
+      build_target: check-clang
+      projects: clang
+      runtimes: 'libcxx;libcxxabi;libunwind'
