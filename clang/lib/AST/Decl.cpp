@@ -3675,10 +3675,12 @@ FunctionDecl *FunctionDecl::getDeclForContracts() {
   // use the contracts on the first declaration.
   if (auto *Def = getDefinition(); Def && !Def->getContracts().empty())
     return Def;
-  return getFirstDecl();
+  return getCanonicalDecl();
 }
 const FunctionDecl *FunctionDecl::getDeclForContracts() const {
-  return const_cast<FunctionDecl *>(this)->getDeclForContracts();
+  if (auto *Def = getDefinition(); Def && !Def->getContracts().empty())
+    return Def;
+  return getCanonicalDecl();
 }
 
 /// Returns a value indicating whether this function corresponds to a builtin
