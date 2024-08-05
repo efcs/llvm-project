@@ -554,16 +554,8 @@ namespace {
       return CalleeForParams->getParamDecl(IDX);
     }
 
-    const ResultNameDecl *getMappedDecl(const ResultNameDecl *RND) {
-      assert(CurrentContract->hasResultNameDecl() &&
-             (CurrentContract->getResultNameDecl() == RND ||
-              RND == CanonicalResultName));
-      assert(CanonicalResultName);
-      return CanonicalResultName;
-    }
-
     bool EvaluatePreContracts();
-    bool EvaluatePostContracts(const APValue &ResultValue);
+    bool EvaluatePostContracts(APValue &ResultValue);
 
     CallContractInfo() = default;
 
@@ -3426,33 +3418,11 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
   }
 
   if (auto *PVD = dyn_cast<ParmVarDecl>(VD); PVD) {
-    llvm::errs() << "Have PVD\n";
-    PVD->dumpColor();
-    llvm::errs() << "\nPVD has decl context\n\n";
-    assert(PVD->getDeclContext());
-    if (PVD->getDeclContext()->isTranslationUnit()) {
-      llvm::errs() << "Have translation unit context\n";
-      PVD->dumpColor();
-      PVD->getCanonicalDecl()->dumpColor();
-    } else if (PVD->getDeclContext()->isFunctionOrMethod()) {
-
-      llvm::errs() << "Have function/method context\n";
-    }
-    PVD->getDeclContext()->dumpDeclContext();
-    llvm::errs() << "End Dumping PVD context\n";
-
-    assert(VD->getDeclContext());
-    llvm::errs() << "\n\nDumping decl context for " << VD->getNameAsString()
-                 << "\n\n";
-    VD->getDeclContext()->dumpDeclContext();
     // Assume parameters of a potential constant expression are usable in
     // constant expressions.
     if (!Info.checkingPotentialConstantExpression() ||
         !Info.CurrentCall->Callee ||
         !Info.CurrentCall->Callee->Equals(VD->getDeclContext())) {
-      if (Info.CurrentCall && Info.CurrentCall->Callee)
-        Info.CurrentCall->Callee->dumpColor();
-      llvm::errs() << "\nHere about to diagnose\n";
       if (Info.getLangOpts().CPlusPlus11) {
         Info.FFDiag(E, diag::note_constexpr_function_param_value_unknown)
             << VD;
@@ -6488,26 +6458,18 @@ bool CallContractInfo::EvaluatePreContracts() {
   return true;
 }
 
-bool CallContractInfo::EvaluatePostContracts(const APValue &ResultValue) {
+bool CallContractInfo::EvaluatePostContracts(APValue &ResultValue) {
   assert(Frame->ContractInfo == this);
 
   auto &Info = Frame->Info;
 
   BlockScopeRAII Scope(Info);
-  bool IsInt = CanonicalResultName &&
-               CanonicalResultName->getType()->isIntegralOrEnumerationType();
-
-  if (ResultSlot)
-    assert(!IsInt);
-
-  if (IsInt)
-    assert(!ResultSlot);
+  bool NeedsResultSlot = !ResultSlot && CanonicalResultName;
 
   APValue *LastValue = nullptr;
   LValue LV;
-  if (!ResultSlot && CanonicalResultName) {
+  if (NeedsResultSlot) {
     auto *RND = CanonicalResultName;
-    llvm::errs() << "Creating result name\n";
     assert(RND->getType().isTriviallyCopyableType(Info.Ctx));
 
     // Create the parameter slot and register its destruction. For a vararg
@@ -6518,7 +6480,7 @@ bool CallContractInfo::EvaluatePostContracts(const APValue &ResultValue) {
     APValue &V = Info.CurrentCall->createTemporary(
         CanonicalResultName, CanonicalResultName->getType(), ScopeKind::Block,
         LV);
-    LastValue = &V;
+
     // Perform the trivial copy of the result of the function into the
     // temporary.
     V = ResultValue;
@@ -6534,95 +6496,14 @@ bool CallContractInfo::EvaluatePostContracts(const APValue &ResultValue) {
     if (!EvaluateContract(S, Frame->Info))
       return false;
   }
-  return true;
-}
-
-#if 0
-static bool EvaluatePreContracts(const FunctionDecl *Callee, EvalInfo &Info) {
-  assert(Info.CurrentCall && Info.CurrentCall->ContractInfo);
-  auto *CInfo = Info.CurrentCall->ContractInfo;
-
-  const FunctionDecl *ContractCallee = Callee->getCanonicalDecl();
-  assert(Info.CurrentCall);
-  CallRef &Call = Info.CurrentCall->Arguments;
-  assert(Callee->isThisDeclarationADefinition());
-
-  const FunctionDecl* CDecl = Callee->getCanonicalDecl();
-  const FunctionDecl* DDecl = CDecl->getDefinition();
-  if (CDecl != DDecl) {
-    assert((CDecl == Call.OrigCallee && Call.ContractCallee == nullptr) || (Call.ContractCallee == CDecl));
-  }
-
-  for (ContractStmt *S : CInfo->ContractCallee->getContracts()) {
-    if (S->getContractKind() != ContractKind::Pre)
-      continue;
-    if (!EvaluateContract(S, Info))
-      return false;
+  // If we used a different result slot, the return value needs to be copied
+  // back.
+  if (NeedsResultSlot) {
+    assert(LastValue);
+    ResultValue = *LastValue;
   }
   return true;
 }
-
-static bool EvaluatePostContractWithResultName(const ContractStmt *C,
-                                               EvalInfo &Info,
-                                               CallStackFrame &Frame,
-                                               const APValue &ResultValue,
-                                               const LValue *ResultSlot) {
-
-  assert(C && C->getContractKind() == ContractKind::Post);
-  assert(C->hasResultNameDecl());
-
-  auto *CInfo = Frame.ContractInfo;
-  assert(CInfo);
-
-  const ResultNameDecl *RND = C->getResultNameDecl();
-  BlockScopeRAII Scope(Info);
-
-  LValue LV;
-  if (!ResultSlot) {
-    assert(RND->getType().isTriviallyCopyableType(Info.Ctx));
-
-    // Create the parameter slot and register its destruction. For a vararg
-    // argument, create a temporary.
-    // FIXME: For calling conventions that destroy parameters in the callee,
-    // should we consider performing destruction when the function returns
-    // instead?
-    APValue &V = Info.CurrentCall->createTemporary(RND, RND->getType(),
-                                                   ScopeKind::Block, LV);
-    // Perform the trivial copy of the result of the function into the
-    // temporary.
-    V = ResultValue;
-    ResultSlot = &LV;
-  }
-
-  ResultNameRAII Guard(&Frame, RND, ResultSlot);
-  return EvaluateContract(C, Info);
-}
-
-static bool EvaluatePostContracts(EvalInfo &Info, CallStackFrame &Frame,
-                                  const FunctionDecl *Callee,
-                                  const APValue &ResultValue,
-                                  const LValue *ResultSlot = nullptr) {
-
-  assert(Info.CurrentCall);
-  assert(&Frame == Info.CurrentCall && "Mismatched call stack frame");
-  const FunctionDecl *ContractCallee = Callee->getCanonicalDecl();
-
-  for (ContractStmt *S : ContractCallee->getContracts()) {
-    if (S->getContractKind() != ContractKind::Post)
-      continue;
-    if (S->hasResultNameDecl()) {
-      if (!EvaluatePostContractWithResultName(S, Info, Frame, ResultValue,
-                                              ResultSlot))
-        return false;
-    } else  {
-        if (!EvaluateContract(S, Info))
-          return false;
-    }
-  }
-  return true;
-}
-
-#endif
 
 void MaybeInitializeCallContractInfo(std::unique_ptr<CallContractInfo> &CInfo,
                                      const FunctionDecl *Callee, EvalInfo &Info,
@@ -6724,7 +6605,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
   if (ESR == ESR_Returned)
-    return !CallContract || CallContract->EvaluatePostContracts(Ret.Value);
+    return !CallContract || CallContract->EvaluatePostContracts(Result);
   return false;
 }
 
@@ -9087,26 +8968,16 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
     return false;
   }
   assert(Frame);
-  // && Frame->ContractInfo && Frame->ContractInfo->ResultSlot);
+  // && Frame->ContractInf&& Frame->ContractI->ResultSlot);
   CallContractInfo *CInfo = Frame->ContractInfo;
 
-#if 0
-  while (Parent && CInfo == nullptr) {
-    llvm::errs() << "Walking up\n";
-    if (Parent->ContractInfo) {
-      CInfo = Parent->ContractInfo;
-      Frame = Parent;
-      break;
-    }
-    Parent = Parent->Caller;
-  }
-#endif
   if (!CInfo) {
     return false;
   }
   VD = CInfo->CanonicalResultName;
 
-  assert(CInfo->CurrentContract->getResultNameDecl() == VD);
+  assert(CInfo->CurrentContract->getResultNameDecl() == VD ||
+         VD == CInfo->CanonicalResultName);
   if (CInfo->ResultSlot && CInfo->ResultSlot->getLValueBase()) {
     return Success(CInfo->ResultSlot->getLValueBase());
   } else {
@@ -9115,57 +8986,6 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
                              Frame ? Frame->getTempVersion() : 0);
     return Success(Base);
   }
-#if 0
-  assert(Frame->ContractInfo);
-  auto *CInfo = Frame->ContractInfo;
-  assert(CInfo->CurrentContract && CInfo->CurrentContract->hasResultNameDecl() && CInfo->CurrentContract->getResultNameDecl() == VD);
-
-  //VD = CInfo->CanonicalResultName;
-  if (CInfo->ResultSlot) {
-    assert(VD == CInfo->CurrentContract->getResultNameDecl());
-  }
-
-  // If the call expression used an RVO slot for the return value, use that
-  // slot as the base of the lvalue.
-  if (CInfo->ResultSlot) {
-    llvm::errs() << "Have Result Slot\n";
-    CInfo->ResultSlot->is
-
-    return Success(CInfo->ResultSlot->getLValueBase());
-  }
-  VD = CInfo->CanonicalResultName;
-
-  if (!CInfo->ResultSlot) {
-    auto *NextFrame = Frame;
-    int Count = 0;
-    while (NextFrame) {
-      ERICWF_DEBUG_BLOCK {
-        llvm::errs() << "On " << Count << " frame";
-        if (NextFrame->ResultDecl) {
-          llvm::errs() << " with result decl "
-                       << NextFrame->ResultDecl->getName();
-          NextFrame->ResultDecl->dump();
-          assert(NextFrame->ResultDecl == VD);
-
-          assert(NextFrame->ResultSlot);
-        }
-        ++Count;
-      }
-      if (NextFrame->ResultDecl == VD) {
-
-        assert(false);
-        return Success(NextFrame->ResultSlot->getLValueBase());
-      }
-      NextFrame = NextFrame->Caller;
-    }
-  }
-
-  assert(VD->getType().isTriviallyCopyableType(Info.Ctx));
-  // Otherwise, we must have already created a temporary for the result.
-  APValue::LValueBase Base(VD, Frame ? Frame->Index : 0,
-                           Frame ? Frame->getTempVersion() : 0);
-  return Success(Base);
-#endif
 }
 
 bool LValueExprEvaluator::VisitCallExpr(const CallExpr *E) {

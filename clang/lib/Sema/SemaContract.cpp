@@ -276,6 +276,7 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
     case DK_None:
       llvm_unreachable("unhandled enum value");
     }
+    llvm_unreachable("unhandled enum value");
   };
 
   Diag(NC->getBeginLoc(), diag::note_mismatched_contract)
