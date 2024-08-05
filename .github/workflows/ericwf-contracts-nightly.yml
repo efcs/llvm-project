@@ -18,20 +18,18 @@ concurrency:
   cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
 
 jobs:
-  pull_code:
-    name: Pull code
-    runs-on: ubuntu-latest
+  check_clang:
+    name: "Do it"
+    if: github.repository_owner == 'efcs'
+    runs-on: aah
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
-  check_clang:
-    if: github.repository_owner == 'efcs'
-    name: Test clang
-    uses: ./.github/workflows/llvm-project-tests.yml
-    with:
-      build_target: check-clang
-      projects: clang
-      runtimes: 'libcxx;libcxxabi;libunwind'
+      - name: Test clang
+        uses: ./.github/workflows/llvm-project-tests.yml
+        with:
+          build_target: check-clang
+          projects: clang
+          runtimes: 'libcxx;libcxxabi;libunwind'
