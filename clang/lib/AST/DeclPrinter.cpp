@@ -1922,11 +1922,17 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
 }
 
 void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
-  StringRef Name = "FooBBoo";
+  assert(false);
+  StringRef Name = "";
   if (IdentifierInfo *II = RND->getIdentifier()) {
     Name =
         Policy.CleanUglifiedParameters ? II->deuglifiedName() : II->getName();
   }
   printDeclType(RND->getType(), Name, false);
   Out << RND->getDeclName();
+  if (RND->getCanonicalResultNameDecl() != RND) {
+    Out << " = ";
+    RND->getCanonicalResultNameDecl()->printQualifiedName(Out);
+    Out << " " << RND << " ";
+  }
 }

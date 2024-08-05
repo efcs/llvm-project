@@ -2744,9 +2744,18 @@ public:
                                Expr *Cond, DeclStmt *ResultNameDecl,
                                ArrayRef<const Attr *> Attrs);
 
-  // Returrn true if
+  // Check two function declarations for equivalent contract sequences.
+  // Return true if a diagnostic was issued, false otherwise.
   bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                        FunctionDecl *NewDecl);
+
+  // FIXME(EricWF): Remove me. These are just convinence hooks while I move
+  // things around in the implementation.
+  void ActOnFinishContractSpecifierSequence(
+      SmallVector<ContractStmt *> ContractStmts);
+  void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
+  void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
+                                         FunctionDecl *NewDecl);
 
   ///@}
 

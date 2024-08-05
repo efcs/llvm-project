@@ -526,44 +526,6 @@ namespace {
     unsigned Version;
   };
 
-  struct CallContractInfo {
-    // The frame this information belongs to
-    CallStackFrame *Frame = nullptr;
-
-    // The function decl containing the contracts we're evaluating.
-    const FunctionDecl *ContractCallee = nullptr;
-
-    // the declaration we're actually calling and evaluated the parameters for.
-    const FunctionDecl *CalleeForParams = nullptr;
-
-    // The canonical result name decl used to evaluate the contract.
-    const ResultNameDecl *CanonicalResultName = nullptr;
-
-    // The slot for the result of the contract evaluation.
-    const LValue *ResultSlot = nullptr;
-
-    // The current contract being evaluated, if any.
-    const ContractStmt *CurrentContract = nullptr;
-
-    const ParmVarDecl *getMappedDecl(const ParmVarDecl *PVD) {
-      assert(PVD);
-      unsigned IDX = PVD->getFunctionScopeIndex();
-      if (IDX >= ContractCallee->getNumParams() ||
-          PVD != ContractCallee->getParamDecl(IDX))
-        return PVD;
-      return CalleeForParams->getParamDecl(IDX);
-    }
-
-    bool EvaluatePreContracts();
-    bool EvaluatePostContracts(APValue &ResultValue);
-
-    CallContractInfo() = default;
-
-  private:
-    CallContractInfo(CallContractInfo const &) = delete;
-    CallContractInfo &operator=(CallContractInfo const &) = delete;
-  };
-
   /// A stack frame in the constexpr call stack.
   class CallStackFrame : public interp::Frame {
   public:
@@ -621,14 +583,9 @@ namespace {
       return {Callee, Index, ++CurTempVersion};
     }
 
-    // The RVO slot for the call if there is any.
-    // This is used by post(r : ...) as the lvalue base for `r`. The slot
-    // should be present anytime `r` is a class type.
-    //
-    // When not present, the slot is nullptr, and the result name declarations
-    // must create trivial copies of the call result.
-
-    CallContractInfo *ContractInfo = nullptr;
+    // The slot for the result of the contract evaluation.
+    const LValue *ResultSlot = nullptr;
+    const APValue *ResultValue = nullptr;
 
     // FIXME: Adding this to every 'CallStackFrame' may have a nontrivial impact
     // on the overall stack usage of deeply-recursing constexpr evaluations.
@@ -702,18 +659,6 @@ namespace {
   private:
     APValue &createLocal(APValue::LValueBase Base, const void *Key, QualType T,
                          ScopeKind Scope);
-  };
-
-  struct CurrentContractRAII {
-    CurrentContractRAII(CallStackFrame *Frame, const ContractStmt *Contract)
-        : Frame(Frame) {
-      Frame->ContractInfo->CurrentContract = Contract;
-    }
-    CurrentContractRAII(CurrentContractRAII const &) = delete;
-    CurrentContractRAII &operator=(CurrentContractRAII const &) = delete;
-    ~CurrentContractRAII() { Frame->ContractInfo->CurrentContract = nullptr; }
-
-    CallStackFrame *Frame;
   };
 
   /// Temporarily override 'this'.
@@ -4170,20 +4115,15 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
     // Allow reading the result of a function call inside a post contract.
     // FIXME(EricWF): There's more validation that needs to be done here.
     if (auto *RND = dyn_cast<ResultNameDecl>(D); RND) {
-      assert(Frame->ContractInfo);
-      // RND = Frame->ContractInfo->CanonicalResultName;
-      // assert()
-      assert(RND);
-      APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
-      if (!Val) {
-        ERICWF_DEBUG_BLOCK {
-          llvm::errs() << "Didn't find temp for version: "
-                       << LVal.Base.getVersion() << "\n";
-          llvm::errs() << "Have current temporary version: "
-                       << Frame->getCurrentTemporaryVersion(RND) << "\n";
-        }
-        Val = Frame->getCurrentTemporary(RND);
+      assert(RND == RND->getCanonicalResultNameDecl());
+
+      if (Frame->Index != LVal.Base.getCallIndex()) {
+        llvm::errs() << "Frame Index: " << Frame->Index << "\n";
+        llvm::errs() << "LVal Base Call Index: " << LVal.Base.getCallIndex()
+                     << "\n";
       }
+      APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
+
       if (!Val) {
         Info.CCEDiag(RND->getLocation(), diag::err_ericwf_fixme)
             << "Failing to find completed object";
@@ -6433,24 +6373,11 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
-struct CurrentContractGuard {
-  CurrentContractGuard(CallContractInfo *Dest, const ContractStmt *CS)
-      : Dest(Dest) {
-    assert(Dest && Dest->CurrentContract == nullptr);
-    Dest->CurrentContract = CS;
-  }
-
-  ~CurrentContractGuard() { Dest->CurrentContract = nullptr; }
-
-  CallContractInfo *Dest;
-};
-
-bool CallContractInfo::EvaluatePreContracts() {
-  assert(Frame->ContractInfo == this);
-  for (auto *S : ContractCallee->getContracts()) {
+static bool EvaluatePreContracts(EvalInfo &Info, const FunctionDecl *Callee,
+                                 CallStackFrame *Frame) {
+  for (auto *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Pre)
       continue;
-    CurrentContractGuard Guard(Frame->ContractInfo, S);
     if (!EvaluateContract(S, Frame->Info)) {
       return false;
     }
@@ -6458,13 +6385,25 @@ bool CallContractInfo::EvaluatePreContracts() {
   return true;
 }
 
-bool CallContractInfo::EvaluatePostContracts(APValue &ResultValue) {
-  assert(Frame->ContractInfo == this);
-
-  auto &Info = Frame->Info;
-
+static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
+                                  APValue &ResultValue,
+                                  const LValue *ResultSlot) {
+  if (Info.checkingPotentialConstantExpression())
+    return false;
   BlockScopeRAII Scope(Info);
-  bool NeedsResultSlot = !ResultSlot && CanonicalResultName;
+  const ResultNameDecl *CanonicalResultName = nullptr;
+  for (auto *S : Callee->getContracts()) {
+    if (S->getContractKind() != ContractKind::Post)
+      continue;
+    if (S->hasResultNameDecl()) {
+      CanonicalResultName =
+          S->getResultNameDecl()->getCanonicalResultNameDecl();
+      break;
+    }
+  }
+  llvm::errs() << "Have result slot? " << (ResultSlot != nullptr) << "\n";
+  bool NeedsResultSlot =
+      (!ResultSlot || !ResultSlot->getLValueBase()) && CanonicalResultName;
 
   APValue *LastValue = nullptr;
   LValue LV;
@@ -6480,20 +6419,26 @@ bool CallContractInfo::EvaluatePostContracts(APValue &ResultValue) {
     APValue &V = Info.CurrentCall->createTemporary(
         CanonicalResultName, CanonicalResultName->getType(), ScopeKind::Block,
         LV);
-
+    llvm::errs() << "Creating temporary for result with version: ";
+    llvm::errs() << LV.getLValueBase().getVersion() << "\n";
     // Perform the trivial copy of the result of the function into the
     // temporary.
     V = ResultValue;
-    ResultSlot = &LV;
+    llvm::errs() << LV.toString(Info.Ctx, CanonicalResultName->getType())
+                 << "\n";
+    Info.CurrentCall->ResultSlot = nullptr;
     LastValue = &V;
+  } else {
+    llvm::errs() << "Choosing slot\n";
+    Info.CurrentCall->ResultSlot = ResultSlot;
+    Info.CurrentCall->ResultValue = &ResultValue;
   }
   ((void)LastValue);
 
-  for (auto *S : ContractCallee->getContracts()) {
+  for (auto *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
       continue;
-    CurrentContractGuard Guard(this, S);
-    if (!EvaluateContract(S, Frame->Info))
+    if (!EvaluateContract(S, Info))
       return false;
   }
   // If we used a different result slot, the return value needs to be copied
@@ -6503,40 +6448,6 @@ bool CallContractInfo::EvaluatePostContracts(APValue &ResultValue) {
     ResultValue = *LastValue;
   }
   return true;
-}
-
-void MaybeInitializeCallContractInfo(std::unique_ptr<CallContractInfo> &CInfo,
-                                     const FunctionDecl *Callee, EvalInfo &Info,
-                                     CallStackFrame &Frame) {
-  CInfo.release();
-  assert(Callee == Frame.Callee);
-  assert(Info.CurrentCall == &Frame);
-
-  const FunctionDecl *CanonCallee = Callee->getDeclForContracts();
-  ArrayRef<ContractStmt *> Contracts = CanonCallee->getContracts();
-  if (Contracts.empty())
-    return;
-
-  const ResultNameDecl *CanonicalRND = nullptr;
-  for (auto *CS : Contracts) {
-    if (CS->getContractKind() == ContractKind::Post &&
-        CS->hasResultNameDecl()) {
-      CanonicalRND = CS->getResultNameDecl();
-      break;
-    }
-  }
-  assert(Callee->getCanonicalDecl() == CanonCallee->getCanonicalDecl());
-
-  CInfo.reset(new CallContractInfo{});
-  CInfo->Frame = Info.CurrentCall;
-  CInfo->ContractCallee = CanonCallee;
-  CInfo->CalleeForParams = Callee;
-  CInfo->CanonicalResultName = CanonicalRND;
-
-  assert(Callee->getCanonicalDecl() == CanonCallee->getCanonicalDecl());
-  assert(Frame.Arguments.OrigCallee &&
-         Frame.Arguments.OrigCallee->getCanonicalDecl() ==
-             Callee->getCanonicalDecl());
 }
 
 /// Evaluate a function call.
@@ -6583,29 +6494,20 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
       MD->getParent()->getCaptureFields(Frame.LambdaCaptureFields,
                                         Frame.LambdaThisCaptureField);
   }
-  assert(Frame.Callee == Callee);
 
-  std::unique_ptr<CallContractInfo> CallContract(nullptr);
-  MaybeInitializeCallContractInfo(CallContract, Callee, Info, Frame);
-  Frame.ContractInfo = CallContract.get();
-
-  if (CallContract && !CallContract->EvaluatePreContracts())
+  if (!EvaluatePreContracts(Info, Callee, &Frame))
     return false;
-
-  Frame.ContractInfo = nullptr;
 
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
 
-  Frame.ContractInfo = CallContract.get();
-
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return !CallContract || CallContract->EvaluatePostContracts(Result);
+      return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
   if (ESR == ESR_Returned)
-    return !CallContract || CallContract->EvaluatePostContracts(Result);
+    return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
   return false;
 }
 
@@ -8859,12 +8761,6 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
     return VisitResultNameDecl(E, RND);
   }
 
-  if (auto *PVD = dyn_cast<ParmVarDecl>(D);
-      Info.CurrentCall && PVD && Info.CurrentCall->ContractInfo) {
-    //  FIXME(EricWF):
-    D = Info.CurrentCall->ContractInfo->getMappedDecl(PVD);
-  }
-
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     return VisitVarDecl(E, VD);
   if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
@@ -8904,15 +8800,7 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
     // variable) or be ill-formed (and trigger an appropriate evaluation
     // diagnostic)).
     CallStackFrame *CurrFrame = Info.CurrentCall;
-    bool Mapped = false;
-    if (auto *PVD = dyn_cast<ParmVarDecl>(VD);
-        CurrFrame->Callee && PVD && CurrFrame->ContractInfo) {
-
-      VD = CurrFrame->ContractInfo->getMappedDecl(PVD);
-      Mapped = (VD != PVD);
-    }
-    if (CurrFrame->Callee &&
-        (CurrFrame->Callee->Equals(VD->getDeclContext()) || Mapped)) {
+    if (CurrFrame->Callee && CurrFrame->Callee->Equals(VD->getDeclContext())) {
       // Function parameters are stored in some caller's frame. (Usually the
       // immediate caller, but for an inherited constructor they may be more
       // distant.)
@@ -8959,31 +8847,22 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
 
 bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
                                               const ResultNameDecl *VD) {
-  auto *Frame = Info.CurrentCall;
 
+  auto *Frame = Info.CurrentCall;
   // We don't always have a result value when we're doing this kind of
   // evaluation?
-  if (Info.checkingPotentialConstantExpression()) {
-    llvm::errs() << " Exiting due to potential constant expression\n";
+  if (Info.checkingPotentialConstantExpression())
     return false;
-  }
+
   assert(Frame);
-  // && Frame->ContractInf&& Frame->ContractI->ResultSlot);
-  CallContractInfo *CInfo = Frame->ContractInfo;
+  if (Frame->ResultSlot) {
+    return Success(Frame->ResultSlot->getLValueBase());
 
-  if (!CInfo) {
-    return false;
-  }
-  VD = CInfo->CanonicalResultName;
-
-  assert(CInfo->CurrentContract->getResultNameDecl() == VD ||
-         VD == CInfo->CanonicalResultName);
-  if (CInfo->ResultSlot && CInfo->ResultSlot->getLValueBase()) {
-    return Success(CInfo->ResultSlot->getLValueBase());
+    // return Success(Frame->ResultSlot;
   } else {
-    APValue::LValueBase Base(CInfo->CanonicalResultName,
-                             Frame ? Frame->Index : 0,
-                             Frame ? Frame->getTempVersion() : 0);
+    APValue::LValueBase Base(
+        VD->getCanonicalResultNameDecl(), Frame->Index,
+        Frame->getCurrentTemporaryVersion(VD->getCanonicalResultNameDecl()));
     return Success(Base);
   }
 }

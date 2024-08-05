@@ -711,6 +711,8 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
       Old->isDefined(OldDefinition, true))
     CheckForFunctionRedefinition(New, OldDefinition);
 
+  ActOnContractsOnMergeFunctionDecl(Old, New);
+
   return Invalid;
 }
 

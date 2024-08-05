@@ -159,6 +159,9 @@ bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
       IsSuccess = false;
     }
   }
+  if (IsSuccess) {
+    Actions.ActOnFinishContractSpecifierSequence(DeclarationInfo.Contracts);
+  }
   return IsSuccess;
 }
 

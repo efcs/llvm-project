@@ -2285,6 +2285,12 @@ void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
 void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
   dumpName(D);
   dumpType(D->getType());
+  if (D->getCanonicalResultNameDecl() != D) {
+    OS << " canonical ";
+    dumpPointer(D->getCanonicalResultNameDecl());
+  } else {
+    dumpPointer(D);
+  }
 }
 
 void TextNodeDumper::VisitCapturedDecl(const CapturedDecl *D) {

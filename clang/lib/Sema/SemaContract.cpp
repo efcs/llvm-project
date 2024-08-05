@@ -287,3 +287,106 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
 
   return true;
 }
+
+void Sema::ActOnFinishContractSpecifierSequence(
+    SmallVector<ContractStmt *> Contracts) {
+  if (Contracts.empty())
+    return;
+  SmallVector<ContractStmt *, 4> PreContracts;
+  SmallVector<ContractStmt *, 4> PostContracts;
+  SmallVector<ResultNameDecl *, 4> ResultNames;
+
+  for (auto *CS : Contracts) {
+    if (CS->getContractKind() == ContractKind::Pre)
+      PreContracts.push_back(CS);
+    else {
+      PostContracts.push_back(CS);
+      if (CS->hasResultNameDecl())
+        ResultNames.push_back(CS->getResultNameDecl());
+    }
+  }
+  if (!ResultNames.empty()) {
+    ResultNameDecl *Canon = ResultNames.front();
+    auto Pos = ResultNames.begin() + 1;
+    for (; Pos != ResultNames.end(); ++Pos) {
+      (*Pos)->setCanonicalResultNameDecl(Canon);
+    }
+  }
+}
+
+namespace {
+/// RebuildFunctionContracts - A terrible hack to re-bind (NOT rebuild) the
+/// ParmVarDecl references in a contract to the new ParmVarDecls.
+struct RebuildFunctionContracts
+    : RecursiveASTVisitor<RebuildFunctionContracts> {
+
+  Sema &S;
+  const FunctionDecl *OldDecl;
+  FunctionDecl *NewDecl;
+
+  RebuildFunctionContracts(Sema &S, const FunctionDecl *OldDecl,
+                           FunctionDecl *NewDecl)
+      : S(S), OldDecl(OldDecl), NewDecl(NewDecl) {}
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    if (ParmVarDecl *PVD = dyn_cast_or_null<ParmVarDecl>(E->getDecl())) {
+      unsigned IDX = PVD->getFunctionScopeIndex();
+      if (IDX < OldDecl->getNumParams() && PVD == OldDecl->getParamDecl(IDX)) {
+        ParmVarDecl *NewPVD = NewDecl->getParamDecl(IDX);
+        E->setDecl(NewPVD);
+        S.MarkAnyDeclReferenced(E->getLocation(), NewPVD, /*OdrUse=*/true);
+      }
+    }
+    return true;
+  }
+};
+} // namespace
+
+// ActOnContractsOnFinishFunctionBody
+//
+// This function ensures there is a usable version of the
+// function contracts attached to the definition declaration.
+//
+// This is already the case if the definition declaration was spelled with
+// contracts.
+//
+// Otherwise, we might have contracts on the first declaration.
+// If we do,
+//
+// (1) attach them to the defining declaration.
+// (2) rebind any references to parameters contained within the contracts.
+//
+// This is important because the defining definitions parameters will
+// be the ones evaluated by ExprConstant/CodeGen.
+//
+// This is probably BAD BAD NOT GOOD.
+// But it works nicely.
+void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
+  assert(Def->hasBody() && Def->isThisDeclarationADefinition());
+
+  auto *First = Def->getFirstDecl();
+  if (First == Def || !First->hasContracts() || Def->hasContracts())
+    return;
+
+  RebuildFunctionContracts Rebuilder(*this, First, Def);
+  for (auto *CS : First->getContracts()) {
+    Rebuilder.TraverseStmt(CS);
+  }
+  Def->setContracts(First->getContracts());
+}
+
+void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
+                                             FunctionDecl *NewDecl) {
+  if (!NewDecl->isThisDeclarationADefinition())
+    return;
+
+  // We don't have contracts, so we don't need to merge them.
+  if (OrigDecl->getContracts().empty())
+    return;
+
+  // Or the contracts were spelled out on the definition declaration as well.
+  if (!NewDecl->getContracts().empty())
+    return;
+
+  assert(!NewDecl->isThisDeclarationADefinition());
+}

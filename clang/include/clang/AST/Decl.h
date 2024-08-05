@@ -818,6 +818,12 @@ public:
                         : nullptr;
   }
 
+  bool hasContracts() const {
+    if (hasExtInfo())
+      return !getExtInfo()->Contracts.empty();
+    return false;
+  }
+
   ArrayRef<ContractStmt *> getContracts() const {
     if (hasExtInfo())
       return getExtInfo()->Contracts;

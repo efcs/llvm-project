@@ -2029,6 +2029,7 @@ void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
 
   assert(
       Contracts.empty() || NewContracts.size() == Contracts.size() ||
+      NewContracts.empty() ||
       this->isInvalidDecl() &&
           "Adding a different amount of contracts than were initially present");
 

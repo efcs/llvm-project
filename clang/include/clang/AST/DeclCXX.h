@@ -4459,51 +4459,6 @@ public:
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
 };
 
-/*
-class MaterializedResultNameDecl final
-    : public VarDecl,
-      private llvm::TrailingObjects<MaterializedResultNameDecl, ResultNameDecl *> {
-  /// The number of BindingDecl*s following this object.
-  unsigned NumBindings;
-
-  MaterializedResultNameDecl(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
-                    SourceLocation LSquareLoc, QualType T,
-                    TypeSourceInfo *TInfo, StorageClass SC,
-                    ArrayRef<ResultNameDecl *> Bindings)
-      : VarDecl(Decomposition, C, DC, StartLoc, LSquareLoc, nullptr, T, TInfo,
-                SC),
-        NumBindings(Bindings.size()) {
-    std::uninitialized_copy(Bindings.begin(), Bindings.end(),
-                            getTrailingObjects<ResultNameDecl *>());
-    for (auto *B : Bindings)
-      B->setDecomposedDecl(this);
-  }
-
-  void anchor() override;
-
-public:
-  friend class ASTDeclReader;
-  friend TrailingObjects;
-
-  static MaterializedResultNameDecl *Create(ASTContext &C, DeclContext *DC,
-                                   SourceLocation StartLoc,
-                                   SourceLocation LSquareLoc,
-                                   QualType T, TypeSourceInfo *TInfo,
-                                   StorageClass S,
-                                   ArrayRef<BindingDecl *> Bindings);
-  static MaterializedResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID,
-                                               unsigned NumBindings);
-
-  ArrayRef<BindingDecl *> bindings() const {
-    return llvm::ArrayRef(getTrailingObjects<BindingDecl *>(), NumBindings);
-  }
-
-  void printName(raw_ostream &OS, const PrintingPolicy &Policy) const override;
-
-  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
-  static bool classofKind(Kind K) { return K == Decomposition; }
-};
-*/
 } // namespace clang
 
 #endif // LLVM_CLANG_AST_DECLCXX_H
