@@ -4117,11 +4117,6 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
     if (auto *RND = dyn_cast<ResultNameDecl>(D); RND) {
       assert(RND == RND->getCanonicalResultNameDecl());
 
-      if (Frame->Index != LVal.Base.getCallIndex()) {
-        llvm::errs() << "Frame Index: " << Frame->Index << "\n";
-        llvm::errs() << "LVal Base Call Index: " << LVal.Base.getCallIndex()
-                     << "\n";
-      }
       APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
 
       if (!Val) {
@@ -6401,7 +6396,7 @@ static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
       break;
     }
   }
-  llvm::errs() << "Have result slot? " << (ResultSlot != nullptr) << "\n";
+
   bool NeedsResultSlot =
       (!ResultSlot || !ResultSlot->getLValueBase()) && CanonicalResultName;
 
@@ -6411,25 +6406,16 @@ static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
     auto *RND = CanonicalResultName;
     assert(RND->getType().isTriviallyCopyableType(Info.Ctx));
 
-    // Create the parameter slot and register its destruction. For a vararg
-    // argument, create a temporary.
-    // FIXME: For calling conventions that destroy parameters in the callee,
-    // should we consider performing destruction when the function returns
-    // instead?
     APValue &V = Info.CurrentCall->createTemporary(
         CanonicalResultName, CanonicalResultName->getType(), ScopeKind::Block,
         LV);
-    llvm::errs() << "Creating temporary for result with version: ";
-    llvm::errs() << LV.getLValueBase().getVersion() << "\n";
+
     // Perform the trivial copy of the result of the function into the
     // temporary.
     V = ResultValue;
-    llvm::errs() << LV.toString(Info.Ctx, CanonicalResultName->getType())
-                 << "\n";
     Info.CurrentCall->ResultSlot = nullptr;
     LastValue = &V;
   } else {
-    llvm::errs() << "Choosing slot\n";
     Info.CurrentCall->ResultSlot = ResultSlot;
     Info.CurrentCall->ResultValue = &ResultValue;
   }
