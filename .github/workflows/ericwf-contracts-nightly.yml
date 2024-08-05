@@ -9,10 +9,7 @@ on:
   push:
     branches:
       - 'eric-contracts'
-    paths:
-      - 'clang/**'
-      - 'libcxx/**'
-      - '!llvm/**'
+    
 
 concurrency:
   # Skip intermediate builds: always.
