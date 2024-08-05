@@ -7713,19 +7713,10 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         TrailingReturnTypeLoc = Range.getBegin();
         EndLoc = Range.getEnd();
       }
-      if (isContractKeyword(Tok)) {
-        if (Delayed) {
-          MaybeLateParseFunctionContractSpecifierSeq(D);
-        } else if (D.isFunctionDeclaratorAFunctionDeclaration() &&
-                   isContractKeyword(Tok)) {
-          // FIXME(EricWF): Should we wait until we contruct the function type
-          // info to more easily extract the return type?
-          // QualType RetT;
-          // if (TrailingReturnType.isUsable())
-          // RetT = TrailingReturnType.get().get();
-          // ParseContractSpecifierSequence(D, false, RetT);
-        }
-      }
+
+      if (isContractKeyword(Tok) && Delayed)
+        LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
     }

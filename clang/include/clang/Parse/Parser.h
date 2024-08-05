@@ -2139,8 +2139,8 @@ private:
                                       QualType TrailingReturnType = QualType());
   StmtResult ParseFunctionContractSpecifierImpl(QualType RetType);
 
-  void MaybeLateParseFunctionContractSpecifierSeq(Declarator &DeclaratorInfo);
-  bool LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo, CachedTokens & ContractToks);
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
 
   bool ParseLexedFunctionContracts(CachedTokens &Toks, FunctionDecl *FD);
 

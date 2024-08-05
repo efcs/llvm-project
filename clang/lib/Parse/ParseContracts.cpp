@@ -44,12 +44,9 @@ Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
   return ContractKeyword::None;
 }
 
-void Parser::MaybeLateParseFunctionContractSpecifierSeq(
-    Declarator &DeclaratorInfo) {
+void Parser::LateParseFunctionContractSpecifierSeq(CachedTokens &Toks) {
   while (isContractKeyword(Tok)) {
-    CachedTokens Toks;
-    if (!LateParseFunctionContractSpecifier(
-            DeclaratorInfo, DeclaratorInfo.LateParsedContracts)) {
+    if (!LateParseFunctionContractSpecifier(Toks)) {
       return;
     }
   }
@@ -67,8 +64,7 @@ getContractKeywordInfo(Parser::ContractKeyword CK) {
   }
 }
 
-bool Parser::LateParseFunctionContractSpecifier(Declarator &DeclaratorInfo,
-                                                CachedTokens &Toks) {
+bool Parser::LateParseFunctionContractSpecifier(CachedTokens &Toks) {
   auto [CK, CKStr] = getContractKeywordInfo(getContractKeyword(Tok));
 
   // Consume and cache the starting token.
