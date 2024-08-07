@@ -11912,14 +11912,15 @@ def err_ericwf_unimplemented : Error<
 >;
 def warn_ericwf_unimplemented : Warning<
   "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
->;
+>, InGroup<EricWFFixme>;
 
 def err_ericwf_fixme : Error<
   "woops... FIXME(EricWF): %0"
 >;
 def warn_ericwf_fixme : Warning<
   "woops... FIXME(EricWF): %0"
->;
+>, InGroup<EricWFFixme>;
+
 def err_result_name_shadows_param : Error<
   "declaration of result name %0 shadows parameter">;
 def err_void_result_name : Error<
@@ -11944,21 +11945,18 @@ def err_contract_group_attribute_invalid_group : Error<
 
 def err_contract_violation : Error<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">;
 def warn_contract_violation : Warning<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">,
-    ShowInSystemHeader, ShowInSystemMacro,
     InGroup<ContractViolation>;
 
 def err_contract_requirement_failed : Error<
   "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">;
 def warn_contract_requirement_failed : Warning<
   "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">,
-  ShowInSystemHeader, ShowInSystemMacro,
   InGroup<ContractViolation>;
 
 def err_constexpr_contract_failure : Error<
   "contract failed during execution of constexpr function">;
 def warn_constexpr_contract_failure : Warning<
     "contract failed during execution of constexpr function">,
-    ShowInSystemHeader, ShowInSystemMacro,
     InGroup<ContractViolation>;
 
 def err_initialization_of_constant_initialized_variable_failed : Error<
@@ -11986,6 +11984,11 @@ def note_previous_contracts : Note<
 
 def err_contract_attr_bool_arg_not_constant : Error<
   "argument to '%0' attribute must be a boolean constant expression">;
+
+def warn_contract_always_evaluates_to : Warning<
+  "contract condition always evaluates to %select{false|true}0">,
+  InGroup<ContractViolation>;
+
 
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {

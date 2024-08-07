@@ -842,7 +842,8 @@ void Sema::ProcessStmtAttributes(Stmt *S, const ParsedAttributes &InAttrs,
 
   CheckForIncompatibleAttributes(*this, OutAttrs);
   CheckForDuplicateLoopAttrs<CodeAlignAttr>(*this, OutAttrs);
-  CheckForDuplicateAndIncompatibleContractAttrs(*this, OutAttrs);
+  if (isa<ContractStmt>(S))
+    CheckForDuplicateAndIncompatibleContractAttrs(*this, OutAttrs);
 }
 
 bool Sema::CheckRebuiltStmtAttributes(ArrayRef<const Attr *> Attrs) {

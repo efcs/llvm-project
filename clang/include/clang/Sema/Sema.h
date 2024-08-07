@@ -2763,9 +2763,14 @@ public:
   // things around in the implementation.
   void ActOnFinishContractSpecifierSequence(
       SmallVector<ContractStmt *> ContractStmts);
+  void ActOnFinishLateParsedContractSpecifierSequence(
+    SmallVector<ContractStmt*> Contracts, FunctionDecl *FD);
+
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
-  void ActOnContractsOnMergeFunctionDecl(NamedDecl *OrigDecl,
-                                         NamedDecl *NewDecl);
+  void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
+                                         FunctionDecl *NewDecl);
+
+  void RebuildFunctionContractsAfterReturnTypeDeduction(FunctionDecl *FD);
 
   ///@}
 
@@ -6524,17 +6529,23 @@ public:
   }
 
   bool isContractAssertionContext() const {
-    return ExprEvalContexts.back().InContractAssertion;
+    return ExprEvalContexts.back().isContractAssertionContext();
+  }
+
+  bool isConstificationContext() const {
+    return ExprEvalContexts.back().isConstificationContext();
   }
 
   struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S);
+    ContractScopeRAII(Sema &S, bool ReplaceThis = false);
     ~ContractScopeRAII();
 
   private:
     ContractScopeRAII(ContractScopeRAII const &) = delete;
 
     Sema &S;
+    bool OldValue;
+    QualType OldCXXThisType;
   };
 
   /// Increment when we find a reference; decrement when we find an ignored

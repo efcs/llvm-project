@@ -448,8 +448,10 @@ DEFAULT_PARAMETERS = [
         help="Whether to enable contracts when compiling the test suite.",
         actions=lambda use_contracts: [] if not use_contracts else [
             AddCompileFlag("-fcontracts"),
+            AddCompileFlag('-fcolor-diagnostics'),
             AddFeature("contracts"),
-            AddCompileFlag("-fcontract-group-evaluation-semantic=std=enforce")
+            AddCompileFlag("-fcontract-group-evaluation-semantic=std=enforce"),
+            AddCompileFlag("-flate-parsed-contracts")
         ],
     )
 ]

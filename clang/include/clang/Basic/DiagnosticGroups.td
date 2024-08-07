@@ -1572,5 +1572,9 @@ def ExtractAPIMisuse : DiagGroup<"extractapi-misuse">;
 def ExplicitSpecializationStorageClass : DiagGroup<"explicit-specialization-storage-class">;
 
 // Warnings produced by failing "observe" contract violations
-def ContractWarning : DiagGroup<"contracts">;
+
 def ContractViolation : DiagGroup<"contract-violation">;
+
+def ContractWarning : DiagGroup<"contracts", [ContractViolation]>;
+
+def EricWFFixme : DiagGroup<"ericwf-fixme">;

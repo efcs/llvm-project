@@ -17,7 +17,7 @@
 // XFAIL: target={{armv(7|8)l-linux-gnueabihf}}
 
 // This is way to freaking long of a test...
-// UNSUPPORTED: *
+// REQUIRES: No_Never_Dont_Run_This_Ever
 
 #include <chrono>
 #include <format>

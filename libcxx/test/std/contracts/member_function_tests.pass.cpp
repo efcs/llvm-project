@@ -130,13 +130,13 @@ namespace member_lifetime_test {
 struct S : CAliveCounter<"Base"> {
   using Base = CAliveCounter<"Base">;
 
-  S(CAliveCounter<"Param"> param)
+  S(CAliveCounter<"Param">)
   pre(eq(CounterGroup<"Base", "Mem", "Param">, {0, 0, 1})) post(eq(CounterGroup<"Base", "Mem", "Param">, {1, 1, 1})) {
     auto CounterList = CounterGroup<"Base", "Mem", "Param">;
     assert(eq(CounterList, {1, 1, 1}));
   }
 
-  void f(CAliveCounter<"Param"> AC, CAliveCounter<"Param"> AC2)
+  void f(CAliveCounter<"Param">, CAliveCounter<"Param">)
       pre(eq(CounterGroup<"Base", "Mem", "Param", "Local">, {1, 1, 2, 0}))
           post(eq(CounterGroup<"Base", "Mem", "Param", "Local">, {1, 1, 2, 0})) {
     auto CounterList = CounterGroup<"Mem", "Base", "Param", "Local">;

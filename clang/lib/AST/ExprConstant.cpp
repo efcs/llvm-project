@@ -5207,11 +5207,10 @@ static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
     return true;
 
   const Expr *E = S->getCond();
-  APSInt Desired;
-  if (!EvaluateInteger(E, Desired, Info)) {
+  bool Result;
+  if (!EvaluateCond(Info,nullptr, E, Result))
     return false;
-  }
-  if (!Desired) {
+  if (!Result) {
     Info.CCEDiag(E, Sem == CES::Observe ? diag::warn_constexpr_contract_failure
                                         : diag::err_constexpr_contract_failure)
         << E->getSourceRange();

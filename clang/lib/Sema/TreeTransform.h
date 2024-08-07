@@ -8596,9 +8596,15 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
 
 template <typename Derived>
 StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
   EnterExpressionEvaluationContext Unevaluated(
-      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
-      nullptr);
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
 
   Sema::ContractScopeRAII ContractScope(getSema());
 
@@ -8609,18 +8615,15 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
       return StmtError();
   }
 
-  ExprResult OperandResult = getDerived().TransformExpr(S->getCond());
-  if (OperandResult.isInvalid())
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
     return StmtError();
 
-  SmallVector<const Attr *> NewAttrs;
-  for (auto *A : S->getAttrs())
-    NewAttrs.push_back(getDerived().TransformAttr(A));
+  Cond = CondRes.get().second;
 
-  // Always rebuild; we don't know if this needs to be injected into a new
-  // context or if the promise type has changed.
   return getDerived().RebuildContractStmt(
-      S->getContractKind(), S->getKeywordLoc(), OperandResult.get(),
+      S->getContractKind(), S->getKeywordLoc(), Cond,
       cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
 }
 

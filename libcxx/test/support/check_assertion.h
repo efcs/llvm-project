@@ -106,7 +106,7 @@ MatchResult ContainsMessage(const std::string& text, std::string const& expected
   if (!has_match) {
     std::stringstream matching_error;
     matching_error                                                     //
-        << "Expected message:   '" << expected_message.data() << "'\n" //
+        << "Expected message:   '" << expected_message << "'\n" //
         << "Actual message:     '" << text << "'\n";                   //
     return MatchResult(/*success=*/false, matching_error.str());
   }
@@ -126,9 +126,19 @@ Matcher MakeAnyMessageMatcher(std::string assertion_message) {
   };
 }
 
+std::string ReplaceWhitespaceAndQuotes(std::string const& S) {
+  std::string N;
+  N.reserve(S.size());
+  for (char c : S) {
+    if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '"'))
+      N += c;
+  }
+  return N;
+}
+
 Matcher MakeContainsMessageMatcher(std::string assertion_message) {
   return [=](const std::string& text) { //
-    return ContainsMessage(text, assertion_message);
+    return ContainsMessage(ReplaceWhitespaceAndQuotes(text), ReplaceWhitespaceAndQuotes(assertion_message));
   };
 }
 
@@ -138,28 +148,23 @@ Matcher MakeAnyMatcher() {
   };
 }
 
-enum class DeathCause {
+enum class DeathCause : unsigned {
   // Valid causes
   VerboseAbort = 1,
   StdAbort,
-  StdTerminate,
+  StdTerminate ,
   Trap,
   // Invalid causes
   DidNotDie,
-  SetupFailure,
-  Unknown
+  SetupFailure ,
+  Unknown,
 };
 
+
+
 bool IsValidCause(DeathCause cause) {
-  switch (cause) {
-  case DeathCause::VerboseAbort:
-  case DeathCause::StdAbort:
-  case DeathCause::StdTerminate:
-  case DeathCause::Trap:
-    return true;
-  default:
-    return false;
-  }
+  return cause == DeathCause::VerboseAbort || cause == DeathCause::StdAbort || cause == DeathCause::StdTerminate ||
+         cause == DeathCause::Trap ;
 }
 
 std::string ToString(DeathCause cause) {
@@ -432,6 +437,9 @@ bool ExpectDeath(DeathCause expected_cause, const char* stmt, Func&& func) {
   return ExpectDeath(std::array<DeathCause, 1>{expected_cause}, stmt, func, MakeAnyMatcher());
 }
 
+constexpr std::array<DeathCause, 4> AnyDeathCause = {DeathCause::VerboseAbort, DeathCause::StdAbort,
+                                                       DeathCause::StdTerminate, DeathCause::Trap};
+
 // clang-format off
 
 /// Assert that the specified expression aborts with the expected cause and, optionally, error message.
@@ -446,13 +454,13 @@ bool ExpectDeath(DeathCause expected_cause, const char* stmt, Func&& func) {
 #define EXPECT_STD_TERMINATE(...)                 \
     assert(  ExpectDeath(DeathCause::StdTerminate, #__VA_ARGS__, __VA_ARGS__)  )
 
-#if (defined(_LIBCPP_HARDENING_MODE) && _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG)
-#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
-    assert(( ExpectDeath(DeathCause::VerboseAbort, #expr, [&]() { (void)(expr); }, MakeAssertionMessageMatcher(message)) ))
-#elif defined(USE_CONTRACTS)
+#if defined(USE_CONTRACTS)
 #undef USE_CONTRACTS
 #define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
-    assert(( ExpectDeath(DeathCause::StdTerminate, #expr, [&]() { (void)(expr); }, MakeContainsMessageMatcher(message)) ))
+    assert(( ExpectDeath(::AnyDeathCause, #expr, [&]() { (void)(expr); }, MakeContainsMessageMatcher(message)) ))
+#elif (defined(_LIBCPP_HARDENING_MODE) && _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG)
+#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
+    assert(( ExpectDeath(DeathCause::VerboseAbort, #expr, [&]() { (void)(expr); }, MakeAssertionMessageMatcher(message)) ))
 #else
 #define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
     assert(( ExpectDeath(DeathCause::Trap,         #expr, [&]() { (void)(expr); }) ))

@@ -3261,9 +3261,12 @@ private:
   void ParseFunctionDeclarator(Declarator &D, ParsedAttributes &FirstArgAttrs,
                                BalancedDelimiterTracker &Tracker,
                                bool IsAmbiguous, bool RequiresArg = false);
+public:
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
       std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst = false);
+
+private:
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,
                          SourceLocation &RefQualifierLoc);
   bool isFunctionDeclaratorIdentifierList();

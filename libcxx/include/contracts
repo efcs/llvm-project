@@ -5,6 +5,10 @@
 #include <source_location>
 #include <version>
 
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
+
 namespace std::contracts {
 
 enum class assertion_kind : unsigned char { __unknown = 0, pre = 1, post = 2, assert = 3 };

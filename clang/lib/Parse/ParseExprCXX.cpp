@@ -1624,6 +1624,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   StmtResult Stmt(ParseCompoundStatementBody());
 
+
   BodyScope.Exit();
   TemplateParamScope.Exit();
   LambdaScope.Exit();
@@ -1636,13 +1637,18 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (!Lambda.isUsable())
       return Lambda;
 
-    auto *LE = cast<LambdaExpr>(Lambda.get());
+    auto *LE = dyn_cast_or_null<LambdaExpr>(Lambda.get());
+    if (!LE) {
+      return Lambda;
+    }
 
     if (!D.LateParsedContracts.empty()) {
-      // assert(!LE->getCallOperator()->getReturnType()->isUndeducedAutoType()
-      // );
       ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator());
     }
+    assert(LE->getCallOperator() && "LambdaExpr has no call operator");
+    assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");
+
+
     return Lambda;
   }
 

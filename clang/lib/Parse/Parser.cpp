@@ -1540,6 +1540,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
       FunctionToPush; // dyn_cast_or_null<FunctionDecl>(FuncWithBody);
   assert(FD);
   if (!D.LateParsedContracts.empty()) {
+    assert(getLangOpts().LateParsedContracts);
     assert(!FD->getReturnType()->isUndeducedAutoType());
     ParseLexedFunctionContracts(D.LateParsedContracts, FD);
   }

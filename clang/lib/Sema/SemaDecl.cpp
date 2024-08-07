@@ -15925,7 +15925,8 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
         }
       }
 
-      ActOnContractsOnFinishFunctionBody(FD);
+      if (!getLangOpts().LateParsedContracts && !IsInstantiation)
+        ActOnContractsOnFinishFunctionBody(FD);
 
       // If the function implicitly returns zero (like 'main') or is naked,
       // don't complain about missing return statements.

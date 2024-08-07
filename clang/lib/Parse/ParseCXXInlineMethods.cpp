@@ -625,14 +625,15 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
 
     while (isContractKeyword(Tok)) {
       StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
-      if (Contract.isUsable()) {
+      if (!Contract.isInvalid()) {
         Contracts.push_back(Contract.getAs<ContractStmt>());
       } else {
         FunctionToPush->setInvalidDecl(true);
       }
     }
+    if (!FunctionToPush->isInvalidDecl())
+      Actions.ActOnFinishLateParsedContractSpecifierSequence(Contracts, FunctionToPush);
 
-    FunctionToPush->setContracts(Contracts);
     // There could be leftover tokens (e.g. because of an error).
     // Skip through until we reach the original token position.
     while (Tok.isNot(tok::eof))

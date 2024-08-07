@@ -71,6 +71,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include "clang/Basic/EricWFDebug.h"
 
 using namespace clang;
 
@@ -2026,6 +2027,7 @@ void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
 
   // FIXME(EricWF): This should be empty already
   auto &Contracts = getExtInfo()->Contracts;
+
 #if 0
   assert(
       Contracts.empty() || NewContracts.size() == Contracts.size() ||

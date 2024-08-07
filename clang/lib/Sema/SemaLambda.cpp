@@ -790,6 +790,7 @@ QualType Sema::buildLambdaInitCaptureInitialization(
   TypeLocBuilder TLB;
   AutoTypeLoc TL = TLB.push<AutoTypeLoc>(DeductType);
   TL.setNameLoc(Loc);
+  assert(!this->isContractAssertionContext());
   if (ByRef) {
     DeductType = BuildReferenceType(DeductType, true, Loc, Id);
     assert(!DeductType.isNull() && "can't build reference to auto");

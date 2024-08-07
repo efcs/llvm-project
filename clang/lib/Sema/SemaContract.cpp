@@ -69,15 +69,29 @@ public:
 };
 
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
+  assert(currentEvaluationContext().isContractAssertionContext() &&
+         "Wrong context for statement");
   //assert(getCurScope()->isContractAssertScope() && "Incorrect scope for contract assert");
   if (Cond->isTypeDependent())
     return Cond;
 
+  ConditionResult Res = ActOnCondition(getCurScope(), Cond->getExprLoc(), Cond, Sema::ConditionKind::Boolean, /*MissingOK=*/false);
+  if (Res.isInvalid())
+    return ExprError();
+  Cond = Res.get().second;
+  assert(Cond);
+  if (auto KnownValue = Res.getKnownValue(); KnownValue.has_value()) {
+    Diag(Cond->getExprLoc(), diag::warn_ericwf_fixme) <<
+      (std::string("Condition always evaluates to ") + (*KnownValue ? "true" : "false")) << Cond;
+  }
+  return Cond;
+#if 0
   ExprResult E = PerformContextuallyConvertToBool(Cond);
   if (E.isInvalid()) {
     return E;
   }
   return ActOnFinishFullExpr(E.get(), /*DiscardedValue=*/false);
+#endif
 }
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
@@ -85,13 +99,9 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    ArrayRef<const Attr *> Attrs) {
   assert((CK == ContractKind::Post || ResultNameDecl == nullptr) &&
          "ResultNameDecl only allowed for postconditions");
-  assert(currentEvaluationContext().isContractAssertionContext() &&
-         "Wrong context for statement");
-  ExprResult E = ActOnContractAssertCondition(Cond);
-  if (E.isInvalid())
-    return StmtError();
 
-  return ContractStmt::Create(Context, CK, KeywordLoc, E.get(), ResultNameDecl,
+
+  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, ResultNameDecl,
                               Attrs);
 }
 
@@ -140,7 +150,29 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
   }
 
   if (RetType->isUndeducedAutoType()) {
-    Diag(IDLoc, diag::err_ericwf_unimplemented) << "Undeduced Auto Result Name";
+    if (!getLangOpts().LateParsedContracts) {
+      Diag(IDLoc, diag::err_ericwf_unimplemented)
+          << "Undeduced Auto Result Name";
+      return StmtError();
+
+    }
+    FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurContext);
+    if (!FD) {
+      Diag(IDLoc, diag::err_ericwf_unimplemented)
+          << "Undeduced Auto Result Name";
+      return StmtError();
+    }
+    if (!FD->isDependentContext()) {
+      if (DeduceReturnType(FD, IDLoc, /*Diagose=*/true))
+        return StmtError();
+
+      RetType = FD->getReturnType();
+      if (RetType->isUndeducedAutoType()) {
+        Diag(IDLoc, diag::err_ericwf_unimplemented)
+            << "Failed to deduce return type";
+        return StmtError();
+      }
+    }
   }
 
 
@@ -168,21 +200,10 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
       }
     }
   }
-
-  // Temporarily put parameter variables in the translation unit, not
-  // the enclosing context.  This prevents them from accidentally
-  // looking like class members in C++.
-
   auto *New = ResultNameDecl::Create(Context, CurContext,
                      IDLoc, II, RetType);
 
-  // CheckExplicitObjectParameter(*this, New, ExplicitThisLoc);
-
   assert(S->isContractAssertScope());
-  // assert(S->isFunctionPrototypeScope());
-  // assert(S->getFunctionPrototypeDepth() >= 1);
-  // New->setDeclContext(getScopeForContext(S->getFunctionPrototypeDepth() - 1),
-  //                  S->getNextFunctionPrototypeIndex());
 
   // Add the parameter declaration into this scope.
   S->AddDecl(New);
@@ -193,19 +214,6 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
 
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                            FunctionDecl *NewDecl) {
-
-  auto GetFuncTP = [&](auto FD) {
-    if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(FD))
-      return FunTmpl->getTemplatedDecl();
-    else
-      return cast<FunctionDecl>(FD);
-  };
-  ((void)GetFuncTP);
-  auto OT = dyn_cast<FunctionTemplateDecl>(OrigDecl);
-  auto NT = dyn_cast<FunctionTemplateDecl>(NewDecl);
-  if (OT && NT && NT != OT) {
-    assert(false);
-  }
 
   ArrayRef<const ContractStmt *> OrigContracts = OrigDecl->getContracts();
   ArrayRef<const ContractStmt *> NewContracts = NewDecl->getContracts();
@@ -336,6 +344,36 @@ void Sema::ActOnFinishContractSpecifierSequence(
   }
 }
 
+void Sema::ActOnFinishLateParsedContractSpecifierSequence(
+    SmallVector<ContractStmt *> Contracts, FunctionDecl *FD) {
+  if (Contracts.empty())
+    return;
+  if (FD->hasContracts()) {
+    FD->dumpColor();
+    for (auto *CS : Contracts)
+      CS->dumpColor();
+  }
+  assert(FD && "Expected a function declaration");
+  assert(!FD->hasContracts() && "This function should add the contracts");
+  ActOnFinishContractSpecifierSequence(Contracts);
+  FD->setContracts(Contracts);
+
+  // Find the declaration we want to diagnose contract mismatches against.
+  // If the contracts are only present the first declaration, use that one.
+  // Othewise, use the most recent declaration.
+  auto DeclForDiagnosis = [&]() {
+    FunctionDecl *PrevDecl = FD->getFirstDecl();
+    if (PrevDecl && PrevDecl != FD && PrevDecl->hasContracts()) {
+      if (FD->getPreviousDecl()->hasContracts())
+        PrevDecl = FD->getPreviousDecl();
+    }
+    return PrevDecl == FD ? nullptr : PrevDecl;
+  }();
+
+  if (DeclForDiagnosis && CheckEquivalentContractSequence(DeclForDiagnosis, FD))
+      FD->setInvalidDecl(true);
+}
+
 namespace {
 /// RebuildFunctionContracts - A terrible hack to re-bind (NOT rebuild) the
 /// ParmVarDecl references in a contract to the new ParmVarDecls.
@@ -364,6 +402,10 @@ struct RebuildFunctionContracts
 };
 } // namespace
 
+void Sema::RebuildFunctionContractsAfterReturnTypeDeduction(FunctionDecl *FD) {
+
+}
+
 // ActOnContractsOnFinishFunctionBody
 //
 // This function ensures there is a usable version of the
@@ -384,21 +426,35 @@ struct RebuildFunctionContracts
 // This is probably BAD BAD NOT GOOD.
 // But it works nicely.
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
+
   auto *First = Def->getFirstDecl();
-  if (First == Def || !First->hasContracts() || Def->hasContracts())
+  if (!Def->getFirstDecl()->hasContracts())
     return;
 
-  assert(Def->hasBody() && Def->isThisDeclarationADefinition());
-
-  RebuildFunctionContracts Rebuilder(*this, First, Def);
-  for (auto *CS : First->getContracts()) {
-    Rebuilder.TraverseStmt(CS);
+  if (First != Def && First && Def->isThisDeclarationADefinition()
+    && First->hasContracts() && !Def->hasContracts()) {
+    RebuildFunctionContracts Rebuilder(*this, First, Def);
+    for (auto *CS : First->getContracts()) {
+      Rebuilder.TraverseStmt(CS);
+    }
+    Def->setContracts(First->getContracts());
   }
-  Def->setContracts(First->getContracts());
+
+  for (auto *CS : Def->getContracts()) {
+    if (CS->hasResultName()) {
+      auto *RND = CS->getResultName();
+      if (RND->getType()->isUndeducedAutoType()) {
+        Diag(RND->getLocation(), diag::err_ericwf_unimplemented) << "Undeduced Auto Result Name";
+      }
+    }
+  }
+
+
+
 }
 
-void Sema::ActOnContractsOnMergeFunctionDecl(NamedDecl *OrigDecl,
-                                             NamedDecl *NewDecl) {
+void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
+                                             FunctionDecl *NewDecl) {
   auto *OrigFD = dyn_cast<FunctionDecl>(OrigDecl);
   auto *NewFD = dyn_cast<FunctionDecl>(NewDecl);
   if (!OrigFD && !NewFD)
@@ -407,16 +463,28 @@ void Sema::ActOnContractsOnMergeFunctionDecl(NamedDecl *OrigDecl,
     CheckEquivalentContractSequence(OrigFD, NewFD);
     return;
   }
+  assert(false);
 }
 
-Sema::ContractScopeRAII::ContractScopeRAII(Sema &S) : S(S) {
-  assert(S.ExprEvalContexts.back().InContractAssertion == false);
+Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
+  : S(S), OldValue(S.ExprEvalContexts.back().InContractAssertion), OldCXXThisType(S.CXXThisTypeOverride) {
   S.ExprEvalContexts.back().InContractAssertion = true;
+  if (!S.CXXThisTypeOverride.isNull()) {
+    assert(S.CXXThisTypeOverride->isPointerType());
+    QualType ClassType = S.CXXThisTypeOverride->getPointeeType();
+    if (not ClassType.isConstQualified()) {
+      // If the 'this' object is const-qualified, we need to remove the
+      // const-qualification for the contract check.
+      ClassType.addConst();
+      S.CXXThisTypeOverride = S.Context.getPointerType(ClassType);
+    }
+  }
 }
 
 Sema::ContractScopeRAII::~ContractScopeRAII() {
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
-  S.ExprEvalContexts.back().InContractAssertion = false;
+  S.ExprEvalContexts.back().InContractAssertion = OldValue;
+  S.CXXThisTypeOverride = OldCXXThisType;
 }
 
 namespace {} // end namespace

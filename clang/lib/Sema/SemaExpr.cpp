@@ -3205,11 +3205,11 @@ static ContractConstification getContractConstification(Sema &S,
                                                         const ValueDecl *VD) {
   assert(VD);
 
-  if (!S.isContractAssertionContext() || S.isUnevaluatedContext())
+  if (!S.isConstificationContext())
     return CC_None;
 
   if (auto Var = dyn_cast<VarDecl>(VD)) {
-    if (Var->isLocalVarDeclOrParm())
+    if (Var->isLocalVarDeclOrParm() && !Var->getType()->isReferenceType())
       return CC_ApplyConst;
   }
 
@@ -3364,21 +3364,19 @@ ExprResult Sema::BuildDeclarationNameExpr(
     valueKind = VK_LValue;
     type = type.getNonReferenceType();
 
+
     // FIXME: Does the addition of const really only apply in
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
       CC = getContractConstification(*this, cast<VarDecl>(VD));
       if (CC == CC_ApplyConst)
-        type = type.withConst();
-
+        type.addConst();
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
       else {
-        CC = getContractConstification(*this, cast<VarDecl>(VD));
-        if (CC == CC_ApplyConst)
-          type = type.getNonReferenceType().withConst();
+
       }
     }
 
@@ -17194,6 +17192,101 @@ TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
   return TransformToPE(*this).TransformType(TInfo);
 }
 
+#define ENT(X) case Sema::ExpressionEvaluationContext::X: return #X
+static StringRef ToString(Sema::ExpressionEvaluationContext Ctx) {
+  switch (Ctx) {
+  ENT(Unevaluated);
+  ENT(UnevaluatedList);
+  ENT(UnevaluatedAbstract);
+  ENT(DiscardedStatement);
+  ENT(ConstantEvaluated);
+  ENT(ImmediateFunctionContext);
+  ENT(PotentiallyEvaluated);
+  ENT(PotentiallyEvaluatedIfUsed);
+  }
+  llvm_unreachable("All cases handeled");
+}
+#undef ENT
+
+#define ENT(X) case Sema::ExpressionEvaluationContextRecord::X: return #X
+static StringRef ToString(Sema::ExpressionEvaluationContextRecord::ExpressionKind EK) {
+  switch (EK) {
+  ENT(EK_Decltype);
+  ENT(EK_AttrArgument);
+  ENT(EK_Other);
+  ENT(EK_TemplateArgument);
+  }
+  llvm_unreachable("all cases handled");
+}
+#undef ENT
+
+static StringRef ToString(bool B) {
+  return B ? "true" : "false";
+}
+
+struct StaticData {
+  unsigned LastDepth = 0;
+};
+
+StaticData Data = {};
+
+[[maybe_unused]] static void Dump(Sema& S) {
+  unsigned int CurDepth = S.ExprEvalContexts.size();
+  auto DoDump = [](const auto &Record, int Depth) {
+    static const char *const Banner =
+        "\n================================================================\n";
+    llvm::errs() << Banner;
+    llvm::errs() << "Entering Eval Context: (Depth: " << Depth << ") "
+                 << &Record << "\n";
+    llvm::errs() << "  Context    : " << ToString(Record.Context) << "\n";
+    llvm::errs() << "  Kind       : " << ToString(Record.ExprContext) << "\n";
+    llvm::errs() << "  InContract : " << ToString(Record.InContractAssertion)
+                 << "\n";
+    llvm::errs() << "  Discarded  : "
+                 << ToString(Record.isDiscardedStatementContext()) << "\n";
+    llvm::errs() << "  # Lambdas  : " << Record.Lambdas.size() << "\n";
+    llvm::errs() << "  Mangle Ctx : " << Record.ManglingContextDecl;
+    if (Record.ManglingContextDecl) {
+      Record.ManglingContextDecl->dumpColor();
+    }
+    llvm::errs() << Banner;
+  };
+  [&]() {
+    unsigned int ContractDepth = 0;
+    bool InAssert = false;
+    int Idx = 0;
+    for (auto &Record : llvm::reverse(S.ExprEvalContexts)) {
+
+      if (Record.InContractAssertion) {
+        ++ContractDepth;
+        if (!InAssert) {
+          llvm::errs() << "Flipping to true at index: " << Idx << "\n";
+        }
+        InAssert = true;
+      } else {
+        if (InAssert) {
+          llvm::errs() << "Flipping to false at index: " << Idx << "\n";
+        }
+        InAssert = false;
+      }
+      ++Idx;
+    }
+    llvm::errs() << "Ended with broken depth of: " << ContractDepth << "\n";
+  }();
+   if (CurDepth > Data.LastDepth) {
+    for (unsigned int i = Data.LastDepth; i < CurDepth; ++i) {
+      DoDump(S.ExprEvalContexts[i], i);
+    }
+  }
+  else {
+    for (unsigned int i = Data.LastDepth > 2 ? Data.LastDepth - 2 : 0; i < CurDepth; ++i) {
+      DoDump(S.ExprEvalContexts[i], i);
+    }
+  }
+  Data.LastDepth = CurDepth;
+
+}
+
 void
 Sema::PushExpressionEvaluationContext(
     ExpressionEvaluationContext NewContext, Decl *LambdaContextDecl,
@@ -17218,7 +17311,7 @@ Sema::PushExpressionEvaluationContext(
   ExprEvalContexts.back().InImmediateEscalatingFunctionContext =
       Prev.InImmediateEscalatingFunctionContext;
 
-  ExprEvalContexts.back().InContractAssertion = Prev.InContractAssertion;
+  assert(!ExprEvalContexts.back().InContractAssertion);
 
   Cleanup.reset();
   if (!MaybeODRUseExprs.empty())
