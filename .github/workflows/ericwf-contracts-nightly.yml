@@ -36,7 +36,7 @@ jobs:
           echo "Done"
 
       - name: Test clang
-        uses: ./.github/workflows/llvm-project-tests.yml
+        uses: ./.github/workflows/llvm-project-tests.yml@eric-contracts
         with:
           build_target: check-clang
           projects: clang
