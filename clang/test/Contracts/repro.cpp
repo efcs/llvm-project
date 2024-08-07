@@ -1,12 +1,11 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only -flate-parsed-contracts -verify=expected -verify=lateerr
-// RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only  -fno-late-parsed-contracts -verify=todoerr -verify=expected
+// RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only -flate-parsed-contracts -verify=expected,lateerr
+// RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only  -fno-late-parsed-contracts -verify=expected,todoerr
 constexpr int g(int x) pre(x); // expected-note 0-1 {{with fewer contracts here (1 vs 2)}}
 constexpr int g(int y) pre(y);
 
 template <typename T>
 constexpr int f() pre(T{}) {};
 // todoerr-note@-1 {{contract previously specified with a non-equivalent condition}}
-// todoerr-warning@-2 0 {{return a value}}
 
 template <typename U>
 constexpr int f() pre(U{} + 1); // todoerr-error {{function redeclaration differs in contract specifier sequence}}
