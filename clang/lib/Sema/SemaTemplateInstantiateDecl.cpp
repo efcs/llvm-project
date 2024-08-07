@@ -5202,6 +5202,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
             NewContracts.push_back(NS);
           }
         }
+        SemaRef.ActOnFinishContractSpecifierSequence(NewContracts);
         Function->setContracts(NewContracts);
       }
 

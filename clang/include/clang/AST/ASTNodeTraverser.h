@@ -727,8 +727,8 @@ public:
   }
 
   void VisitContractStmt(const ContractStmt *S) {
-    if (S->hasResultNameDecl())
-      Visit(S->getResultNameDecl());
+    if (S->hasResultName())
+      Visit(S->getResultName());
     Visit(S->getCond());
   }
 

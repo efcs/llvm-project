@@ -4754,8 +4754,7 @@ enum class SourceLocIdentKind {
   FileName,
   Line,
   Column,
-  SourceLocStruct,
-  BuiltinSourceLocStruct
+  SourceLocStruct
 };
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
@@ -4792,7 +4791,6 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
-    case SourceLocIdentKind::BuiltinSourceLocStruct:
       return false;
     case SourceLocIdentKind::Line:
     case SourceLocIdentKind::Column:
@@ -4827,7 +4825,6 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
-    case SourceLocIdentKind::BuiltinSourceLocStruct:
       return true;
     default:
       return false;

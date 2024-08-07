@@ -1529,7 +1529,16 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   Decl *FuncWithBody = ParseFunctionStatementBody(Res, BodyScope);
   if (!FuncWithBody || FuncWithBody->isInvalidDecl())
     return FuncWithBody;
-  FunctionDecl *FD = cast<FunctionDecl>(FuncWithBody);
+  FunctionDecl *FunctionToPush;
+  if (FunctionTemplateDecl *FunTmpl =
+          dyn_cast<FunctionTemplateDecl>(FuncWithBody))
+    FunctionToPush = FunTmpl->getTemplatedDecl();
+  else
+    FunctionToPush = cast<FunctionDecl>(FuncWithBody);
+  assert(FunctionToPush);
+  FunctionDecl *FD =
+      FunctionToPush; // dyn_cast_or_null<FunctionDecl>(FuncWithBody);
+  assert(FD);
   if (!D.LateParsedContracts.empty()) {
     assert(!FD->getReturnType()->isUndeducedAutoType());
     ParseLexedFunctionContracts(D.LateParsedContracts, FD);

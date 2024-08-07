@@ -375,7 +375,7 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
   // of the catch block, detecting when we're inside the catch block to only
   // emit the violation.
 
-  ContractEvaluationSemantic Semantic = S.getSemantic(getLangOpts());
+  ContractEvaluationSemantic Semantic = S.getSemantic(getContext());
 
   // FIXME(EricWF): I think there's a lot more to do that simply this.
   if (Semantic == Ignore)

@@ -9,9 +9,15 @@ using namespace std::contracts;
 
 
 
-void test(int x) pre(x) post(x) { contract_assert(x); }
+int count = 0;
+bool counter(bool value) {
+  ++count;
+  return value;
+}
+
+void test(int x) pre(counter(x)) post(counter(x)) { contract_assert(counter(x)); }
 
 int main() {
-  test(0);
+  test(1);
   assert(count == 3);
 }

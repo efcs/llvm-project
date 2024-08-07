@@ -477,7 +477,7 @@ void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
 
   Record.AddSourceLocation(S->getKeywordLoc());
   Record.AddStmt(S->getCond());
-  if (S->hasResultNameDecl())
+  if (S->hasResultName())
     Record.AddStmt(S->getResultNameDeclStmt());
   Record.AddAttributes(S->getAttrs());
 

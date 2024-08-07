@@ -1588,8 +1588,10 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
 
-    LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-    // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+    if (getLangOpts().LateParsedContracts)
+      LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+    else
+      ParseContractSpecifierSequence(D, /*EnterScope=*/true);
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute
@@ -1622,14 +1624,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   StmtResult Stmt(ParseCompoundStatementBody());
 
-  if (!D.LateParsedContracts.empty()) {
-    SmallVector<ContractStmt *> Contracts;
-    auto QT = Actions.GetTypeForDeclarator(D)->getType();
-    QT.dump();
-    if (TrailingReturnType.isUsable())
-      QT = TrailingReturnType.get().get();
-    // ParseLexedFunctionContractsInScope(D.LateParsedContracts, Contracts, QT);
-  }
   BodyScope.Exit();
   TemplateParamScope.Exit();
   LambdaScope.Exit();
@@ -1643,8 +1637,10 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
       return Lambda;
 
     auto *LE = cast<LambdaExpr>(Lambda.get());
-    LE->getCallOperator()->getReturnType()->dump();
+
     if (!D.LateParsedContracts.empty()) {
+      // assert(!LE->getCallOperator()->getReturnType()->isUndeducedAutoType()
+      // );
       ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator());
     }
     return Lambda;

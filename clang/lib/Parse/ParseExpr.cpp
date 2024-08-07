@@ -1408,7 +1408,6 @@ ExprResult Parser::ParseCastExpression(CastParseKind ParseKind,
   case tok::kw___builtin_FUNCSIG:
   case tok::kw___builtin_LINE:
   case tok::kw___builtin_source_location:
-  case tok::kw___builtin_source_location2:
     if (NotPrimaryExpression)
       *NotPrimaryExpression = true;
     // This parses the complete suffix; we can return early.
@@ -2928,8 +2927,7 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
   case tok::kw___builtin_FUNCTION:
   case tok::kw___builtin_FUNCSIG:
   case tok::kw___builtin_LINE:
-  case tok::kw___builtin_source_location:
-  case tok::kw___builtin_source_location2: {
+  case tok::kw___builtin_source_location: {
     // Attempt to consume the r-paren.
     if (Tok.isNot(tok::r_paren)) {
       Diag(Tok, diag::err_expected) << tok::r_paren;
@@ -2952,8 +2950,6 @@ ExprResult Parser::ParseBuiltinPrimaryExpression() {
         return SourceLocIdentKind::Column;
       case tok::kw___builtin_source_location:
         return SourceLocIdentKind::SourceLocStruct;
-      case tok::kw___builtin_source_location2:
-        return SourceLocIdentKind::BuiltinSourceLocStruct;
       default:
         llvm_unreachable("invalid keyword");
       }

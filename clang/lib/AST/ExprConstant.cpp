@@ -5202,7 +5202,7 @@ static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
   if (!Info.EvaluateContracts)
     return true;
 
-  CES Sem = S->getSemantic(Ctx.getLangOpts());
+  CES Sem = S->getSemantic(Ctx);
   if (Sem == CES::Ignore)
     return true;
 
@@ -6390,9 +6390,8 @@ static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
   for (auto *S : Callee->getContracts()) {
     if (S->getContractKind() != ContractKind::Post)
       continue;
-    if (S->hasResultNameDecl()) {
-      CanonicalResultName =
-          S->getResultNameDecl()->getCanonicalResultNameDecl();
+    if (S->hasResultName()) {
+      CanonicalResultName = S->getResultName()->getCanonicalResultNameDecl();
       break;
     }
   }
@@ -11865,6 +11864,8 @@ static bool EvaluateIntegerOrLValue(const Expr *E, APValue &Result,
 }
 
 static bool EvaluateInteger(const Expr *E, APSInt &Result, EvalInfo &Info) {
+  if (E->isValueDependent())
+    E->dumpColor();
   assert(!E->isValueDependent());
   APValue Val;
   if (!EvaluateIntegerOrLValue(E, Val, Info))

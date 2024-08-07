@@ -4000,8 +4000,8 @@ void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
     for (auto *CA : FD->getContracts()) {
       if (CA->getContractKind() == ContractKind::Post) {
         PostContracts.push_back(CA);
-        if (CA->hasResultNameDecl() && !RND)
-          RND = CA->getResultNameDecl()->getCanonicalResultNameDecl();
+        if (CA->hasResultName() && !RND)
+          RND = CA->getResultName()->getCanonicalResultNameDecl();
       }
     }
   }

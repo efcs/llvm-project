@@ -2726,8 +2726,10 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
   }
 
   // FIXME(EricWF): Why is this here?
-
-  ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
+  if (getLangOpts().LateParsedContracts)
+    LateParseFunctionContractSpecifierSeq(DeclaratorInfo.LateParsedContracts);
+  else
+    ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {

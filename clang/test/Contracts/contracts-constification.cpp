@@ -1,25 +1,30 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts -fno-late-parsed-contracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts -flate-parsed-contracts
 
 
 
-constexpr int f(int x) post(r : r != 0) {
+
+constexpr int f(int x) post(r : r != 0) { // expected-error {{contract failed}}
   return x;
 }
 
 constexpr int do_test() {
   f(1); // OK
-  f(0); // Not OK
+  f(0); // expected-note {{in call}}
   return 42;
 }
 
-constexpr int anchor = do_test();
+constexpr int anchor = do_test(); // expected-error {{must be initialized}}
+// expected-note@-1 {{in call}}
 
 // not constified.
 int *y = nullptr;
 
 int foo() {
   int x = 42;
-  contract_assert(++x && y = &x); // expected-error {{read-only variable}}
+  contract_assert(
+    ++x && // expected-error {{read-only variable}}
+    (y = &x)); // expected-error {{discards qualifiers}}
 
 }
 
@@ -50,5 +55,3 @@ int foo(T v) {
   contract_assert((assert_same<decltype(v3), const int>(), true));
 }
 template int foo(int); // expected-note {{requested here}}
-
-constexpr int test = do_test();

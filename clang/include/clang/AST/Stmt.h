@@ -709,7 +709,7 @@ protected:
     /// The kind of source location builtin represented by the SourceLocExpr.
     /// Ex. __builtin_LINE, __builtin_FUNCTION, etc.
     LLVM_PREFERRED_TYPE(SourceLocIdentKind)
-    unsigned Kind : 4;
+    unsigned Kind : 3;
   };
 
   class StmtExprBitfields {
@@ -864,10 +864,7 @@ protected:
     LLVM_PREFERRED_TYPE(ContractKind)
     unsigned ContractKind : 2;
 
-    LLVM_PREFERRED_TYPE(bool)
-    unsigned ConditionCanThrow : 1;
-
-    enum { NumContractAssertBits = 4 };
+    enum { NumContractAssertBits = 3 };
 
     LLVM_PREFERRED_TYPE(unsigned)
     unsigned NumAttrs : 32 - NumStmtBits - NumContractAssertBits;

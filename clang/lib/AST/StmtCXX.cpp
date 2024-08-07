@@ -15,6 +15,7 @@
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/Lex/Preprocessor.h"
+#include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
 
@@ -131,8 +132,9 @@ CoroutineBodyStmt::CoroutineBodyStmt(CoroutineBodyStmt::CtorArgs const &Args)
 
 ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
                                         bool HasResultName, unsigned NumAttrs) {
-  void *Mem = C.Allocate(totalSizeToAlloc<void *>(1 + HasResultName + NumAttrs),
-                         alignof(ContractStmt));
+  void *Mem = C.Allocate(
+      totalSizeToAlloc<Stmt *, const Attr *>(1 + HasResultName, NumAttrs),
+      alignof(ContractStmt));
   return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName);
 }
 
@@ -142,44 +144,73 @@ ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
                                    ArrayRef<const Attr *> Attrs) {
   assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
          "Only a postcondition can have a result name declaration");
-  void *Mem = C.Allocate(
-      totalSizeToAlloc<void *>(1 + (ResultNameDecl != nullptr) + Attrs.size()),
-      alignof(ContractStmt));
+  void *Mem = C.Allocate(totalSizeToAlloc<Stmt *, const Attr *>(
+                             1 + (ResultNameDecl != nullptr), Attrs.size()),
+                         alignof(ContractStmt));
   return new (Mem)
       ContractStmt(Kind, KeywordLoc, Condition, ResultNameDecl, Attrs);
 }
 
-ResultNameDecl *ContractStmt::getResultNameDecl() const {
+ResultNameDecl *ContractStmt::getResultName() const {
   DeclStmt* D = getResultNameDeclStmt();
   assert(D);
   return cast<ResultNameDecl>(D->getSingleDecl());
 }
 
-StringRef ContractStmt::getContractGroup() const {
-  for (const Attr *A : getAttrs()) {
-    if (const auto *CA = dyn_cast<ContractGroupAttr>(A))
-      return CA->getGroup();
+std::string ContractStmt::getMessage(const clang::ASTContext &Ctx) const {
+  if (auto *A = getAttrAs<ContractMessageAttr>()) {
+    if (A->getIncludeSourceText()) {
+      return llvm::join_items("", getSourceText(Ctx), ": \"", A->getMessage(),
+                              '"');
+    }
+    return llvm::join_items("", '"', A->getMessage(), '"');
   }
-  return StringRef();
+  return getSourceText(Ctx);
 }
 
-ContractEvaluationSemantic
-ContractStmt::getSemantic(const LangOptions &LangOpts) const {
-  StringRef Group = getContractGroup();
-  if (Group.empty())
-    return LangOpts.ContractOpts.DefaultSemantic;
-  return LangOpts.ContractOpts.getSemanticForGroup(Group);
-}
-
-std::string ContractStmt::getMessage(const ASTContext &Ctx) const {
+std::string ContractStmt::getSourceText(const ASTContext &Ctx) const {
   auto &SM = Ctx.getSourceManager();
-  auto Begin = hasResultNameDecl() ? getResultNameDecl()->getBeginLoc()
-                                   : getCond()->getBeginLoc();
+  auto Begin = hasResultName() ? getResultName()->getBeginLoc()
+                               : getCond()->getBeginLoc();
   auto End = getCond()->getEndLoc();
-  SourceRange Range(Begin, End);
   CharSourceRange ExprRange = Lexer::getAsCharRange(
       SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
   std::string AssertStr =
       Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
   return AssertStr;
+}
+
+StringRef ContractStmt::ContractKindAsString(ContractKind K) {
+  switch (K) {
+  case ContractKind::Assert:
+    return "contract_assert";
+  case ContractKind::Pre:
+    return "pre";
+  case ContractKind::Post:
+    return "post";
+  }
+  llvm_unreachable("Unknown contract kind");
+}
+
+StringRef ContractStmt::SemanticAsString(ContractEvaluationSemantic Sem) {
+  switch (Sem) {
+  case ContractEvaluationSemantic::Ignore:
+    return "ignore";
+  case ContractEvaluationSemantic::Observe:
+    return "observe";
+  case ContractEvaluationSemantic::Enforce:
+    return "enforce";
+  case ContractEvaluationSemantic::QuickEnforce:
+    return "quick_enforce";
+  case ContractEvaluationSemantic::Invalid:
+    llvm_unreachable("cannot have invalid semantic");
+  }
+  llvm_unreachable("Unknown contract kind");
+}
+
+ContractEvaluationSemantic
+ContractStmt::getSemantic(const ASTContext &Ctx) const {
+  if (auto *A = getAttrAs<ContractGroupAttr>())
+    return Ctx.getLangOpts().ContractOpts.getSemanticForGroup(A->getGroup());
+  return Ctx.getLangOpts().ContractOpts.DefaultSemantic;
 }

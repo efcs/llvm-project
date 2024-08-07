@@ -53,8 +53,15 @@ using namespace sema;
 class clang::SemaContractHelper {
 public:
   static SmallVector<const Attr *>
-  buildAttributesWithDummyNode(Sema &S, ParsedAttributes &Attrs) {
+  buildAttributesWithDummyNode(Sema &S, ParsedAttributes &Attrs,
+                               SourceLocation Loc) {
+    // We shouldn't end up actually emitting any diagnostics pointing an the
+    // dummy node, but we need to have a valid source location for any
+    // diagnostics. (Pray they don't call getEndLoc()), which will attempt to
+    // read past the end of the buffer.
+
     ContractStmt Dummy(Stmt::EmptyShell(), ContractKind::Pre, false, 0);
+    Dummy.KeywordLoc = Loc;
     SmallVector<const Attr *> Result;
     S.ProcessStmtAttributes(&Dummy, Attrs, Result);
     return Result;
@@ -108,9 +115,10 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
         return StmtError();
   }
 
-  StmtResult Res = BuildContractStmt(
-      CK, KeywordLoc, Cond, ResultNameDecl,
-      SemaContractHelper::buildAttributesWithDummyNode(*this, CXX11Contracts));
+  StmtResult Res =
+      BuildContractStmt(CK, KeywordLoc, Cond, ResultNameDecl,
+                        SemaContractHelper::buildAttributesWithDummyNode(
+                            *this, CXX11Contracts, KeywordLoc));
 
   if (Res.isInvalid())
     return StmtError();
@@ -185,6 +193,20 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
 
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                            FunctionDecl *NewDecl) {
+
+  auto GetFuncTP = [&](auto FD) {
+    if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(FD))
+      return FunTmpl->getTemplatedDecl();
+    else
+      return cast<FunctionDecl>(FD);
+  };
+  ((void)GetFuncTP);
+  auto OT = dyn_cast<FunctionTemplateDecl>(OrigDecl);
+  auto NT = dyn_cast<FunctionTemplateDecl>(NewDecl);
+  if (OT && NT && NT != OT) {
+    assert(false);
+  }
+
   ArrayRef<const ContractStmt *> OrigContracts = OrigDecl->getContracts();
   ArrayRef<const ContractStmt *> NewContracts = NewDecl->getContracts();
 
@@ -221,7 +243,7 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
 
       if (OC->getContractKind() != NC->getContractKind())
         return DK_Kind;
-      if (OC->hasResultNameDecl() != NC->hasResultNameDecl())
+      if (OC->hasResultName() != NC->hasResultName())
         return DK_ResultName;
       if (!Context.hasSameExpr(OC->getCond(), NC->getCond()))
         return DK_Cond;
@@ -243,18 +265,13 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
 
   // Otherwise, we're producing a diagnostic.
   Diag(NewDecl->getLocation(), diag::err_function_different_contract_seq)
-      << isa<CXXMethodDecl>(NewDecl);
+      << isa<CXXMethodDecl>(NewDecl) << NewContractRange;
 
-  if (DK == DK_NumContracts) {
-    Diag(NewContractRange.getBegin(),
-         diag::note_contract_spec_seq_arity_mismatch)
-        << (NewContracts.size() > OrigContracts.size()) << NewContracts.size()
-        << OrigContracts.size() << NewContractRange;
-  }
-
-  if (DK == DK_OrigMissing || DK == DK_NumContracts) {
-    Diag(OrigDecl->getLocation(), diag::note_previous_contract_spec_seq)
-        << DK << OrigDecl->getSourceRange() << OrigContracts.size()
+  if (DK == DK_NumContracts || DK == DK_OrigMissing) {
+    int PluralSelect =
+        OrigContracts.empty() + (OrigContracts.size() < NewContracts.size());
+    Diag(OrigDecl->getLocation(), diag::note_contract_spec_seq_arity_mismatch)
+        << PluralSelect << OrigContracts.size() << NewContracts.size()
         << OrigContractRange;
     return true;
   }
@@ -267,8 +284,8 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
     case DK_Kind:
       return SourceRange(CS->getBeginLoc(), CS->getBeginLoc());
     case DK_ResultName:
-      return CS->hasResultNameDecl() ? CS->getResultNameDecl()->getSourceRange()
-                                     : CS->getCond()->getSourceRange();
+      return CS->hasResultName() ? CS->getResultName()->getSourceRange()
+                                 : CS->getCond()->getSourceRange();
     case DK_Cond:
       return CS->getCond()->getSourceRange();
     case DK_OrigMissing:
@@ -282,7 +299,7 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
   Diag(NC->getBeginLoc(), diag::note_mismatched_contract)
       << GetRangeForNote(NC);
   Diag(OC->getBeginLoc(), diag::note_previous_contracts)
-      << DK << (int)OC->getContractKind() << OC->hasResultNameDecl()
+      << DK << (int)OC->getContractKind() << OC->hasResultName()
       << GetRangeForNote(OC);
 
   return true;
@@ -306,8 +323,8 @@ void Sema::ActOnFinishContractSpecifierSequence(
       PreContracts.push_back(CS);
     else {
       PostContracts.push_back(CS);
-      if (CS->hasResultNameDecl())
-        ResultNames.push_back(CS->getResultNameDecl());
+      if (CS->hasResultName())
+        ResultNames.push_back(CS->getResultName());
     }
   }
   if (!ResultNames.empty()) {
@@ -380,18 +397,26 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   Def->setContracts(First->getContracts());
 }
 
-void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
-                                             FunctionDecl *NewDecl) {
-  if (!NewDecl->isThisDeclarationADefinition())
+void Sema::ActOnContractsOnMergeFunctionDecl(NamedDecl *OrigDecl,
+                                             NamedDecl *NewDecl) {
+  auto *OrigFD = dyn_cast<FunctionDecl>(OrigDecl);
+  auto *NewFD = dyn_cast<FunctionDecl>(NewDecl);
+  if (!OrigFD && !NewFD)
     return;
-
-  // We don't have contracts, so we don't need to merge them.
-  if (OrigDecl->getContracts().empty())
+  if (OrigFD && NewFD) {
+    CheckEquivalentContractSequence(OrigFD, NewFD);
     return;
-
-  // Or the contracts were spelled out on the definition declaration as well.
-  if (!NewDecl->getContracts().empty())
-    return;
-
-  assert(!NewDecl->isThisDeclarationADefinition());
+  }
 }
+
+Sema::ContractScopeRAII::ContractScopeRAII(Sema &S) : S(S) {
+  assert(S.ExprEvalContexts.back().InContractAssertion == false);
+  S.ExprEvalContexts.back().InContractAssertion = true;
+}
+
+Sema::ContractScopeRAII::~ContractScopeRAII() {
+  assert(S.ExprEvalContexts.back().InContractAssertion == true);
+  S.ExprEvalContexts.back().InContractAssertion = false;
+}
+
+namespace {} // end namespace

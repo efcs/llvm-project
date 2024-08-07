@@ -360,10 +360,6 @@ class ASTContext : public RefCountedBase<ASTContext> {
   /// __builtin_va_list type.
   mutable TypedefDecl *BuiltinVaListDecl = nullptr;
 
-  /// The typedef for the predefined __builtin_source_loc_impl_type
-  /// type.
-  mutable TypedefDecl *BuiltinSourceLocImplDecl = nullptr;
-
   /// The typedef for the predefined \c __builtin_ms_va_list type.
   mutable TypedefDecl *BuiltinMSVaListDecl = nullptr;
 
@@ -1186,9 +1182,8 @@ public:
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
 
-  // The implicit record decl __builtin_source_loc_impl_type
-  mutable Decl *BuiltinSourceLocImplRecordDecl = nullptr;
-
+  // Decl used to define the datastructure for the contract violation object
+  // used for C++ contracts
   mutable Decl *BuiltinContractViolationRecordDecl = nullptr;
 
   // Implicitly-declared type 'struct _GUID'.
@@ -2202,20 +2197,6 @@ public:
     return getTagDeclType(MSGuidTagDecl);
   }
 
-  /// Retrieve the C type declaration corresponding to the predefined
-  /// \c __builtin_source_loc_impl_t type.
-  TypedefDecl *getBuiltinSourceLocImplDecl() const;
-
-  /// Retrieve the type of the \c __builtin_source_loc_impl_t type.
-  QualType getBuiltinSourceLocImplType() const {
-    return getTypeDeclType(getBuiltinSourceLocImplDecl());
-  }
-
-  /// Retrieve the C type declaration corresponding to the predefined
-  /// \c __builtin_source_loc_t type.
-  // FIXME(ERICWF): Is this needed
-  Decl *getBuiltinSourceLocImplRecord() const;
-
   QualType getBuiltinContractViolationRecordType() const {
     return getRecordType(
         cast<RecordDecl>(getBuiltinContractViolationRecordDecl()));
@@ -2225,6 +2206,12 @@ public:
   UnnamedGlobalConstantDecl *
   BuildViolationObject(const ContractStmt *CS,
                        const FunctionDecl *CurDecl = nullptr);
+
+  /// Calculate the evaluation semantic for a specific contract.
+  ///
+  /// This takes into account the default evaluation semantic for all contracts,
+  /// as well as any attributes on the specific contract itself.
+
   /// Return whether a declaration to a builtin is allowed to be
   /// overloaded/redeclared.
   bool canBuiltinBeRedeclared(const FunctionDecl *) const;

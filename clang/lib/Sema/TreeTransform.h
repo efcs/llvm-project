@@ -8603,7 +8603,7 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
   Sema::ContractScopeRAII ContractScope(getSema());
 
   StmtResult NewResultName;
-  if (S->hasResultNameDecl()) {
+  if (S->hasResultName()) {
     NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
     if (NewResultName.isInvalid())
       return StmtError();

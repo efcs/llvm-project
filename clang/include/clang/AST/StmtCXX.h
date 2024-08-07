@@ -529,58 +529,55 @@ public:
 enum class ContractKind { Pre, Post, Assert };
 class SemaContractHelper;
 
-class ContractStmt final : public Stmt,
-                           private llvm::TrailingObjects<ContractStmt, void *> {
+class ContractStmt final
+    : public Stmt,
+      private llvm::TrailingObjects<ContractStmt, Stmt *, const Attr *> {
   friend class ASTStmtReader;
   friend TrailingObjects;
   friend class SemaContractHelper;
 
   enum { ResultNameDeclOffset = 0, Count = 1 };
 
-private:
-  unsigned condOffset() const {
-    return ResultNameDeclOffset + ContractAssertBits.HasResultName;
+  unsigned numTrailingObjects(OverloadToken<Stmt *>) const {
+    return ContractAssertBits.HasResultName + 1;
   }
 
-  unsigned attributeOffset() const { return condOffset() + 1; }
+  Stmt **getStmtPtr() { return getTrailingObjects<Stmt *>(); }
 
-  Stmt **getSubStmts() {
-    return reinterpret_cast<Stmt **>(getTrailingObjects<void *>());
+  unsigned numTrailingObjects(OverloadToken<const Attr *>) const {
+    return ContractAssertBits.NumAttrs;
   }
-  Stmt *const *getSubStmts() const {
-    return reinterpret_cast<Stmt *const *>(getTrailingObjects<void *>());
-  }
+
+  const Attr **getAttrPtr() { return getTrailingObjects<const Attr *>(); }
 
   SourceLocation KeywordLoc;
 
-  const Attr *const *getAttrArrayPtr() const {
-    return reinterpret_cast<const Attr *const *>(getTrailingObjects<void *>() +
-                                                 attributeOffset());
-  }
-  const Attr **getAttrArrayPtr() {
-    return const_cast<Attr const **>(reinterpret_cast<Attr **>(
-        getTrailingObjects<void *>() + attributeOffset()));
+  ArrayRef<Stmt *> getSubStmts() const {
+    return llvm::ArrayRef(getTrailingObjects<Stmt *>(),
+                          numTrailingObjects(OverloadToken<Stmt *>{}));
   }
 
-  Stmt **getStmtPtr() {
-    return reinterpret_cast<Stmt **>(getTrailingObjects<void *>());
+  MutableArrayRef<Stmt *> getSubStmts() {
+    return llvm::MutableArrayRef(getTrailingObjects<Stmt *>(),
+                                 numTrailingObjects(OverloadToken<Stmt *>{}));
   }
 
-  Stmt *const *getStmtPtr() const {
-    return reinterpret_cast<Stmt *const *>(getTrailingObjects<void *>());
+  void setResultName(DeclStmt *D) {
+    assert(hasResultName() && "no result name decl");
+    getSubStmts().front() = D;
   }
 
-  ArrayRef<const Stmt *> getStmts() const {
-    return llvm::ArrayRef(getSubStmts(), ContractAssertBits.HasResultName + 1);
+  void setCondition(Expr *E) {
+    assert(E && "no condition");
+    getSubStmts().back() = E;
   }
 
   void copyAttrs(ArrayRef<const Attr *> Attrs) {
     assert(Attrs.size() == ContractAssertBits.NumAttrs &&
            "wrong number of attributes");
-    std::copy(Attrs.begin(), Attrs.end(), getAttrArrayPtr());
+    std::copy(Attrs.begin(), Attrs.end(), getAttrPtr());
   }
 
-public:
   ContractStmt(ContractKind CK, SourceLocation KeywordLoc, Expr *Condition,
                DeclStmt *RN, ArrayRef<const Attr *> Attrs = {})
       : Stmt(ContractStmtClass), KeywordLoc(KeywordLoc) {
@@ -588,9 +585,10 @@ public:
     ContractAssertBits.HasResultName = RN != nullptr;
     ContractAssertBits.NumAttrs = Attrs.size();
     if (RN)
-      setResultNameDecl(RN);
+      setResultName(RN);
     setCondition(Condition);
-    std::copy(Attrs.begin(), Attrs.end(), getAttrArrayPtr());
+    if (!Attrs.empty())
+      copyAttrs(Attrs);
   }
 
   ContractStmt(EmptyShell Empty, ContractKind Kind, bool HasResultName,
@@ -600,9 +598,10 @@ public:
     ContractAssertBits.HasResultName = HasResultName;
     ContractAssertBits.NumAttrs = NumAttrs;
     if (NumAttrs != 0)
-      std::fill_n(getAttrArrayPtr(), NumAttrs, nullptr);
+      std::fill_n(getAttrPtr(), NumAttrs, nullptr);
   }
 
+public:
   static ContractStmt *Create(const ASTContext &C, ContractKind Kind,
                               SourceLocation KeywordLoc, Expr *Condition,
                               DeclStmt *ResultNameDecl,
@@ -611,68 +610,94 @@ public:
   static ContractStmt *CreateEmpty(const ASTContext &C, ContractKind Kind,
                                    bool HasResultName, unsigned NumAttrs);
 
+  bool hasResultName() const { return ContractAssertBits.HasResultName; }
+
+  DeclStmt *getResultNameDeclStmt() const {
+    return hasResultName() ? static_cast<DeclStmt *>(getSubStmts().front())
+                           : nullptr;
+  }
+
+  ResultNameDecl *getResultName() const;
+
+  Expr *getCond() { return static_cast<Expr *>(getSubStmts().back()); }
+  const Expr *getCond() const {
+    return const_cast<ContractStmt *>(this)->getCond();
+  }
+
+public:
+  // Convert the contract semantic to a string for use in diagnostics.
+  static StringRef SemanticAsString(ContractEvaluationSemantic Semantic);
+  static ContractEvaluationSemantic *StringAsSemantic(StringRef Str);
+
+  // Convert the contract kind (pre, post, or contract_assert) to a string
+  static StringRef ContractKindAsString(ContractKind Kind);
+
+  /// Return the source text associated with this contract.
+  std::string getSourceText(const ASTContext &Ctx) const;
+
+  /// Return the message for use in building the contract violation
+  /// diagnostic. It may be different than the source text.
+  std::string getMessage(const ASTContext &Ctx) const;
+
+  /// Return the type of the contract.
+  /// It's one of 'pre', 'post', 'contract_assert'.
   ContractKind getContractKind() const {
     return static_cast<ContractKind>(ContractAssertBits.ContractKind);
   }
-  void setContractKind(ContractKind CK) {
-    ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
+
+  StringRef getContractKindString() const {
+    return ContractStmt::ContractKindAsString(getContractKind());
   }
 
-  std::string getMessage(const ASTContext &Ctx) const;
+  /// Calculate the evaluation semantic for a specific contract.
+  ///
+  /// This takes into account the default evaluation semantic for all contracts,
+  /// as well as any attributes on the specific contract itself.
+  ContractEvaluationSemantic getSemantic(const ASTContext &Ctx) const;
+
+  StringRef getSemanticString(const ASTContext &Ctx) const {
+    return ContractStmt::SemanticAsString(getSemantic(Ctx));
+  }
 
   ArrayRef<const Attr *> getAttrs() const {
-    return llvm::ArrayRef(getAttrArrayPtr(), ContractAssertBits.NumAttrs);
+    return llvm::ArrayRef(getTrailingObjects<const Attr *>(),
+                          ContractAssertBits.NumAttrs);
   }
-
-  bool hasResultNameDecl() const { return ContractAssertBits.HasResultName; }
-
-  DeclStmt *getResultNameDeclStmt() const {
-    return hasResultNameDecl()
-               ? static_cast<DeclStmt *>(getStmtPtr()[ResultNameDeclOffset])
-               : nullptr;
-  }
-
-  ResultNameDecl *getResultNameDecl() const;
-
-  void setResultNameDecl(DeclStmt *D) {
-    assert(hasResultNameDecl() && "no result name decl");
-    getStmtPtr()[ResultNameDeclOffset] = D;
-  }
-
-  void setCondition(Expr *E) { getStmtPtr()[condOffset()] = E; }
-
-  Expr *getCond() { return static_cast<Expr *>(getStmtPtr()[condOffset()]); }
-
-  const Expr *getCond() const {
-    return static_cast<Expr *>(getStmtPtr()[condOffset()]);
-  }
-
-  void setCond(Expr *Cond) {
-    getStmtPtr()[condOffset()] = reinterpret_cast<Stmt *>(Cond);
-  }
+  // Access attributes of a particular type.
+  template <class T> const T *getAttrAs() const;
 
   SourceLocation getKeywordLoc() const { return KeywordLoc; }
   SourceLocation getBeginLoc() const LLVM_READONLY { return KeywordLoc; }
+  SourceLocation getExpressionLoc() const LLVM_READONLY {
+    return getSubStmts().back()->getBeginLoc();
+  }
   SourceLocation getEndLoc() const LLVM_READONLY {
-    return getCond()->getEndLoc();
+    assert(!KeywordLoc.isInvalid() &&
+           "Trying to get end location on an invalid node");
+    return getSubStmts().back()->getEndLoc();
   }
 
-  // Return [[clang::contract_group]] attribute group string if specified
-  StringRef getContractGroup() const;
-  ContractEvaluationSemantic getSemantic(const LangOptions &LangOpts) const;
-
-  child_range children() {
-    return child_range(getSubStmts(), getSubStmts() + condOffset() + 1);
-  }
-
-  const_child_range children() const {
-    return const_child_range(getSubStmts(), getSubStmts() + condOffset() + 1);
-  }
+  child_range children() { return getSubStmts(); }
+  const_child_range children() const { return getSubStmts(); }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == ContractStmtClass;
   }
 };
+
+template <class T> const T *ContractStmt::getAttrAs() const {
+  const T *Result = nullptr;
+  for (auto *A : getAttrs()) {
+    if (const T *TA = dyn_cast<T>(A)) {
+      assert(Result == nullptr);
+      Result = TA;
+#ifdef NDEBUG
+      break;
+#endif
+    }
+  }
+  return Result;
+}
 
 }  // end namespace clang
 

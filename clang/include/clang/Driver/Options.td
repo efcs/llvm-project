@@ -1696,7 +1696,12 @@ defm contract_exceptions : BoolFOption<"contract-exceptions",
           "Enable contract violation on exception">,
   NegFlag<SetFalse, [], [ClangOption, CC1Option],
     "Disable contract violations on exception">>;
-
+defm late_parsed_contracts : BoolFOption<"late-parsed-contracts",
+  LangOpts<"LateParsedContracts">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option],
+          "Enable contract violation on exception">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract violations on exception">>;
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",
   LangOpts<"Coroutines">, Default<cpp20.KeyPath>,

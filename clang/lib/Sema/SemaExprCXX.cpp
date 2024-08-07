@@ -1252,6 +1252,10 @@ QualType Sema::getCurrentThisType() {
     // per [expr.prim.general]p4.
     ThisTy = Context.getPointerType(ClassTy);
   }
+  if (!ThisTy.isNull() &&
+      currentEvaluationContext().isConstificationContext()) {
+    ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
+  }
 
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'
   // might need to be adjusted if the lambda or any of its enclosing lambda's
@@ -1259,10 +1263,6 @@ QualType Sema::getCurrentThisType() {
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
                                                     CurContext, Context);
-  if (!ThisTy.isNull() &&
-      currentEvaluationContext().isContractAssertionContext()) {
-    return adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
-  }
   return ThisTy;
 }
 

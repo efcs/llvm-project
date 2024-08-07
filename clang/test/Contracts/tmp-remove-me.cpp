@@ -1,5 +1,8 @@
-// RUN: %clang_cc1 -std=c++26 -fcontracts -verify %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -fno-late-parsed-contracts -verify=expected
+// RUN-TWO: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -flate-parsed-contracts -verify=expected
 
+#define UNIQUE1() __COUNTER__
+#define UNIQUE UNIQUE1()
 template <class T, class U>
 struct FirstTypeT {
   using type = T;
@@ -7,21 +10,31 @@ struct FirstTypeT {
 template <class T, class U>
 using FirstType = typename FirstTypeT<T, U>::type;
 
+template <bool B, class T = void, int N = 0>
+struct EnableIf { static_assert(B);  using type = T; };
+template <class T, int N>
+struct EnableIf<false, T, N> {};
+
+template <bool B, class T = void>
+using EnableIfT = typename EnableIf<B, T>::type;
+
 template <class Ret, class T>
-constexpr Ret f()
-  pre(T{}.error) {
-  return Ret;
+constexpr T f(T x)
+  pre(T::type) { // expected-error 1+ {{'::'}}
+  return 0;
 }
 template<typename T> int not_constexpr() pre(T::error) { return T::error; }
-template<typename T> constexpr int is_constexpr() pre(T::error) { return T::error; } // expected-error {{'::'}}
+template<typename T> constexpr int is_constexpr() pre(T::error) { return T::error; } // expected-error 2 {{'::'}}
 
-template<typename T> int not_constexpr_var = f<T>();
-template<typename T> constexpr int is_constexpr_var = f<T>();  // expected-error {{'::'}}
-template<typename T> const int is_const_var = f<T>();  // expected-error {{'::'}}
-template<typename T> const volatile int is_const_volatile_var = f<T>();
-template<typename T> T is_dependent_var = f<T>();  // expected-error {{'::'}}
-template<typename T> int &is_reference_var = f<T>();  // expected-error {{'::'}}
-template<typename T> float is_float_var = f<T>();
+
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> int not_constexpr_var = f<Boom>(0);
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> constexpr int is_constexpr_var = f<Boom>(0); // expected-note {{here}}
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> const int is_const_var = f<Boom>(0); // expected-note {{here}}
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> const volatile int is_const_volatile_var = f<Boom>(0);
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> T is_dependent_var = f<Boom>(T{0}); // expected-note {{here}}
+int var = 0;
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> int &is_reference_var = (f<Boom>(0), var); // expected-note {{here}}
+template<typename T, class Boom = EnableIf<false, T, UNIQUE >> float is_float_var = f<Boom>(0.0);
 
 void test() {
   // Do not instantiate functions referenced in unevaluated operands...
@@ -39,13 +52,13 @@ void test() {
   // ... but do if they are potentially constant evaluated, and refer to
   // constexpr functions or to variables usable in constant expressions.
   (void)sizeof(int{not_constexpr<int>()});
-  (void)sizeof(int{is_constexpr<int>()}); // expected-note {{instantiation of}}
+  (void)sizeof(int{is_constexpr<int>()}); // expected-note {{here}}
   (void)sizeof(int{not_constexpr_var<int>});
-  (void)sizeof(int{is_constexpr_var<int>}); // expected-note {{instantiation of}}
-  (void)sizeof(int{is_const_var<int>}); // expected-note {{instantiation of}}
+  (void)sizeof(int{is_constexpr_var<int>}); // expected-note 2 {{here}}
+  (void)sizeof(int{is_const_var<int>}); // expected-note {{here}}
   (void)sizeof(int{is_const_volatile_var<int>});
   (void)sizeof(int{is_dependent_var<int>});
-  (void)sizeof(int{is_dependent_var<const int>}); // expected-note {{instantiation of}}
-  (void)sizeof(int{is_reference_var<int>}); // expected-note {{instantiation of}}
+  (void)sizeof(int{is_dependent_var<const int>}); // expected-note {{here}}
+  (void)sizeof(int{is_reference_var<int>}); // expected-note {{here}}
   (void)sizeof(int{is_float_var<int>}); // expected-error {{cannot be narrowed}} expected-note {{cast}}
 }

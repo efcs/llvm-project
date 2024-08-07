@@ -2730,6 +2730,16 @@ public:
   ///@{
 
 public:
+  struct ContractEvaluationScope {
+    ContractEvaluationScope(Sema &S, bool ShouldEnter);
+    ~ContractEvaluationScope();
+
+  private:
+    Sema &S;
+    bool Entered;
+    bool OldInContractEvaluation;
+    QualType OldCXXThisType;
+  };
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultNameDecl,
                                  ParsedAttributes &Attrs);
@@ -2754,8 +2764,8 @@ public:
   void ActOnFinishContractSpecifierSequence(
       SmallVector<ContractStmt *> ContractStmts);
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
-  void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
-                                         FunctionDecl *NewDecl);
+  void ActOnContractsOnMergeFunctionDecl(NamedDecl *OrigDecl,
+                                         NamedDecl *NewDecl);
 
   ///@}
 
@@ -6478,6 +6488,12 @@ public:
     }
 
     bool isContractAssertionContext() const { return InContractAssertion; }
+
+    // True iff we're in a context that requires applying constification
+    // adjustments to some declarations.
+    bool isConstificationContext() const {
+      return InContractAssertion && !isUnevaluated();
+    }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6512,17 +6528,11 @@ public:
   }
 
   struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S) : S(S) {
-      assert(S.ExprEvalContexts.back().InContractAssertion == false);
-      S.ExprEvalContexts.back().InContractAssertion = true;
-    }
+    ContractScopeRAII(Sema &S);
+    ~ContractScopeRAII();
 
+  private:
     ContractScopeRAII(ContractScopeRAII const &) = delete;
-
-    ~ContractScopeRAII() {
-      assert(S.ExprEvalContexts.back().InContractAssertion == true);
-      S.ExprEvalContexts.back().InContractAssertion = false;
-    }
 
     Sema &S;
   };
@@ -7990,8 +8000,6 @@ public:
   /// The C++ "std::source_location::__impl" struct, defined in
   /// \<source_location>.
   RecordDecl *StdSourceLocationImplDecl;
-
-  RecordDecl *BuiltinSourceLocationImplDecl;
 
   /// A stack of expression evaluation contexts.
   SmallVector<ExpressionEvaluationContextRecord, 8> ExprEvalContexts;

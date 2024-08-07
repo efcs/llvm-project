@@ -2454,8 +2454,8 @@ DEF_TRAVERSE_STMT(ObjCAutoreleasePoolStmt, {})
 // FIXME(EricWF): This may have a declaration with a body eventually.
 // Will that need a different implementation.
 DEF_TRAVERSE_STMT(ContractStmt, {
-  if (S->hasResultNameDecl()) {
-    TRY_TO(TraverseDecl(S->getResultNameDecl()));
+  if (S->hasResultName()) {
+    TRY_TO(TraverseDecl(S->getResultName()));
   }
   TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getCond());
   ShouldVisitChildren = false;

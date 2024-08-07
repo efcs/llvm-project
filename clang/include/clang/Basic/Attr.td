@@ -3311,6 +3311,26 @@ def ContractGroup : StmtAttr {
   let Documentation = [Undocumented];
 }
 
+def ContractSemantic : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_semantic">];
+  let Args = [
+    EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
+        ["ignore", "observe", "enforce", "quick_enforce"],
+        ["Ignore", "Observe", "Enforce", "QuickEnforce"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>,
+    DefaultBoolArgument<"Override", 0, /*fake*/ 0>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+def ContractMessage : StmtAttr {
+    let Spellings = [CXX11<"clang", "contract_message">];
+    let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
+    let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+    let Documentation = [Undocumented];
+}
+
 def DiagnoseIf : InheritableAttr {
   // Does not have a [[]] spelling because this attribute requires the ability
   // to parse function arguments but the attribute is not written in the type

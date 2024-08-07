@@ -2370,9 +2370,10 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     ParseTrailingRequiresClause(D);
 
   // FIXME(EricWF): What are we doing here?
-  LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-
-  // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+  if (getLangOpts().LateParsedContracts)
+    LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+  else
+    ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2475,6 +2476,15 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
           } else {
             TheDecl =
                 ParseFunctionDefinition(D, TemplateInfo, &LateParsedAttrs);
+          }
+
+          if (TheDecl && isa<FunctionDecl>(TheDecl)) {
+            if (!D.LateParsedContracts.empty()) {
+              assert(
+                  !cast<FunctionDecl>(TheDecl)->isThisDeclarationADefinition());
+              ParseLexedFunctionContracts(D.LateParsedContracts,
+                                          cast<FunctionDecl>(TheDecl));
+            }
           }
 
           return Actions.ConvertDeclToDeclGroup(TheDecl);

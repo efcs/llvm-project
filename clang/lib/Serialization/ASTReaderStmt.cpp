@@ -509,13 +509,13 @@ void ASTStmtReader::VisitContractStmt(ContractStmt *S) {
 
   S->KeywordLoc = Record.readSourceLocation();
   S->setCondition(Record.readExpr());
-  if (S->hasResultNameDecl())
-    S->setResultNameDecl(cast<DeclStmt>(Record.readStmt()));
+  if (S->hasResultName())
+    S->setResultName(cast<DeclStmt>(Record.readStmt()));
   AttrVec Attrs;
   Record.readAttributes(Attrs);
   assert(Attrs.size() == NumAttrs);
   ((void)NumAttrs);
-  std::copy(Attrs.begin(), Attrs.end(), S->getAttrArrayPtr());
+  std::copy(Attrs.begin(), Attrs.end(), S->getAttrPtr());
 }
 
 void ASTStmtReader::VisitCapturedStmt(CapturedStmt *S) {

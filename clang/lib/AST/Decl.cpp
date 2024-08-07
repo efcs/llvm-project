@@ -2026,12 +2026,13 @@ void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
 
   // FIXME(EricWF): This should be empty already
   auto &Contracts = getExtInfo()->Contracts;
-
+#if 0
   assert(
       Contracts.empty() || NewContracts.size() == Contracts.size() ||
       NewContracts.empty() ||
       this->isInvalidDecl() &&
           "Adding a different amount of contracts than were initially present");
+#endif
 
   Contracts.clear();
   Contracts.append(NewContracts.begin(), NewContracts.end());

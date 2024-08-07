@@ -26,6 +26,7 @@
 
 namespace clang {
 using llvm::StringRef;
+class ASTContext;
 
 enum class ContractGroupDiagnostic {
   // The remaining values map to %select values in diagnostics in both
@@ -108,6 +109,7 @@ public:
   void setGroupSemantic(llvm::StringRef Group,
                         ContractEvaluationSemantic Semantic);
 
+public:
   /// The default semantics for contracts.
   ContractEvaluationSemantic DefaultSemantic =
       ContractEvaluationSemantic::Enforce;

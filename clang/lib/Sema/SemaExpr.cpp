@@ -16579,10 +16579,6 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
         Context.getRecordType(StdSourceLocationImplDecl).withConst());
     break;
   }
-  case SourceLocIdentKind::BuiltinSourceLocStruct:
-    ResultTy = Context.getPointerType(
-        Context.getRecordType(cast<RecordDecl>(Context.getBuiltinSourceLocImplRecord())).withConst());
-    break;
   }
 
   return BuildSourceLocExpr(Kind, ResultTy, BuiltinLoc, RPLoc, CurContext);
@@ -17221,6 +17217,8 @@ Sema::PushExpressionEvaluationContext(
 
   ExprEvalContexts.back().InImmediateEscalatingFunctionContext =
       Prev.InImmediateEscalatingFunctionContext;
+
+  ExprEvalContexts.back().InContractAssertion = Prev.InContractAssertion;
 
   Cleanup.reset();
   if (!MaybeODRUseExprs.empty())

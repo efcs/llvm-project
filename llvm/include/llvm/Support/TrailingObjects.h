@@ -167,7 +167,7 @@ protected:
     if (requiresRealignment())
       return reinterpret_cast<NextTy *>(alignAddr(Ptr, Align::Of<NextTy>()));
     else
-      return reinterpret_cast<NextTy *>(Ptr);
+      return const_cast<NextTy *>(reinterpret_cast<const NextTy *>(Ptr));
   }
 
   // Helper function for TrailingObjects::additionalSizeToAlloc: this
