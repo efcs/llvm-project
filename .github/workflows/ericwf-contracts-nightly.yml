@@ -30,6 +30,8 @@ jobs:
       - name: Find source
         run: |
           ls -l
+          ls -l .github
+          ls -l .github/workflows
           pwd
           echo "Done"
 
