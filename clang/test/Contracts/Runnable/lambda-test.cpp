@@ -1,4 +1,6 @@
-// RUN: %clang -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=observe -fno-exceptions
+// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=observe -flate-parsed-contracts
+// RUN: %t
+// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=enforce  -fno-late-parsed-contracts
 // RUN: %t
 
 #include "my_assert.h"
@@ -57,7 +59,7 @@ int main() {
   assert(gz<A> == nullptr);
   a.f(42);
   assert(gz<A> != nullptr);
-  assert(gz<A>->z == 42);
+  assert(gz<A>->z == 0);
 
 
 }

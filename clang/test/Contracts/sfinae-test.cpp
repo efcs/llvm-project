@@ -1,4 +1,8 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts -flate-parsed-contracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts -fno-late-parsed-contracts
+
+// expected-no-diagnostics
+
 template <bool B>
 struct BoolConstant {
   enum { value = B };

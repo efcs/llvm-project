@@ -3369,14 +3369,14 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
-      CC = getContractConstification(*this, cast<VarDecl>(VD));
-      if (CC == CC_ApplyConst)
-        type.addConst();
+
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
       else {
-
+        CC = getContractConstification(*this, cast<VarDecl>(VD));
+        if (CC == CC_ApplyConst)
+          type.addConst();
       }
     }
 

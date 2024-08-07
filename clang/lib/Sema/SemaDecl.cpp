@@ -12940,7 +12940,10 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
     SourceLocation Loc = TSI->getTypeLoc().getBeginLoc();
     Diag(Loc, diag::warn_auto_var_is_id) << VN << Range;
   }
-
+  if (isContractAssertionContext()) {
+    if (VDecl)
+      VDecl->dumpColor();
+  }
   return DeducedType;
 }
 
@@ -15453,6 +15456,8 @@ LambdaScopeInfo *Sema::RebuildLambdaScopeInfo(CXXMethodDecl *CallOperator) {
       if (VD->isInitCapture())
         CurrentInstantiationScope->InstantiatedLocal(VD, VD);
       const bool ByRef = C.getCaptureKind() == LCK_ByRef;
+      if (ByRef) {
+      }
       LSI->addCapture(VD, /*IsBlock*/false, ByRef,
           /*RefersToEnclosingVariableOrCapture*/true, C.getLocation(),
           /*EllipsisLoc*/C.isPackExpansion()

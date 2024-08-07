@@ -451,7 +451,7 @@ DEFAULT_PARAMETERS = [
             AddCompileFlag('-fcolor-diagnostics'),
             AddFeature("contracts"),
             AddCompileFlag("-fcontract-group-evaluation-semantic=std=enforce"),
-            AddCompileFlag("-flate-parsed-contracts")
+            AddCompileFlag("-fno-late-parsed-contracts")
         ],
     )
 ]
