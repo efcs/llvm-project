@@ -5,10 +5,10 @@ permissions:
 
 
 on:
-  workflow_dispatch:
   push:
     branches:
       - 'eric-contracts'
+      - "eric-test-contracts"
 
 
 concurrency:
@@ -27,6 +27,12 @@ jobs:
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
+      - name: Find source
+        run: |
+          ls -l
+          pwd
+          echo "Done"
+
       - name: Test clang
         uses: ./.github/workflows/llvm-project-tests.yml
         with:
