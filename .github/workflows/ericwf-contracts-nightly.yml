@@ -2,9 +2,11 @@ name: EricWF Contracts Nightly Release flow
 
 permissions:
   contents: write
+  wo
 
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - 'eric-contracts'
@@ -27,17 +29,38 @@ jobs:
         with:
           ref: ${{ github.ref }}
           fetch-depth: 0
-      - name: Find source
+      - name: "Setup"
         run: |
-          ls -l
-          ls -l .github
-          ls -l .github/workflows
-          pwd
-          echo "Done"
+          mkdir build
+          mkdir install
 
-      - name: Test clang
-        uses: ./.github/workflows/llvm-project-tests.yml@eric-contracts
-        with:
-          build_target: check-clang
-          projects: clang
-          runtimes: 'libcxx;libcxxabi;libunwind'
+      - name: "Configure"
+        run: >
+          cmake -B build -S ./llvm/ 
+          -G Ninja 
+          -DCMAKE_BUILD_TYPE=RELWITHDEBINFO 
+          -DLLVM_ENABLE_PROJECTS="clang" 
+          "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind" 
+          -DLLVM_ENABLE_ASSERTIONS=ON 
+          -DLLVM_USE_LINKER=mold
+          -DCMAKE_INSTALL_PREFIX=./install
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          '-DLLVM_USE_SANITIZER=Address;Undefined'
+      - name: Build Clang & Libc++
+        run: |
+          cd build
+          ninja clang
+          ninja cxx
+      - name: Test Clang
+        run: |
+          cd build
+          ninja check-clang
+      - name: Check Libc++
+        run: |
+          cd build
+          ninja check-cxx
+      - name: Install
+        run: |
+          cd build
+          ninja install
