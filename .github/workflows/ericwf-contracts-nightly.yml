@@ -2,8 +2,7 @@ name: EricWF Contracts Nightly Release flow
 
 permissions:
   contents: write
-  wo
-
+  actions: read
 
 on:
   workflow_dispatch:
