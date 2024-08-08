@@ -3080,6 +3080,7 @@ def err_unsupported_placeholder_constraint : Error<
   "constrained placeholder types other than simple 'auto' on non-type template "
   "parameters not supported yet">;
 
+
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
 def err_template_different_type_constraint : Error<
@@ -10591,7 +10592,10 @@ def warn_duplicate_attribute : Warning<
   "attribute %0 is already applied with different arguments">,
   InGroup<IgnoredAttributes>;
 def err_disallowed_duplicate_attribute : Error<
-  "attribute %0 cannot appear more than once on a declaration">;
+  "attribute %0 cannot appear more than once on a %select{declaration|contract specifier}1">;
+
+def err_disallow_incompatible_attribute : Error<
+    "attribute %1 cannot appear on a %select{declaration|contract specifier}0 with attribute %2">;
 
 def warn_sync_fetch_and_nand_semantics_change : Warning<
   "the semantics of this intrinsic changed with GCC "
@@ -11899,6 +11903,94 @@ def err_coroutine_return_type : Error<
 >;
 } // end of coroutines issue category
 
+def select_contract_kind : TextSubstitution<
+  "%select{pre|post|contract_assert}0">;
+
+let CategoryName = "Contract Issue" in {
+def err_ericwf_unimplemented : Error<
+  "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
+>;
+def warn_ericwf_unimplemented : Warning<
+  "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
+>, InGroup<EricWFFixme>;
+
+def err_ericwf_fixme : Error<
+  "woops... FIXME(EricWF): %0"
+>;
+def warn_ericwf_fixme : Warning<
+  "woops... FIXME(EricWF): %0"
+>, InGroup<EricWFFixme>;
+
+def err_result_name_shadows_param : Error<
+  "declaration of result name %0 shadows parameter">;
+def err_void_result_name : Error<
+  "result name %0 cannot be used with a void return type">;
+def err_deduced_auto_result_name_without_body : Error<
+  "result name on function with deduced return type requires a body">;
+def err_result_name_not_allowed : Error<
+  "result name %0 not allowed outside of post condition specifier">;
+
+// Diagnose clang::contract_group attribute strings
+def err_contract_group_attribute_invalid_group : Error<
+  "clang::contract_group group %select{"
+     "\"%1\" cannot start with '%2'"
+    "|\"%1\" cannot contain '%2'"
+    "|\"%1\" cannot end with '%2'"
+    "|\"%1\" cannot contain empty subgroup \"%2\""
+    "|cannot be empty"
+    "|<cannot-happen-here>"
+    "}0">;
+
+
+
+def err_contract_violation : Error<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">;
+def warn_contract_violation : Warning<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">,
+    InGroup<ContractViolation>;
+
+def err_contract_requirement_failed : Error<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">;
+def warn_contract_requirement_failed : Warning<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">,
+  InGroup<ContractViolation>;
+
+def err_constexpr_contract_failure : Error<
+  "contract failed during execution of constexpr function">;
+def warn_constexpr_contract_failure : Warning<
+    "contract failed during execution of constexpr function">,
+    InGroup<ContractViolation>;
+
+def err_initialization_of_constant_initialized_variable_failed : Error<
+    "initialization of constant-initialized variable failed">;
+def note_initialization_changed_contract_semantic : Note<
+    "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
+
+// Redeclaration of contract attributes
+def err_function_different_contract_seq : Error<
+  "%select{function|method}0 %select{redeclaration|out-of-line definition}0 differs in contract specifier sequence">;
+def note_contract_spec_seq_arity_mismatch : Note<
+  "previously declared %select{with additional|with fewer|without}0 contracts here%select{ (%1 vs %2)| (%1 vs %2)|}0">;
+def note_previous_contract_spec_seq : Note<
+  "previously declared %select{without|with %1}0 contracts here">;
+
+def note_mismatched_contract : Note<
+  "in contract specified here">;
+def note_previous_contracts : Note<
+  "contract previously specified %select{"
+  "<ERROR>"
+  "|<ERROR>"
+  "|as '%sub{select_contract_kind}1'"
+  "|%select{without|with}2 result name"
+  "|with a non-equivalent condition}0">;
+
+def err_contract_attr_bool_arg_not_constant : Error<
+  "argument to '%0' attribute must be a boolean constant expression">;
+
+def warn_contract_always_evaluates_to : Warning<
+  "contract condition always evaluates to %select{false|true}0">,
+  InGroup<ContractViolation>;
+
+
+} // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;

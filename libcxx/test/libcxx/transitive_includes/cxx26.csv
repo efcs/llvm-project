@@ -122,6 +122,8 @@ condition_variable stdexcept
 condition_variable string
 condition_variable typeinfo
 condition_variable version
+contracts source_location
+contracts version
 coroutine compare
 coroutine cstddef
 coroutine cstdint

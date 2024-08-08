@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -std=c++1z -fcxx-exceptions -verify %s
-// RUN: %clang_cc1 -std=c++1z -fcxx-exceptions -verify %s -DCLASS
+// RUN: %clang_cc1 -std=c++1z -fcxx-exceptions -verify %s -fno-contracts
+// RUN: %clang_cc1 -std=c++1z -fcxx-exceptions -verify %s -DCLASS -fno-contracts
 
 #ifdef CLASS
 struct Outer {

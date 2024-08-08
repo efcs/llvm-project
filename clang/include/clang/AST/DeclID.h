@@ -83,7 +83,8 @@ enum PredefinedDeclIDs {
   PREDEF_DECL_CF_CONSTANT_STRING_TAG_ID = 16,
 
   /// The internal '__type_pack_element' template.
-  PREDEF_DECL_TYPE_PACK_ELEMENT_ID = 17,
+  PREDEF_DECL_TYPE_PACK_ELEMENT_ID = 17
+
 };
 
 /// The number of declaration IDs that are predefined.

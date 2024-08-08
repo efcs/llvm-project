@@ -2162,6 +2162,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
+  ArrayRef<ContractStmt *> Contracts = D->getContracts();
 
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
@@ -2199,7 +2200,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         SemaRef.Context, DC, D->getInnerLocStart(), NameInfo, T, TInfo,
         D->getCanonicalDecl()->getStorageClass(), D->UsesFPIntrin(),
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Function->setFriendConstraintRefersToEnclosingTemplate(
         D->FriendConstraintRefersToEnclosingTemplate());
     Function->setRangeEnd(D->getSourceRange().getEnd());
@@ -2592,6 +2593,7 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
 
   CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
+  ArrayRef<ContractStmt *> Contracts = D->getContracts();
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);
@@ -2609,13 +2611,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         InstantiatedExplicitSpecifier, Constructor->UsesFPIntrin(),
         Constructor->isInlineSpecified(), false,
         Constructor->getConstexprKind(), InheritedConstructor(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Method->setRangeEnd(Constructor->getEndLoc());
   } else if (CXXDestructorDecl *Destructor = dyn_cast<CXXDestructorDecl>(D)) {
     Method = CXXDestructorDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Destructor->UsesFPIntrin(), Destructor->isInlineSpecified(), false,
-        Destructor->getConstexprKind(), TrailingRequiresClause);
+        Destructor->getConstexprKind(), TrailingRequiresClause, Contracts);
     Method->setIneligibleOrNotSelected(true);
     Method->setRangeEnd(Destructor->getEndLoc());
     Method->setDeclName(SemaRef.Context.DeclarationNames.getCXXDestructorName(
@@ -2626,13 +2628,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Conversion->UsesFPIntrin(), Conversion->isInlineSpecified(),
         InstantiatedExplicitSpecifier, Conversion->getConstexprKind(),
-        Conversion->getEndLoc(), TrailingRequiresClause);
+        Conversion->getEndLoc(), TrailingRequiresClause, Contracts);
   } else {
     StorageClass SC = D->isStatic() ? SC_Static : SC_None;
     Method = CXXMethodDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo, SC,
         D->UsesFPIntrin(), D->isInlineSpecified(), D->getConstexprKind(),
-        D->getEndLoc(), TrailingRequiresClause);
+        D->getEndLoc(), TrailingRequiresClause, Contracts);
   }
 
   if (D->isInlined())
@@ -2895,6 +2897,10 @@ Decl *TemplateDeclInstantiator::VisitCXXDestructorDecl(CXXDestructorDecl *D) {
 
 Decl *TemplateDeclInstantiator::VisitCXXConversionDecl(CXXConversionDecl *D) {
   return VisitCXXMethodDecl(D);
+}
+
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+    llvm_unreachable("Shouldnt be instantiated");
 }
 
 Decl *TemplateDeclInstantiator::VisitParmVarDecl(ParmVarDecl *D) {
@@ -5180,6 +5186,24 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
             Ctor->isDefaultConstructor()) {
           InstantiateDefaultCtorDefaultArgs(Ctor);
         }
+      }
+      // If the function has contracts, instantiate them now
+      ArrayRef<ContractStmt *> Contracts = Function->getContracts();
+      if (!Contracts.empty()) {
+        SmallVector<ContractStmt*> NewContracts;
+        for (auto *C : Contracts) {
+          StmtResult NewStmt = SubstStmt(C, TemplateArgs);
+          if (NewStmt.isInvalid()) {
+            Function->setInvalidDecl();
+          }
+          if (NewStmt.isUsable()) {
+            auto *NS = dyn_cast<ContractStmt>(NewStmt.get());
+            assert(NS);
+            NewContracts.push_back(NS);
+          }
+        }
+        SemaRef.ActOnFinishContractSpecifierSequence(NewContracts);
+        Function->setContracts(NewContracts);
       }
 
       // Instantiate the function body.

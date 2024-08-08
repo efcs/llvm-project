@@ -15,6 +15,7 @@
 #define LLVM_CLANG_BASIC_LANGOPTIONS_H
 
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/ObjCRuntime.h"
@@ -441,6 +442,8 @@ public:
     CX_None
   };
 
+  using ContractEvaluationSemantic = clang::ContractEvaluationSemantic;
+
   // Define simple language options (with no accessors).
 #define LANGOPT(Name, Bits, Default, Description) unsigned Name : Bits;
 #define ENUM_LANGOPT(Name, Type, Bits, Default, Description)
@@ -554,6 +557,13 @@ public:
 
   /// The default stream kind used for HIP kernel launching.
   GPUDefaultStreamKind GPUDefaultStream;
+
+  /// C++ contracts evaluation mode
+  ContractEvaluationSemantic ContractEvalSemantic;
+
+  /// A list of options pretaining to c++ contracts and clang attributes about
+  /// them.
+  ContractOptions ContractOpts;
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

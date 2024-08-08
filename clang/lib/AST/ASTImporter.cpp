@@ -3914,6 +3914,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
   auto ToQualifierLoc = importChecked(Err, D->getQualifierLoc());
   auto TrailingRequiresClause =
       importChecked(Err, D->getTrailingRequiresClause());
+  auto Contracts = D->getContracts();
   if (Err)
     return std::move(Err);
 
@@ -3945,7 +3946,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, ESpec, D->UsesFPIntrin(),
             D->isInlineSpecified(), D->isImplicit(), D->getConstexprKind(),
-            ToInheritedConstructor, TrailingRequiresClause))
+            ToInheritedConstructor, TrailingRequiresClause, Contracts))
       return ToFunction;
   } else if (CXXDestructorDecl *FromDtor = dyn_cast<CXXDestructorDecl>(D)) {
 
@@ -3960,7 +3961,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, D->UsesFPIntrin(),
             D->isInlineSpecified(), D->isImplicit(), D->getConstexprKind(),
-            TrailingRequiresClause))
+            TrailingRequiresClause, Contracts))
       return ToFunction;
 
     CXXDestructorDecl *ToDtor = cast<CXXDestructorDecl>(ToFunction);
@@ -3976,14 +3977,15 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, D->UsesFPIntrin(),
             D->isInlineSpecified(), ESpec, D->getConstexprKind(),
-            SourceLocation(), TrailingRequiresClause))
+            SourceLocation(), TrailingRequiresClause, Contracts))
       return ToFunction;
   } else if (auto *Method = dyn_cast<CXXMethodDecl>(D)) {
     if (GetImportedOrCreateDecl<CXXMethodDecl>(
             ToFunction, D, Importer.getToContext(), cast<CXXRecordDecl>(DC),
             ToInnerLocStart, NameInfo, T, TInfo, Method->getStorageClass(),
             Method->UsesFPIntrin(), Method->isInlineSpecified(),
-            D->getConstexprKind(), SourceLocation(), TrailingRequiresClause))
+            D->getConstexprKind(), SourceLocation(), TrailingRequiresClause,
+            Contracts))
       return ToFunction;
   } else if (auto *Guide = dyn_cast<CXXDeductionGuideDecl>(D)) {
     ExplicitSpecifier ESpec =
@@ -4003,7 +4005,7 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
             ToFunction, D, Importer.getToContext(), DC, ToInnerLocStart,
             NameInfo, T, TInfo, D->getStorageClass(), D->UsesFPIntrin(),
             D->isInlineSpecified(), D->hasWrittenPrototype(),
-            D->getConstexprKind(), TrailingRequiresClause))
+            D->getConstexprKind(), TrailingRequiresClause, Contracts))
       return ToFunction;
   }
 

@@ -2062,9 +2062,11 @@ protected:
                 QualType T, TypeSourceInfo *TInfo, StorageClass SC,
                 bool UsesFPIntrin, bool isInline,
                 ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-                Expr *TrailingRequiresClause = nullptr)
+                Expr *TrailingRequiresClause = nullptr,
+                ArrayRef<ContractStmt *> Contracts = {})
       : FunctionDecl(DK, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
-                     isInline, ConstexprKind, TrailingRequiresClause) {
+                     isInline, ConstexprKind, TrailingRequiresClause,
+                     Contracts) {
     if (EndLocation.isValid())
       setRangeEnd(EndLocation);
   }
@@ -2075,7 +2077,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInline,
          ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-         Expr *TrailingRequiresClause = nullptr);
+         Expr *TrailingRequiresClause = nullptr,
+         ArrayRef<ContractStmt *> Contracts = {});
 
   static CXXMethodDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -2543,7 +2546,8 @@ class CXXConstructorDecl final
                      bool UsesFPIntrin, bool isInline,
                      bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
                      InheritedConstructor Inherited,
-                     Expr *TrailingRequiresClause);
+                     Expr *TrailingRequiresClause,
+                     ArrayRef<ContractStmt *> Contracts);
 
   void anchor() override;
 
@@ -2586,7 +2590,8 @@ public:
          ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
          bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
          InheritedConstructor Inherited = InheritedConstructor(),
-         Expr *TrailingRequiresClause = nullptr);
+         Expr *TrailingRequiresClause = nullptr,
+         ArrayRef<ContractStmt *> Contracts = {});
 
   void setExplicitSpecifier(ExplicitSpecifier ES) {
     assert((!ES.getExpr() ||
@@ -2805,10 +2810,11 @@ class CXXDestructorDecl : public CXXMethodDecl {
                     const DeclarationNameInfo &NameInfo, QualType T,
                     TypeSourceInfo *TInfo, bool UsesFPIntrin, bool isInline,
                     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
-                    Expr *TrailingRequiresClause = nullptr)
+                    Expr *TrailingRequiresClause = nullptr,
+                    ArrayRef<ContractStmt *> Contracts = {})
       : CXXMethodDecl(CXXDestructor, C, RD, StartLoc, NameInfo, T, TInfo,
                       SC_None, UsesFPIntrin, isInline, ConstexprKind,
-                      SourceLocation(), TrailingRequiresClause) {
+                      SourceLocation(), TrailingRequiresClause, Contracts) {
     setImplicit(isImplicitlyDeclared);
   }
 
@@ -2820,7 +2826,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
          ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause = nullptr);
+         Expr *TrailingRequiresClause = nullptr,
+         ArrayRef<ContractStmt *> Contracts = {});
   static CXXDestructorDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   void setOperatorDelete(FunctionDecl *OD, Expr *ThisArg);
@@ -2861,10 +2868,11 @@ class CXXConversionDecl : public CXXMethodDecl {
                     TypeSourceInfo *TInfo, bool UsesFPIntrin, bool isInline,
                     ExplicitSpecifier ES, ConstexprSpecKind ConstexprKind,
                     SourceLocation EndLocation,
-                    Expr *TrailingRequiresClause = nullptr)
+                    Expr *TrailingRequiresClause = nullptr,
+                    ArrayRef<ContractStmt *> Contracts = {})
       : CXXMethodDecl(CXXConversion, C, RD, StartLoc, NameInfo, T, TInfo,
                       SC_None, UsesFPIntrin, isInline, ConstexprKind,
-                      EndLocation, TrailingRequiresClause),
+                      EndLocation, TrailingRequiresClause, Contracts),
         ExplicitSpec(ES) {}
   void anchor() override;
 
@@ -2879,7 +2887,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
          ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-         Expr *TrailingRequiresClause = nullptr);
+         Expr *TrailingRequiresClause = nullptr,
+         ArrayRef<ContractStmt *> Contracts = {});
   static CXXConversionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   ExplicitSpecifier getExplicitSpecifier() {
@@ -4384,6 +4393,71 @@ public:
 /// into a diagnostic with <<.
 const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
                                       AccessSpecifier AS);
+
+/// A result name introduces in a post condition. For instance, given:
+///
+///   int foo() post(r : r > 0);
+///
+/// Where `r` refers to the value returned by the function
+class ResultNameDecl : public ValueDecl {
+
+  /// The canonical declaration of a result name is the result name declared in
+  /// the first post condition (with a result name) on a particular function.
+  ///
+  /// The canonical decl is used as the key for the value of the return value
+  /// during codegen and constant evaluation. This is necessary because the
+  /// changes to the return value in the post conditions must be visible to
+  /// subsequent post conditions.
+  ResultNameDecl *CanonicalResultNameDecl = nullptr;
+
+  ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id,
+                 QualType T, ResultNameDecl *CanonicalResultNameDecl = nullptr)
+      : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T),
+        CanonicalResultNameDecl(CanonicalResultNameDecl) {
+    assert(!CanonicalResultNameDecl ||
+           CanonicalResultNameDecl->CanonicalResultNameDecl == nullptr);
+    assert(!CanonicalResultNameDecl || CanonicalResultNameDecl->getType() == T);
+  }
+
+  void anchor() override;
+
+public:
+  friend class ASTDeclReader;
+
+  static ResultNameDecl *
+  Create(ASTContext &C, DeclContext *DC, SourceLocation IdLoc,
+         IdentifierInfo *Id, QualType T,
+         ResultNameDecl *CanonicalResultNameDecl = nullptr);
+  static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
+
+  using ValueDecl::getDeclName;
+  using ValueDecl::setType;
+
+  void setCanonicalResultNameDecl(ResultNameDecl *D) {
+    CanonicalResultNameDecl = D;
+  }
+
+  /// Returns true if this declaration is the canonical result name declaration
+  /// (This is true if it doesn't reference another result name).
+  bool isCanonicalResultNameDecl() const {
+    return CanonicalResultNameDecl == nullptr;
+  }
+
+  ResultNameDecl *getCanonicalResultNameDecl() {
+    if (CanonicalResultNameDecl)
+      return CanonicalResultNameDecl;
+    return this;
+  }
+
+  const ResultNameDecl *getCanonicalResultNameDecl() const {
+    if (CanonicalResultNameDecl)
+      return CanonicalResultNameDecl;
+    return this;
+  }
+
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Decl::ResultName; }
+};
 
 } // namespace clang
 

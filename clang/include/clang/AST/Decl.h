@@ -55,6 +55,7 @@ namespace clang {
 class ASTContext;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
+class ContractStmt;
 class DependentFunctionTemplateSpecializationInfo;
 class EnumDecl;
 class Expr;
@@ -67,6 +68,7 @@ class Module;
 class NamespaceDecl;
 class ParmVarDecl;
 class RecordDecl;
+class ResultNameDecl;
 class Stmt;
 class StringLiteral;
 class TagDecl;
@@ -77,6 +79,7 @@ class TypeAliasTemplateDecl;
 class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
+enum class ContractKind;
 
 /// The top declaration context.
 class TranslationUnitDecl : public Decl,
@@ -730,11 +733,12 @@ struct QualifierInfo {
 /// Contains type source information through TypeSourceInfo.
 class DeclaratorDecl : public ValueDecl {
   // A struct representing a TInfo, a trailing requires-clause and a syntactic
-  // qualifier, to be used for the (uncommon) case of out-of-line declarations
-  // and constrained function decls.
+  // qualifier, to be used for the (uncommon) case of out-of-line declarations,
+  // constrained function decls or functions with contracts.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
     Expr *TrailingRequiresClause = nullptr;
+    SmallVector<ContractStmt *> Contracts = {};
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -814,7 +818,23 @@ public:
                         : nullptr;
   }
 
+  bool hasContracts() const {
+    if (hasExtInfo())
+      return !getExtInfo()->Contracts.empty();
+    return false;
+  }
+
+  ArrayRef<ContractStmt *> getContracts() const {
+    if (hasExtInfo())
+      return getExtInfo()->Contracts;
+    return {};
+  }
+
+  void getContracts(ContractKind CK, SmallVector<ContractStmt *> &In) const;
+
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
+
+  void setContracts(ArrayRef<ContractStmt *> Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -1355,7 +1375,8 @@ public:
 
 private:
   APValue *evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitialization) const;
+                             bool IsConstantInitialization,
+                             bool EnableContracts) const;
 
 public:
   /// Return the already-evaluated value of this variable's
@@ -1387,8 +1408,13 @@ public:
   /// Evaluate the initializer of this variable to determine whether it's a
   /// constant initializer. Should only be called once, after completing the
   /// definition of the variable.
-  bool checkForConstantInitialization(
-      SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+  bool
+  checkForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                 bool EnableContracts = true) const;
+
+  bool
+  recheckForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                   bool EnableContracts = true) const;
 
   void setInitStyle(InitializationStyle Style) {
     VarDeclBits.InitStyle = Style;
@@ -1998,6 +2024,7 @@ private:
     LazyDeclStmtPtr Body;
     /// Information about a future defaulted function definition.
     DefaultedOrDeletedFunctionInfo *DefaultedOrDeletedInfo;
+    ///
   };
 
   unsigned ODRHash;
@@ -2087,7 +2114,8 @@ protected:
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
-               Expr *TrailingRequiresClause = nullptr);
+               Expr *TrailingRequiresClause = nullptr,
+               ArrayRef<ContractStmt *> Contracts = {});
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2123,12 +2151,14 @@ public:
          TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
-         Expr *TrailingRequiresClause = nullptr) {
+         Expr *TrailingRequiresClause = nullptr,
+         ArrayRef<ContractStmt *> Contracts = {}) {
+
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
                                 UsesFPIntrin, isInlineSpecified,
                                 hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause);
+                                TrailingRequiresClause, Contracts);
   }
 
   static FunctionDecl *
@@ -2136,7 +2166,7 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause);
+         Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -2640,6 +2670,10 @@ public:
     return const_cast<FunctionDecl*>(this)->getCanonicalDecl();
   }
 
+
+  FunctionDecl *getDeclForContracts();
+  const FunctionDecl *getDeclForContracts() const;
+
   unsigned getBuiltinID(bool ConsiderWrapperFunctions = false) const;
 
   // ArrayRef interface to parameters.
@@ -2707,6 +2741,10 @@ public:
   /// initializer list constructors. Note that, unlike getMinRequiredArguments,
   /// parameter packs are not treated specially here.
   bool hasOneParamOrDefaultArgs() const;
+
+
+  bool hasResultNameIntroducer();
+  ResultNameDecl *getCanonicalResultNameIntroducer();
 
   /// Find the source location information for how the type of this function
   /// was written. May be absent (for example if the function was declared via

@@ -2725,6 +2725,61 @@ public:
   //
   //
 
+  /// \name C++ Contracts
+  /// Implementations are in SemaContract.cpp
+  ///@{
+
+public:
+  struct ContractEvaluationScope {
+    ContractEvaluationScope(Sema &S, bool ShouldEnter);
+    ~ContractEvaluationScope();
+
+  private:
+    Sema &S;
+    bool Entered;
+    bool OldInContractEvaluation;
+    QualType OldCXXThisType;
+  };
+  StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultNameDecl,
+                                 ParsedAttributes &Attrs);
+
+  StmtResult ActOnResultNameDeclarator(Scope *S, QualType T,
+                                       SourceLocation IDLoc,
+                                       IdentifierInfo *II);
+
+  ExprResult ActOnContractAssertCondition(Expr *Cond);
+
+  StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
+                               Expr *Cond, DeclStmt *ResultNameDecl,
+                               ArrayRef<const Attr *> Attrs);
+
+  // Check two function declarations for equivalent contract sequences.
+  // Return true if a diagnostic was issued, false otherwise.
+  bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
+                                       FunctionDecl *NewDecl);
+
+  // FIXME(EricWF): Remove me. These are just convinence hooks while I move
+  // things around in the implementation.
+  void ActOnFinishContractSpecifierSequence(
+      SmallVector<ContractStmt *> ContractStmts);
+  void ActOnFinishLateParsedContractSpecifierSequence(
+    SmallVector<ContractStmt*> Contracts, FunctionDecl *FD);
+
+  void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
+  void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
+                                         FunctionDecl *NewDecl);
+
+  void RebuildFunctionContractsAfterReturnTypeDeduction(FunctionDecl *FD);
+
+  ///@}
+
+  //
+  //
+  // -------------------------------------------------------------------------
+  //
+  //
+
   /// \name C++ Scope Specifiers
   /// Implementations are in SemaCXXScopeSpec.cpp
   ///@{
@@ -6354,7 +6409,6 @@ public:
     bool InDiscardedStatement;
     bool InImmediateFunctionContext;
     bool InImmediateEscalatingFunctionContext;
-
     bool IsCurrentlyCheckingDefaultArgumentOrInitializer = false;
 
     // We are in a constant context, but we also allow
@@ -6366,6 +6420,9 @@ public:
     /// lifetime-extended, even if they're not bound to a reference (for
     /// example, in a for-range initializer).
     bool InLifetimeExtendingContext = false;
+
+    /// Whether we're currently evaluating the predicate of a contract assertion
+    bool InContractAssertion = false;
 
     // When evaluating immediate functions in the initializer of a default
     // argument or default member initializer, this is the declaration whose
@@ -6434,6 +6491,14 @@ public:
                   ExpressionEvaluationContext::ImmediateFunctionContext &&
               InDiscardedStatement);
     }
+
+    bool isContractAssertionContext() const { return InContractAssertion; }
+
+    // True iff we're in a context that requires applying constification
+    // adjustments to some declarations.
+    bool isConstificationContext() const {
+      return InContractAssertion && !isUnevaluated();
+    }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6462,6 +6527,26 @@ public:
     return ExprEvalContexts.back().ExprContext ==
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
+
+  bool isContractAssertionContext() const {
+    return ExprEvalContexts.back().isContractAssertionContext();
+  }
+
+  bool isConstificationContext() const {
+    return ExprEvalContexts.back().isConstificationContext();
+  }
+
+  struct ContractScopeRAII {
+    ContractScopeRAII(Sema &S, bool ReplaceThis = false);
+    ~ContractScopeRAII();
+
+  private:
+    ContractScopeRAII(ContractScopeRAII const &) = delete;
+
+    Sema &S;
+    bool OldValue;
+    QualType OldCXXThisType;
+  };
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
@@ -13651,6 +13736,8 @@ public:
                                   ParmVarDecl *Param);
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
+  void InstantiateContracts(SourceLocation PointOfInstantiation,
+                            FunctionDecl *Function);
 
   /// Instantiate (or find existing instantiation of) a function template with a
   /// given set of template arguments.

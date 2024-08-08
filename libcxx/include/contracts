@@ -1,0 +1,50 @@
+#ifndef _LIBCPP_CONTRACTS
+#define _LIBCPP_CONTRACTS
+
+#include <__config>
+#include <source_location>
+#include <version>
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
+
+namespace std::contracts {
+
+enum class assertion_kind : unsigned char { __unknown = 0, pre = 1, post = 2, assert = 3 };
+using _AssertKind = assertion_kind;
+enum class evaluation_semantic : unsigned char { __unknown = 0, enforce = 1, observe = 2 };
+using _EvaluationSemantic = evaluation_semantic;
+enum class detection_mode : unsigned char { __unknown = 0, predicate_false = 1, evaluation_exception = 2 };
+using _DetectionMode = detection_mode;
+
+struct _ContractViolationImpl;
+
+class contract_violation {
+  // no user−accessible constructor
+  friend struct _ContractViolationImpl;
+
+public:
+  ~contract_violation()                                    = default;
+  contract_violation(const contract_violation&)            = delete;
+  contract_violation& operator=(const contract_violation&) = delete;
+
+  _LIBCPP_EXPORTED_FROM_ABI std::source_location location() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI const char* comment() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI _DetectionMode detection_mode() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI assertion_kind kind() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI evaluation_semantic semantic() const noexcept;
+
+private:
+  explicit contract_violation(const _ContractViolationImpl* impl) noexcept : __pimpl_(impl) {}
+
+  const _ContractViolationImpl* __pimpl_;
+};
+
+_LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler(const contract_violation&) noexcept;
+
+} // namespace std::contracts
+
+_LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&);
+
+#endif // _LIBCPP_CONTRACTS

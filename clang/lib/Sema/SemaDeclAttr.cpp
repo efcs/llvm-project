@@ -1744,7 +1744,8 @@ static void handleCPUSpecificAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
       return;
 
     if (const auto *Other = D->getAttr<CPUDispatchAttr>()) {
-      S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute) << AL;
+      S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute)
+          << AL << /*declaration*/ 0;
       S.Diag(Other->getLocation(), diag::note_conflicting_attribute);
       return;
     }
@@ -1753,7 +1754,8 @@ static void handleCPUSpecificAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
       return;
 
     if (const auto *Other = D->getAttr<CPUSpecificAttr>()) {
-      S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute) << AL;
+      S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute)
+          << AL << /*declaration*/ 0;
       S.Diag(Other->getLocation(), diag::note_conflicting_attribute);
       return;
     }
@@ -3172,7 +3174,7 @@ static void handleTargetClonesAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   // Ensure we don't combine these with themselves, since that causes some
   // confusing behavior.
   if (const auto *Other = D->getAttr<TargetClonesAttr>()) {
-    S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute) << AL;
+    S.Diag(AL.getLoc(), diag::err_disallowed_duplicate_attribute) << AL << 0;
     S.Diag(Other->getLocation(), diag::note_conflicting_attribute);
     return;
   }
@@ -5992,7 +5994,7 @@ static void handleMSAllocatorAttr(Sema &S, Decl *D, const ParsedAttr &AL) {
   // Warn if the return type is not a pointer or reference type.
   if (auto *FD = dyn_cast<FunctionDecl>(D)) {
     QualType RetTy = FD->getReturnType();
-    if (!RetTy->isPointerType() && !RetTy->isReferenceType()) {
+    if (!RetTy->isPointerOrReferenceType()) {
       S.Diag(AL.getLoc(), diag::warn_declspec_allocator_nonpointer)
           << AL.getRange() << RetTy;
       return;

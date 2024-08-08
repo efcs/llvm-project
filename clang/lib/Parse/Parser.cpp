@@ -1,4 +1,4 @@
-//===--- Parser.cpp - C Language Family Parser ----------------------------===//
+//===--- Parser.cpp - C Languaa Family Parser ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -516,6 +516,10 @@ void Parser::Initialize() {
   Ident_GNU_final = nullptr;
   Ident_import = nullptr;
   Ident_module = nullptr;
+  Ident_pre = nullptr;
+  Ident___pre = nullptr;
+  Ident_post = nullptr;
+  Ident___post = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 
@@ -1522,7 +1526,25 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   if (LateParsedAttrs)
     ParseLexedAttributeList(*LateParsedAttrs, Res, false, true);
 
-  return ParseFunctionStatementBody(Res, BodyScope);
+  Decl *FuncWithBody = ParseFunctionStatementBody(Res, BodyScope);
+  if (!FuncWithBody || FuncWithBody->isInvalidDecl())
+    return FuncWithBody;
+  FunctionDecl *FunctionToPush;
+  if (FunctionTemplateDecl *FunTmpl =
+          dyn_cast<FunctionTemplateDecl>(FuncWithBody))
+    FunctionToPush = FunTmpl->getTemplatedDecl();
+  else
+    FunctionToPush = cast<FunctionDecl>(FuncWithBody);
+  assert(FunctionToPush);
+  FunctionDecl *FD =
+      FunctionToPush; // dyn_cast_or_null<FunctionDecl>(FuncWithBody);
+  assert(FD);
+  if (!D.LateParsedContracts.empty()) {
+    assert(getLangOpts().LateParsedContracts);
+    assert(!FD->getReturnType()->isUndeducedAutoType());
+    ParseLexedFunctionContracts(D.LateParsedContracts, FD);
+  }
+  return FuncWithBody;
 }
 
 void Parser::SkipFunctionBody() {

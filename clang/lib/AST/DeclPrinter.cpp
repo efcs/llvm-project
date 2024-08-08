@@ -72,6 +72,7 @@ namespace {
     void VisitVarDecl(VarDecl *D);
     void VisitLabelDecl(LabelDecl *D);
     void VisitParmVarDecl(ParmVarDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
     void VisitFileScopeAsmDecl(FileScopeAsmDecl *D);
     void VisitTopLevelStmtDecl(TopLevelStmtDecl *D);
     void VisitImportDecl(ImportDecl *D);
@@ -818,6 +819,16 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       Out << " requires ";
       TrailingRequiresClause->printPretty(Out, nullptr, SubPolicy, Indentation,
                                           "\n", &Context);
+    }
+
+    const auto &Contracts = D->getContracts();
+    if (!Contracts.empty()) {
+      Out << " [[";
+      for (const auto &Contract : Contracts) {
+        Contract->printPretty(Out, nullptr, SubPolicy, Indentation, "\n",
+                              &Context);
+      }
+      Out << "]]";
     }
   } else {
     Ty.print(Out, Policy, Proto);
@@ -1907,5 +1918,20 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
     Out << " = ";
     NTTP->getDefaultArgument().getArgument().print(Policy, Out,
                                                    /*IncludeType=*/false);
+  }
+}
+
+void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
+  StringRef Name = "";
+  if (IdentifierInfo *II = RND->getIdentifier()) {
+    Name =
+        Policy.CleanUglifiedParameters ? II->deuglifiedName() : II->getName();
+  }
+  printDeclType(RND->getType(), Name, false);
+  Out << RND->getDeclName();
+  if (RND->getCanonicalResultNameDecl() != RND) {
+    Out << " = ";
+    RND->getCanonicalResultNameDecl()->printQualifiedName(Out);
+    Out << " " << RND << " ";
   }
 }

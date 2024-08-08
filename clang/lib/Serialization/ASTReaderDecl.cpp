@@ -383,6 +383,7 @@ namespace clang {
     RedeclarableResult VisitVarDeclImpl(VarDecl *D);
     void ReadVarDeclInit(VarDecl *VD);
     void VisitVarDecl(VarDecl *VD) { VisitVarDeclImpl(VD); }
+    void VisitResultNameDecl(ResultNameDecl *RD);
     void VisitImplicitParamDecl(ImplicitParamDecl *PD);
     void VisitParmVarDecl(ParmVarDecl *PD);
     void VisitDecompositionDecl(DecompositionDecl *DD);
@@ -901,6 +902,14 @@ void ASTDeclReader::VisitValueDecl(ValueDecl *VD) {
     VD->setType(Record.readType());
 }
 
+void ASTDeclReader::VisitResultNameDecl(ResultNameDecl *VD) {
+  VisitNamedDecl(VD);
+  bool IsCanonical = Record.readInt();
+  if (!IsCanonical) {
+    VD->setCanonicalResultNameDecl(readDeclAs<ResultNameDecl>());
+  }
+}
+
 void ASTDeclReader::VisitEnumConstantDecl(EnumConstantDecl *ECD) {
   VisitValueDecl(ECD);
   if (Record.readInt())
@@ -916,6 +925,10 @@ void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
     auto *Info = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     Record.readQualifierInfo(*Info);
     Info->TrailingRequiresClause = Record.readExpr();
+    // unsigned NumContracts = Record.readInt();
+    // for (unsigned I=0; I < NumContracts; ++I)
+    //   Info->Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
+
     DD->DeclInfo = Info;
   }
   QualType TSIType = Record.readType();
@@ -1149,6 +1162,13 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   for (unsigned I = 0; I != NumParams; ++I)
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
+
+  unsigned NumContracts = Record.readInt();
+  SmallVector<ContractStmt *, 4> Contracts;
+  for (unsigned I = 0; I < NumContracts; ++I)
+    Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
+  if (NumContracts != 0)
+    FD->setContracts(std::move(Contracts));
 }
 
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
@@ -4019,6 +4039,9 @@ Decl *ASTReader::ReadDeclRecord(GlobalDeclID ID) {
     break;
   case DECL_FILE_SCOPE_ASM:
     D = FileScopeAsmDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_RESULT_NAME:
+    D = ResultNameDecl::CreateDeserialized(Context, ID);
     break;
   case DECL_TOP_LEVEL_STMT_DECL:
     D = TopLevelStmtDecl::CreateDeserialized(Context, ID);

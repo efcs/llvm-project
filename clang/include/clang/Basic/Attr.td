@@ -2050,6 +2050,17 @@ def Convergent : InheritableAttr {
   let SimpleHandler = 1;
 }
 
+def NoConvergent : InheritableAttr {
+  let Spellings = [Clang<"noconvergent">, Declspec<"noconvergent">];
+  let Subjects = SubjectList<[Function, Stmt], WarnDiag,
+                             "functions and statements">;
+  let LangOpts = [CUDA];
+  let Documentation = [NoConvergentDocs];
+  let SimpleHandler = 1;
+}
+
+def : MutualExclusions<[Convergent, NoConvergent]>;
+
 def NoInline : DeclOrStmtAttr {
   let Spellings = [CustomKeyword<"__noinline__">, GCC<"noinline">,
                    CXX11<"clang", "noinline">, C23<"clang", "noinline">,
@@ -3291,6 +3302,33 @@ def Unavailable : InheritableAttr {
                  "IR_ARCFieldWithOwnership"], 1, /*fake*/ 1>];
   let Documentation = [Undocumented];
   let MeaningfulToClassTemplateDefinition = 1;
+}
+
+def ContractGroup : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_group">];
+  let Args = [ StringArgument<"Group"> ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+def ContractSemantic : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_semantic">];
+  let Args = [
+    EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
+        ["ignore", "observe", "enforce", "quick_enforce"],
+        ["Ignore", "Observe", "Enforce", "QuickEnforce"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>,
+    DefaultBoolArgument<"Override", 0, /*fake*/ 0>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+def ContractMessage : StmtAttr {
+    let Spellings = [CXX11<"clang", "contract_message">];
+    let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
+    let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+    let Documentation = [Undocumented];
 }
 
 def DiagnoseIf : InheritableAttr {

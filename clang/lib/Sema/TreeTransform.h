@@ -1603,6 +1603,15 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultName,
+                                 ArrayRef<const Attr *> Attrs) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -8581,6 +8590,41 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   // Always rebuild; we don't know if this needs to be injected into a new
   // context or if the promise type has changed.
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
+}
+
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+
+  Sema::ContractScopeRAII ContractScope(getSema());
+
+  StmtResult NewResultName;
+  if (S->hasResultName()) {
+    NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
+    if (NewResultName.isInvalid())
+      return StmtError();
+  }
+
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
+    return StmtError();
+
+  Cond = CondRes.get().second;
+
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), Cond,
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
 }
 
 // Objective-C Statements.

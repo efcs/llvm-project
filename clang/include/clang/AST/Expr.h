@@ -734,7 +734,8 @@ public:
   bool EvaluateAsInitializer(APValue &Result, const ASTContext &Ctx,
                              const VarDecl *VD,
                              SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitializer) const;
+                             bool IsConstantInitializer,
+                             bool EvaluateContracts = true) const;
 
   /// EvaluateWithSubstitution - Evaluate an expression as if from the context
   /// of a call to the given function with the given arguments, inside an
@@ -1234,6 +1235,17 @@ public:
     return T->getStmtClass() == OpaqueValueExprClass;
   }
 };
+
+// This enum is silly, but avoids creating overload sets where many adjacent
+// arguments are all convertible to/from bool or int.
+enum class ContractConstification {
+  CC_None,
+  CC_ApplyConst,
+};
+
+constexpr ContractConstification CC_None = ContractConstification::CC_None;
+constexpr ContractConstification CC_ApplyConst =
+    ContractConstification::CC_ApplyConst;
 
 /// A reference to a declared variable, function, enum, etc.
 /// [C99 6.5.1p2]
@@ -4747,7 +4759,7 @@ enum class SourceLocIdentKind {
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
 /// __builtin_FUNCTION(), __builtin_FUNCSIG(), __builtin_FILE(),
-/// __builtin_FILE_NAME() or __builtin_source_location().
+/// __builtin_FILE_NAME(), __builtin_source_location(), or __builtin_source_location()2.
 class SourceLocExpr final : public Expr {
   SourceLocation BuiltinLoc, RParenLoc;
   DeclContext *ParentContext;

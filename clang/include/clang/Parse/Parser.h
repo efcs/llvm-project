@@ -169,6 +169,12 @@ class Parser : public CodeCompletionHandler {
   mutable IdentifierInfo *Ident_import;
   mutable IdentifierInfo *Ident_module;
 
+  // C++2c(?) contextual keywords.
+  mutable IdentifierInfo *Ident_pre;
+  mutable IdentifierInfo *Ident___pre;
+  mutable IdentifierInfo *Ident_post;
+  mutable IdentifierInfo *Ident___post;
+
   // C++ type trait keywords that can be reverted to identifiers and still be
   // used as type traits.
   llvm::SmallDenseMap<IdentifierInfo *, tok::TokenKind> RevertibleTypeTraits;
@@ -1481,6 +1487,9 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    // The set of tokens that make up the contracts on the method.
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2108,6 +2117,32 @@ private:
 
   ExprResult ParseRequiresExpression();
   void ParseTrailingRequiresClause(Declarator &D);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Contracts
+public:
+  enum class ContractKeyword { None, Pre, Post };
+  ContractKeyword getContractKeyword(const Token &Token) const;
+  ContractKeyword getContractKeyword() const { return getContractKeyword(Tok); }
+  bool isContractKeyword() const {
+    return getContractKeyword() != ContractKeyword::None;
+  }
+  bool isContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token) != ContractKeyword::None;
+  }
+
+private:
+  StmtResult ParseContractAssertStatement();
+
+  bool ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+                                      bool EnterScope,
+                                      QualType TrailingReturnType = QualType());
+  StmtResult ParseFunctionContractSpecifierImpl(QualType RetType);
+
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, FunctionDecl *FD);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
@@ -3226,9 +3261,12 @@ private:
   void ParseFunctionDeclarator(Declarator &D, ParsedAttributes &FirstArgAttrs,
                                BalancedDelimiterTracker &Tracker,
                                bool IsAmbiguous, bool RequiresArg = false);
+public:
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst = false);
+
+private:
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,
                          SourceLocation &RefQualifierLoc);
   bool isFunctionDeclaratorIdentifierList();
@@ -3924,6 +3962,10 @@ private:
   bool isGNUAsmQualifier(const Token &TokAfterAsm) const;
   GNUAsmQualifiers::AQ getGNUAsmQualifier(const Token &Tok) const;
   bool parseGNUAsmQualifierListOpt(GNUAsmQualifiers &AQ);
+  bool
+  ParseLexedFunctionContractsInScope(CachedTokens &Toks,
+                                     SmallVector<ContractStmt *> &Contracts,
+                                     QualType RetType);
 };
 
 }  // end namespace clang

@@ -2147,6 +2147,8 @@ DEF_TRAVERSE_DECL(BindingDecl, {
     TRY_TO(TraverseStmt(D->getBinding()));
 })
 
+DEF_TRAVERSE_DECL(ResultNameDecl, {})
+
 DEF_TRAVERSE_DECL(MSPropertyDecl, { TRY_TO(TraverseDeclaratorHelper(D)); })
 
 DEF_TRAVERSE_DECL(MSGuidDecl, {})
@@ -2227,6 +2229,12 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   // Visit the trailing requires clause, if any.
   if (Expr *TrailingRequiresClause = D->getTrailingRequiresClause()) {
     TRY_TO(TraverseStmt(TrailingRequiresClause));
+  }
+
+  // Visit any contracts attached to the function declaration..
+  const auto &Contracts = D->getContracts();
+  for (const auto &Contract : Contracts) {
+    TRY_TO(TraverseContractStmt(Contract));
   }
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
@@ -2443,6 +2451,15 @@ DEF_TRAVERSE_STMT(ObjCAtThrowStmt, {})
 DEF_TRAVERSE_STMT(ObjCAtTryStmt, {})
 DEF_TRAVERSE_STMT(ObjCForCollectionStmt, {})
 DEF_TRAVERSE_STMT(ObjCAutoreleasePoolStmt, {})
+// FIXME(EricWF): This may have a declaration with a body eventually.
+// Will that need a different implementation.
+DEF_TRAVERSE_STMT(ContractStmt, {
+  if (S->hasResultName()) {
+    TRY_TO(TraverseDecl(S->getResultName()));
+  }
+  TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getCond());
+  ShouldVisitChildren = false;
+})
 
 DEF_TRAVERSE_STMT(CXXForRangeStmt, {
   if (!getDerived().shouldVisitImplicitCode()) {

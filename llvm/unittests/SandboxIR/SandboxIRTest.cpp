@@ -1520,6 +1520,7 @@ define void @foo(i32 %arg, float %farg, double %darg, ptr %ptr) {
   EXPECT_EQ(PtrToInt->getDestTy(), Ti32);
 
   auto *IntToPtr = cast<sandboxir::CastInst>(&*It++);
+  EXPECT_TRUE(isa<sandboxir::IntToPtrInst>(IntToPtr));
   EXPECT_EQ(IntToPtr->getOpcode(), sandboxir::Instruction::Opcode::IntToPtr);
   EXPECT_EQ(IntToPtr->getSrcTy(), Ti32);
   EXPECT_EQ(IntToPtr->getDestTy(), Tptr);
@@ -1551,6 +1552,7 @@ define void @foo(i32 %arg, float %farg, double %darg, ptr %ptr) {
   EXPECT_EQ(BitCast->getDestTy(), Tfloat);
 
   auto *AddrSpaceCast = cast<sandboxir::CastInst>(&*It++);
+  EXPECT_TRUE(isa<sandboxir::AddrSpaceCastInst>(AddrSpaceCast));
   EXPECT_EQ(AddrSpaceCast->getOpcode(),
             sandboxir::Instruction::Opcode::AddrSpaceCast);
   EXPECT_EQ(AddrSpaceCast->getSrcTy(), Tptr);
@@ -1612,6 +1614,75 @@ define void @foo(i32 %arg, float %farg, double %darg, ptr %ptr) {
                                     Arg, /*InsertBefore=*/Ret, Ctx, "Bad"),
         ".*Opcode.*");
 #endif // NDEBUG
+  }
+}
+
+TEST_F(SandboxIRTest, IntToPtrInst) {
+  parseIR(C, R"IR(
+define void @foo(i32 %arg) {
+  %inttoptr = inttoptr i32 %arg to ptr
+  ret void
+}
+)IR");
+  Function &LLVMF = *M->getFunction("foo");
+  sandboxir::Context Ctx(C);
+  sandboxir::Function *F = Ctx.createFunction(&LLVMF);
+  unsigned ArgIdx = 0;
+  auto *Arg = F->getArg(ArgIdx++);
+  auto *BB = &*F->begin();
+  auto It = BB->begin();
+  Type *Ti32 = Type::getInt32Ty(C);
+  Type *Tptr = Ti32->getPointerTo();
+
+  auto *IntToPtr = cast<sandboxir::IntToPtrInst>(&*It++);
+  EXPECT_EQ(IntToPtr->getOpcode(), sandboxir::Instruction::Opcode::IntToPtr);
+  EXPECT_EQ(IntToPtr->getSrcTy(), Ti32);
+  EXPECT_EQ(IntToPtr->getDestTy(), Tptr);
+  auto *Ret = cast<sandboxir::ReturnInst>(&*It++);
+
+  {
+    // Check create() WhereIt, WhereBB
+    auto *NewI = cast<sandboxir::IntToPtrInst>(
+        sandboxir::IntToPtrInst::create(Arg, Tptr, /*WhereIt=*/BB->end(),
+                                        /*WhereBB=*/BB, Ctx, "IntToPtr"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::IntToPtr);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), nullptr);
+    EXPECT_EQ(NewI->getPrevNode(), Ret);
+  }
+  {
+    // Check create() InsertBefore.
+    auto *NewI = cast<sandboxir::IntToPtrInst>(
+        sandboxir::IntToPtrInst::create(Arg, Tptr,
+                                        /*InsertBefore=*/Ret, Ctx, "IntToPtr"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::IntToPtr);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), Ret);
+  }
+  {
+    // Check create() InsertAtEnd.
+    auto *NewI = cast<sandboxir::IntToPtrInst>(
+        sandboxir::IntToPtrInst::create(Arg, Tptr,
+                                        /*InsertAtEnd=*/BB, Ctx, "IntToPtr"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::IntToPtr);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), nullptr);
+    EXPECT_EQ(NewI->getParent(), BB);
   }
 }
 
@@ -1747,6 +1818,85 @@ define void @foo(i32 %arg) {
     EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
     // Check getDestTy().
     EXPECT_EQ(NewI->getDestTy(), Tfloat);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), nullptr);
+    EXPECT_EQ(NewI->getParent(), BB);
+  }
+}
+
+TEST_F(SandboxIRTest, AddrSpaceCastInst) {
+  parseIR(C, R"IR(
+define void @foo(ptr %ptr) {
+  %addrspacecast = addrspacecast ptr %ptr to ptr addrspace(1)
+  ret void
+}
+)IR");
+  Function &LLVMF = *M->getFunction("foo");
+  sandboxir::Context Ctx(C);
+  sandboxir::Function *F = Ctx.createFunction(&LLVMF);
+  unsigned ArgIdx = 0;
+  auto *Arg = F->getArg(ArgIdx++);
+  auto *BB = &*F->begin();
+  auto It = BB->begin();
+  Type *Tptr = Type::getInt32Ty(C)->getPointerTo();
+  Type *Tptr1 = Tptr->getPointerTo(1);
+
+  auto *AddrSpaceCast = cast<sandboxir::AddrSpaceCastInst>(&*It++);
+  EXPECT_EQ(AddrSpaceCast->getOpcode(),
+            sandboxir::Instruction::Opcode::AddrSpaceCast);
+  EXPECT_EQ(AddrSpaceCast->getSrcTy(), Tptr);
+  EXPECT_EQ(AddrSpaceCast->getDestTy(), Tptr1);
+  EXPECT_EQ(AddrSpaceCast->getPointerOperand(), Arg);
+  EXPECT_EQ(sandboxir::AddrSpaceCastInst::getPointerOperandIndex(), 0u);
+  EXPECT_EQ(AddrSpaceCast->getSrcAddressSpace(),
+            cast<PointerType>(Tptr)->getPointerAddressSpace());
+  EXPECT_EQ(AddrSpaceCast->getDestAddressSpace(),
+            cast<PointerType>(Tptr1)->getPointerAddressSpace());
+  auto *Ret = cast<sandboxir::ReturnInst>(&*It++);
+
+  {
+    // Check create() WhereIt, WhereBB
+    auto *NewI =
+        cast<sandboxir::AddrSpaceCastInst>(sandboxir::AddrSpaceCastInst::create(
+            Arg, Tptr1, /*WhereIt=*/BB->end(),
+            /*WhereBB=*/BB, Ctx, "AddrSpaceCast"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::AddrSpaceCast);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr1);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), nullptr);
+    EXPECT_EQ(NewI->getPrevNode(), Ret);
+  }
+  {
+    // Check create() InsertBefore.
+    auto *NewI =
+        cast<sandboxir::AddrSpaceCastInst>(sandboxir::AddrSpaceCastInst::create(
+            Arg, Tptr1,
+            /*InsertBefore=*/Ret, Ctx, "AddrSpaceCast"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::AddrSpaceCast);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr1);
+    // Check instr position.
+    EXPECT_EQ(NewI->getNextNode(), Ret);
+  }
+  {
+    // Check create() InsertAtEnd.
+    auto *NewI =
+        cast<sandboxir::AddrSpaceCastInst>(sandboxir::AddrSpaceCastInst::create(
+            Arg, Tptr1,
+            /*InsertAtEnd=*/BB, Ctx, "AddrSpaceCast"));
+    // Check getOpcode().
+    EXPECT_EQ(NewI->getOpcode(), sandboxir::Instruction::Opcode::AddrSpaceCast);
+    // Check getSrcTy().
+    EXPECT_EQ(NewI->getSrcTy(), Arg->getType());
+    // Check getDestTy().
+    EXPECT_EQ(NewI->getDestTy(), Tptr1);
     // Check instr position.
     EXPECT_EQ(NewI->getNextNode(), nullptr);
     EXPECT_EQ(NewI->getParent(), BB);

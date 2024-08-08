@@ -109,6 +109,7 @@ namespace clang {
     void VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D);
     void VisitTemplateDecl(TemplateDecl *D);
     void VisitConceptDecl(ConceptDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
     void VisitImplicitConceptSpecializationDecl(
         ImplicitConceptSpecializationDecl *D);
     void VisitRequiresExprBodyDecl(RequiresExprBodyDecl *D);
@@ -619,6 +620,9 @@ void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
     Record.AddStmt(Info->TrailingRequiresClause);
+    // Record.push_back(Info->Contracts.size());
+    // for (auto *C : Info->Contracts)
+    //  Record.AddStmt(C);
   }
   // The location information is deferred until the end of the record.
   Record.AddTypeRef(D->getTypeSourceInfo() ? D->getTypeSourceInfo()->getType()
@@ -764,6 +768,11 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
+  auto Contracts = D->getContracts();
+  Record.push_back(Contracts.size());
+  for (auto *C : Contracts)
+    Record.AddStmt(C);
+
   Code = serialization::DECL_FUNCTION;
 }
 
@@ -1682,6 +1691,15 @@ void ASTDeclWriter::VisitConceptDecl(ConceptDecl *D) {
   VisitTemplateDecl(D);
   Record.AddStmt(D->getConstraintExpr());
   Code = serialization::DECL_CONCEPT;
+}
+
+void ASTDeclWriter::VisitResultNameDecl(ResultNameDecl *D) {
+  VisitNamedDecl(D);
+  Record.push_back(D->isCanonicalResultNameDecl());
+  if (!D->isCanonicalResultNameDecl()) {
+    Record.AddDeclRef(D->getCanonicalResultNameDecl());
+  }
+  Code = serialization::DECL_RESULT_NAME;
 }
 
 void ASTDeclWriter::VisitImplicitConceptSpecializationDecl(

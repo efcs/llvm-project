@@ -2522,6 +2522,9 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
         }
       }
     }
+    // Remove 'convergent' if requested.
+    if (TargetDecl->hasAttr<NoConvergentAttr>())
+      FuncAttrs.removeAttribute(llvm::Attribute::Convergent);
   }
 
   // Add "sample-profile-suffix-elision-policy" attribute for internal linkage
@@ -3814,12 +3817,6 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
     return;
   }
 
-  // Functions with no result always return void.
-  if (!ReturnValue.isValid()) {
-    Builder.CreateRetVoid();
-    return;
-  }
-
   llvm::DebugLoc RetDbgLoc;
   llvm::Value *RV = nullptr;
   QualType RetTy = FI.getReturnType();
@@ -3983,14 +3980,47 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
       if (ITy != nullptr && isa<RecordType>(RetTy.getCanonicalType()))
         RV = EmitCMSEClearRecord(RV, ITy, RetTy);
     }
+    EmitPostContracts(RV);
     EmitReturnValueCheck(RV);
     Ret = Builder.CreateRet(RV);
   } else {
+    EmitPostContracts(nullptr);
     Ret = Builder.CreateRetVoid();
   }
 
   if (RetDbgLoc)
     Ret->setDebugLoc(std::move(RetDbgLoc));
+}
+
+void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
+  SmallVector<const ContractStmt *, 4> PostContracts;
+
+  ResultNameDecl *RND = nullptr;
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl)) {
+    for (auto *CA : FD->getContracts()) {
+      if (CA->getContractKind() == ContractKind::Post) {
+        PostContracts.push_back(CA);
+        if (CA->hasResultName() && !RND)
+          RND = CA->getResultName()->getCanonicalResultNameDecl();
+      }
+    }
+  }
+  std::optional<OpaqueValueExpr> OVEStore;
+  std::optional<OpaqueValueMapping> OVEBind;
+  if (RND && RV) {
+    OVEStore.emplace(RND->getLocation(), RND->getType(), VK_LValue, OK_Ordinary,
+                     nullptr);
+    // llvm::Value *SLocPtr = Builder.CreateLoad(ReturnLocation,
+    // "return.sloc.load");
+    OVEBind.emplace(*this, &OVEStore.value(),
+                    MakeAddrLValue(ReturnValue, RND->getType()));
+  }
+  if (RND && RV) {
+  }
+
+  for (auto *CA : PostContracts) {
+    EmitContractStmt(*CA);
+  }
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {
@@ -5635,6 +5665,11 @@ RValue CodeGenFunction::EmitCall(const CGFunctionInfo &CallInfo,
   if (InAlwaysInlineAttributedStmt)
     Attrs =
         Attrs.addFnAttribute(getLLVMContext(), llvm::Attribute::AlwaysInline);
+
+  // Remove call-site convergent attribute if requested.
+  if (InNoConvergentAttributedStmt)
+    Attrs =
+        Attrs.removeFnAttribute(getLLVMContext(), llvm::Attribute::Convergent);
 
   // Apply some call-site-specific attributes.
   // TODO: work this into building the attribute set.

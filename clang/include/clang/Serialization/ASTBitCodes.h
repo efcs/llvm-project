@@ -1487,7 +1487,10 @@ enum DeclCode {
   /// An ImplicitConceptSpecializationDecl record.
   DECL_IMPLICIT_CONCEPT_SPECIALIZATION,
 
-  DECL_LAST = DECL_IMPLICIT_CONCEPT_SPECIALIZATION
+  /// A ResultNameDecl record
+  DECL_RESULT_NAME,
+
+  DECL_LAST = DECL_RESULT_NAME,
 };
 
 /// Record codes for each kind of statement or expression.
@@ -1978,6 +1981,9 @@ enum StmtCode {
   EXPR_COAWAIT,
   EXPR_COYIELD,
   EXPR_DEPENDENT_COAWAIT,
+
+  // contracts
+  STMT_CXX_CONTRACT,
 
   // FixedPointLiteral
   EXPR_FIXEDPOINT_LITERAL,

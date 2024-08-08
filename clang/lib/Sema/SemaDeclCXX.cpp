@@ -711,6 +711,8 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
       Old->isDefined(OldDefinition, true))
     CheckForFunctionRedefinition(New, OldDefinition);
 
+  ActOnContractsOnMergeFunctionDecl(Old, New);
+
   return Invalid;
 }
 
@@ -2133,6 +2135,13 @@ CheckConstexprFunctionStmt(Sema &SemaRef, const FunctionDecl *Dcl, Stmt *S,
                                       Cxx1yLoc, Cxx2aLoc, Cxx2bLoc, Kind))
         return false;
     }
+    return true;
+  }
+
+  case Stmt::ContractStmtClass: {
+    if (!Cxx1yLoc.isValid())
+      Cxx1yLoc = S->getBeginLoc();
+
     return true;
   }
 
