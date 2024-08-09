@@ -39,6 +39,27 @@ enum class ContractGroupDiagnostic {
   InvalidSemantic,
 };
 
+enum class ContractKeywordKind {
+  None = -1,
+
+  Pre,
+
+  Post,
+
+  Assert,
+};
+
+enum class ContractKind {
+  /// A function precondition
+  Pre,
+
+  /// A function post condition
+  Post,
+
+  /// contract_assert
+  Assert
+};
+
 /// Contract evaluation mode. Determines whether to check contracts, and
 // whether contract failures cause compile errors.
 enum class ContractEvaluationSemantic {

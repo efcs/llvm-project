@@ -609,7 +609,7 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     else
       FunctionToPush = cast<FunctionDecl>(LM.Method);
     Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
-    QualType RetType = FunctionToPush->getReturnType();
+
     ParseScope FnScope(this, Scope::FnScope);
     Sema::ContextRAII FnContext(Actions, FunctionToPush,
                                 /*NewThisContext=*/false);
@@ -622,9 +622,10 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     // Parse the exception-specification.
     SmallVector<ContractStmt *> Contracts;
     assert(FunctionToPush->getContracts().empty());
-
-    while (isContractKeyword(Tok)) {
-      StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
+    auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
+    while (isFunctionContractKeyword(Tok)) {
+      StmtResult Contract =
+          ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
       if (!Contract.isInvalid()) {
         Contracts.push_back(Contract.getAs<ContractStmt>());
       } else {

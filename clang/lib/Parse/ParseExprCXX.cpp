@@ -1487,7 +1487,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                   tok::kw___private, tok::kw___global, tok::kw___local,
                   tok::kw___constant, tok::kw___generic, tok::kw_groupshared,
                   tok::kw_requires, tok::kw_noexcept) ||
-      isContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
+      isFunctionContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
       (Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 
   if (HasSpecifiers && !HasParentheses && !getLangOpts().CPlusPlus23) {

@@ -526,7 +526,6 @@ public:
   }
 };
 
-enum class ContractKind { Pre, Post, Assert };
 class SemaContractHelper;
 
 class ContractStmt final

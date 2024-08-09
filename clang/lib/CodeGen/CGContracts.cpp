@@ -248,8 +248,6 @@ void CodeGenFunction::EmitHandleContractViolationCall(
     Args.add(RValue::get(ViolationInfoGV), getContext().VoidPtrTy);
     EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
   }
-
-  //
 }
 
 // Check if function can throw based on prototype noexcept, also works for

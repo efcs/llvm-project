@@ -2121,14 +2121,20 @@ private:
   //===--------------------------------------------------------------------===//
   // C++ Contracts
 public:
-  enum class ContractKeyword { None, Pre, Post };
-  ContractKeyword getContractKeyword(const Token &Token) const;
-  ContractKeyword getContractKeyword() const { return getContractKeyword(Tok); }
-  bool isContractKeyword() const {
-    return getContractKeyword() != ContractKeyword::None;
+  std::optional<ContractKind> getContractKeyword(const Token &Token) const;
+  std::optional<ContractKind> getContractKeyword() const {
+    return getContractKeyword(Tok);
   }
-  bool isContractKeyword(const Token &Token) const {
-    return getContractKeyword(Token) != ContractKeyword::None;
+  bool isFunctionContractKeyword() const {
+    return isFunctionContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).value_or(ContractKind::Assert) !=
+           ContractKind::Assert;
+  }
+
+  bool isAnyContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).has_value();
   }
 
 private:
@@ -2137,7 +2143,9 @@ private:
   bool ParseContractSpecifierSequence(Declarator &DeclarationInfo,
                                       bool EnterScope,
                                       QualType TrailingReturnType = QualType());
-  StmtResult ParseFunctionContractSpecifierImpl(QualType RetType);
+
+  StmtResult ParseFunctionContractSpecifierImpl(
+      llvm::function_ref<QualType()> ReturnTypeResolver = {});
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);

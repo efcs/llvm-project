@@ -2049,11 +2049,23 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeBracket();
         if (!SkipUntil(tok::r_square, StopAtSemi))
           break;
-      } else if (isContractKeyword() && NextToken().is(tok::l_paren)) {
+      } else if (isFunctionContractKeyword() &&
+                 (NextToken().is(tok::l_paren) ||
+                  (NextToken().is(tok::l_square) &&
+                   GetLookAheadToken(2).is(tok::l_square)))) {
+        // A contract may have a C++11 attribute between the keyword and the
+        // opening paren.
         ConsumeToken();
-        ConsumeParen();
-        if (!SkipUntil(tok::r_paren, StopAtSemi))
-          break;
+        if (Tok.is(tok::l_square)) {
+          ConsumeBracket();
+          if (!SkipUntil(tok::r_square, StopAtSemi))
+            break;
+        }
+        if (Tok.is(tok::l_paren)) {
+          ConsumeParen();
+          if (!SkipUntil(tok::r_paren, StopAtSemi))
+            break;
+        }
       } else if (Tok.is(tok::kw_alignas) && NextToken().is(tok::l_paren)) {
         ConsumeToken();
         ConsumeParen();

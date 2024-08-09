@@ -2730,21 +2730,11 @@ public:
   ///@{
 
 public:
-  struct ContractEvaluationScope {
-    ContractEvaluationScope(Sema &S, bool ShouldEnter);
-    ~ContractEvaluationScope();
-
-  private:
-    Sema &S;
-    bool Entered;
-    bool OldInContractEvaluation;
-    QualType OldCXXThisType;
-  };
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultNameDecl,
                                  ParsedAttributes &Attrs);
 
-  StmtResult ActOnResultNameDeclarator(Scope *S, QualType T,
+  StmtResult ActOnResultNameDeclarator(ContractKind CK, Scope *S, QualType T,
                                        SourceLocation IDLoc,
                                        IdentifierInfo *II);
 
@@ -6546,6 +6536,8 @@ public:
     Sema &S;
     bool OldValue;
     QualType OldCXXThisType;
+    Scope *OldScope;
+    bool OldInContractScope;
   };
 
   /// Increment when we find a reference; decrement when we find an ignored

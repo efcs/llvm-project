@@ -105,25 +105,9 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                               Attrs);
 }
 
-static ResultNameDecl *extractResultName(DeclStmt *DS) {
-  assert(DS && DS->isSingleDecl() && "Expected a single declaration");
-  auto *D = DS->getSingleDecl();
-  return cast<ResultNameDecl>(D);
-}
-
 StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, DeclStmt *ResultNameDecl,
                                      ParsedAttributes &CXX11Contracts) {
-
-  if (CK != ContractKind::Post && ResultNameDecl) {
-        auto RND = extractResultName(ResultNameDecl);
-        auto *II = RND->getDeclName().getAsIdentifierInfo();
-        assert(II && "ResultName requires an identifier");
-
-        Diag(RND->getBeginLoc(), diag::err_result_name_not_allowed)
-                << II;
-        return StmtError();
-  }
 
   StmtResult Res =
       BuildContractStmt(CK, KeywordLoc, Cond, ResultNameDecl,
@@ -138,11 +122,19 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
 
 /// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
 /// to introduce parameters into function prototype scope.
-StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
+StmtResult Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
+                                           QualType RetType,
                                            SourceLocation IDLoc,
                                            IdentifierInfo *II) {
   // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
+
+  if (CK != ContractKind::Post) {
+    assert(II && "ResultName requires an identifier");
+
+    Diag(IDLoc, diag::err_result_name_not_allowed) << II;
+    return StmtError();
+  }
 
   if (RetType->isVoidType())  {
     Diag(IDLoc, diag::err_void_result_name) << II;
@@ -193,10 +185,6 @@ StmtResult Sema::ActOnResultNameDeclarator(Scope *S, QualType RetType,
       if (auto* PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
         Diag(IDLoc, diag::err_result_name_shadows_param) << II; // FIXME(EricWF): Change the diagnostic here.
         Diag(PVD->getLocation(), diag::note_previous_declaration);
-      } else {
-        // FIXME(EricWF): Is this an error?
-        Diag(IDLoc, diag::warn_shadow_field) << II;
-        Diag(PrevDecl->getLocation(), diag::note_previous_declaration);
       }
     }
   }
@@ -322,25 +310,15 @@ void Sema::ActOnFinishContractSpecifierSequence(
     SmallVector<ContractStmt *> Contracts) {
   if (Contracts.empty())
     return;
-  SmallVector<ContractStmt *, 4> PreContracts;
-  SmallVector<ContractStmt *, 4> PostContracts;
-  SmallVector<ResultNameDecl *, 4> ResultNames;
 
+  ResultNameDecl *CanonicalResult = nullptr;
   for (auto *CS : Contracts) {
-    if (CS->getContractKind() == ContractKind::Pre)
-      PreContracts.push_back(CS);
-    else {
-      PostContracts.push_back(CS);
-      if (CS->hasResultName())
-        ResultNames.push_back(CS->getResultName());
-    }
-  }
-  if (!ResultNames.empty()) {
-    ResultNameDecl *Canon = ResultNames.front();
-    auto Pos = ResultNames.begin() + 1;
-    for (; Pos != ResultNames.end(); ++Pos) {
-      (*Pos)->setCanonicalResultNameDecl(Canon);
-    }
+    if (!CS->hasResultName())
+      continue;
+    if (!CanonicalResult)
+      CanonicalResult = CS->getResultName();
+    else
+      CS->getResultName()->setCanonicalResultNameDecl(CanonicalResult);
   }
 }
 
@@ -467,7 +445,9 @@ void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
 }
 
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
-  : S(S), OldValue(S.ExprEvalContexts.back().InContractAssertion), OldCXXThisType(S.CXXThisTypeOverride) {
+    : S(S), OldValue(S.ExprEvalContexts.back().InContractAssertion),
+      OldCXXThisType(S.CXXThisTypeOverride), OldScope(S.getCurScope()),
+      OldInContractScope(OldScope ? OldScope->isContractScope() : false) {
   S.ExprEvalContexts.back().InContractAssertion = true;
   if (!S.CXXThisTypeOverride.isNull()) {
     assert(S.CXXThisTypeOverride->isPointerType());
@@ -479,12 +459,18 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
       S.CXXThisTypeOverride = S.Context.getPointerType(ClassType);
     }
   }
+  if (OldScope) {
+    OldScope->setIsContractScope(true);
+  }
 }
 
 Sema::ContractScopeRAII::~ContractScopeRAII() {
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
   S.ExprEvalContexts.back().InContractAssertion = OldValue;
   S.CXXThisTypeOverride = OldCXXThisType;
+  if (OldScope) {
+    OldScope->setIsContractScope(OldInContractScope);
+  }
 }
 
 namespace {} // end namespace

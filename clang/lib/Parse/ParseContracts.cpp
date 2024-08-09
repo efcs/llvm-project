@@ -20,10 +20,17 @@
 
 using namespace clang;
 
-Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
+std::optional<ContractKind>
+Parser::getContractKeyword(const Token &Token) const {
   // We offer the reserved keywords as identifiers in C++11 mode.
-  if (!getLangOpts().CPlusPlus11 || Token.isNot(tok::identifier))
-    return ContractKeyword::None;
+  if (!getLangOpts().CPlusPlus11 ||
+      (Token.isNot(tok::identifier) && !Token.is(tok::kw_contract_assert)))
+    return std::nullopt;
+
+  // If we have a contract_assert keyword, we've may be using contract as an
+  // extension, so don't check the language options.
+  if (Token.is(tok::kw_contract_assert))
+    return ContractKind::Assert;
 
   const IdentifierInfo *II = Token.getIdentifierInfo();
   assert(II && "Missing identifier info");
@@ -37,44 +44,47 @@ Parser::ContractKeyword Parser::getContractKeyword(const Token &Token) const {
   }
 
   if ((II == Ident_pre && getLangOpts().Contracts) || II == Ident___pre)
-    return ContractKeyword::Pre;
+    return ContractKind::Pre;
 
   if ((II == Ident_post && getLangOpts().Contracts) || II == Ident___post)
-    return ContractKeyword::Post;
+    return ContractKind::Post;
 
-  return ContractKeyword::None;
+  return std::nullopt;
 }
 
 void Parser::LateParseFunctionContractSpecifierSeq(CachedTokens &Toks) {
-  while (isContractKeyword(Tok)) {
+  while (isFunctionContractKeyword(Tok)) {
     if (!LateParseFunctionContractSpecifier(Toks)) {
       return;
     }
   }
 }
 
-static std::pair<ContractKind, const char *>
-getContractKeywordInfo(Parser::ContractKeyword CK) {
+static const char *getContractKeywordStr(ContractKind CK) {
   switch (CK) {
-  case Parser::ContractKeyword::Pre:
-    return std::make_pair(ContractKind::Pre, "pre");
-  case Parser::ContractKeyword::Post:
-    return std::make_pair(ContractKind::Post, "post");
-  default:
-    llvm_unreachable("unhandled case");
+  case ContractKind::Pre:
+    return "pre";
+  case ContractKind::Post:
+    return "post";
+  case ContractKind::Assert:
+    return "contract_assert";
   }
+  llvm_unreachable("unhandled case");
 }
 
-static ExprResult parseContractCondition(Parser &P, Sema &Actions) {
+static ExprResult parseContractCondition(Parser &P, Sema &Actions,
+                                         SourceLocation Loc) {
   Sema::ContractScopeRAII ContractScope(Actions);
   ExprResult CondResult = Actions.CorrectDelayedTyposInExpr(P.ParseConditionalExpression());
-  if (CondResult.isInvalid() || !CondResult.isUsable())
-    return ExprError();
+  if (CondResult.isInvalid())
+    return CondResult;
   return Actions.ActOnContractAssertCondition(CondResult.get());
 }
 
 bool Parser::LateParseFunctionContractSpecifier(CachedTokens &Toks) {
-  auto [CK, CKStr] = getContractKeywordInfo(getContractKeyword(Tok));
+  assert(isFunctionContractKeyword(Tok) && "Not in a contract");
+  ContractKind CK = getContractKeyword(Tok).value();
+  const char *CKStr = getContractKeywordStr(CK);
 
   // Consume and cache the starting token.
   Token StartTok = Tok;
@@ -110,33 +120,7 @@ bool Parser::LateParseFunctionContractSpecifier(CachedTokens &Toks) {
 StmtResult Parser::ParseContractAssertStatement() {
   assert((Tok.is(tok::kw_contract_assert)) &&
          "Not a contract asssert statement");
-  SourceLocation KeywordLoc = ConsumeToken(); // eat the 'contract_assert'.
-
-
-  ParsedAttributes CXX11Attrs(AttrFactory);
-  MaybeParseCXX11Attributes(CXX11Attrs);
-
-  if (Tok.isNot(tok::l_paren)) {
-    Diag(Tok, diag::err_expected_lparen_after) << "contract_assert";
-    SkipUntil(tok::semi);
-    return StmtError();
-  }
-
-  BalancedDelimiterTracker T(*this, tok::l_paren);
-  T.consumeOpen();
-
-  ExprResult Cond = parseContractCondition(*this, Actions);
-
-  if (Cond.isInvalid()) {
-    T.skipToEnd();
-    return StmtError();
-  }
-
-  T.consumeClose();
-
-  return Actions.ActOnContractAssert(ContractKind::Assert, KeywordLoc,
-                                     Cond.get(),
-                                     /*ResultNameDecl=*/nullptr, CXX11Attrs);
+  return ParseFunctionContractSpecifierImpl({});
 }
 
 /// ParseFunctionContractSpecifierSeq - Parse a series of pre/post contracts on
@@ -158,48 +142,25 @@ StmtResult Parser::ParseContractAssertStatement() {
 ///
 ///   result-name-introducer:
 ///       attributed-identifier :
-
-struct FunctionContractScopeRAII {
-  FunctionContractScopeRAII(Parser& P, Sema &S, Declarator &DeclarationInfo, bool Enter) : S(S) {
-    if (!Enter)
-      return;
-    ParserScope.emplace(&P, Scope::DeclScope | Scope::FunctionPrototypeScope |
-                                   Scope::FunctionDeclarationScope);
-    auto FTI = DeclarationInfo.getFunctionTypeInfo();
-    for (unsigned i = 0; i != FTI.NumParams; ++i) {
-      ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
-      S.ActOnReenterCXXMethodParameter(S.getCurScope(), Param);
-    }
-
-    P.InitCXXThisScopeForDeclaratorIfRelevant(DeclarationInfo,
-                                          DeclarationInfo.getDeclSpec(),
-                                          ThisScope);
-
-  }
-
-  ~FunctionContractScopeRAII() {
-
-  }
-
-  Sema &S;
-  std::optional<Parser::ParseScope> ParserScope;
-  std::optional<Sema::CXXThisScopeRAII> ThisScope;
-};
-
 bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
                                             bool EnterScope,
                                             QualType TrailingReturnType) {
-  if (!getLangOpts().CPlusPlus || !getLangOpts().Contracts ||
-      !isContractKeyword(Tok))
+  if (!isFunctionContractKeyword(Tok))
     return true;
 
-  QualType ReturnType = TrailingReturnType;
-  if (ReturnType.isNull()) {
-    TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclarationInfo);
-    assert(TInfo && TInfo->getType()->isFunctionType());
-    ReturnType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
-  }
-
+  std::optional<QualType> CachedType;
+  auto ReturnTypeResolver = [&]() {
+    if (!CachedType) {
+      QualType ReturnType = TrailingReturnType;
+      if (ReturnType.isNull()) {
+        TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclarationInfo);
+        assert(TInfo && TInfo->getType()->isFunctionType());
+        ReturnType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
+      }
+      CachedType = ReturnType;
+    }
+    return CachedType.value();
+  };
   std::optional<ParseScope> ParserScope;
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
 
@@ -221,8 +182,9 @@ bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
   bool IsSuccess = true;
 
   SmallVector<ContractStmt *, 4> Contracts;
-  while (isContractKeyword(Tok)) {
-    StmtResult Contract = ParseFunctionContractSpecifierImpl(ReturnType);
+  while (isFunctionContractKeyword(Tok)) {
+    StmtResult Contract =
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
     if (!Contract.isInvalid()) {
       DeclarationInfo.Contracts.push_back(Contract.getAs<ContractStmt>());
     } else {
@@ -237,9 +199,17 @@ bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
   return IsSuccess;
 }
 
-StmtResult Parser::ParseFunctionContractSpecifierImpl(QualType RetType) {
-  auto [CK, CKStr] = getContractKeywordInfo(getContractKeyword(Tok));
-  assert(isContractKeyword(Tok));
+struct SingleContractScopeRAII {};
+
+StmtResult Parser::ParseFunctionContractSpecifierImpl(
+    llvm::function_ref<QualType()> ReturnTypeResolver) {
+  assert(isAnyContractKeyword(Tok) && "Not a contract keyword?");
+  ContractKind CK = getContractKeyword(Tok).value();
+  assert((CK == ContractKind::Assert || ReturnTypeResolver) &&
+         "Missing return type resolver for function contract sequence");
+
+  const char *CKStr = getContractKeywordStr(CK);
+
   SourceLocation KeywordLoc = Tok.getLocation();
   ConsumeToken();
 
@@ -255,56 +225,50 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(QualType RetType) {
   }
 
   BalancedDelimiterTracker T(*this, tok::l_paren);
+  SourceLocation ExprLoc = Tok.getLocation();
+
   if (T.expectAndConsume(diag::err_expected_lparen_after, CKStr,
                          tok::r_paren)) {
     return StmtError();
   }
 
-
-  auto OnExit = llvm::make_scope_exit([&] {
-    T.skipToEnd();
-  });
-
   ParseScope ContractScope(this, Scope::DeclScope | Scope::ContractAssertScope);
   EnterExpressionEvaluationContext EC(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
-  Sema::ContractScopeRAII ContractGuard(Actions);
-  assert(Actions.isContractAssertionContext());
-
   DeclStmt *ResultNameStmt = nullptr;
-  if (Tok.is(tok::identifier) && NextToken().is(tok::colon)) {
+  // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
+  // can diagnose it but we don't do the same for contract assert... Should we?
+  if ((CK != ContractKind::Assert) && Tok.is(tok::identifier) &&
+      NextToken().is(tok::colon)) {
     // Let this parse for non-post contracts. We'll diagnose it later.
 
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
 
-    SourceLocation ColonLoc = ConsumeToken();
-    ((void)ColonLoc);
+    ExprLoc = ConsumeToken();
+    QualType ReturnType;
+    if (ReturnTypeResolver) {
+      ReturnType = ReturnTypeResolver();
+    }
 
-    StmtResult RNStmt =
-        Actions.ActOnResultNameDeclarator(getCurScope(), RetType, IdLoc, Id);
+    StmtResult RNStmt = Actions.ActOnResultNameDeclarator(
+        CK, getCurScope(), ReturnType, IdLoc, Id);
     if (!RNStmt.isInvalid())
       ResultNameStmt = cast<DeclStmt>(RNStmt.get());
     else
       return StmtError();
   }
 
-  ExprResult Cond = parseContractCondition(*this, Actions);
-
-  OnExit.release();
+  ExprResult Cond = parseContractCondition(*this, Actions, ExprLoc);
   T.consumeClose();
 
-  if (Cond.isInvalid())
-    return StmtError();
-
-  StmtResult ContractStmt = Actions.ActOnContractAssert(
-      CK, KeywordLoc, Cond.get(), ResultNameStmt, CXX11Attrs);
-  if (ContractStmt.isInvalid()) {
+  if (Cond.isInvalid()) {
     return StmtError();
   }
 
-  return ContractStmt;
+  return Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), ResultNameStmt,
+                                     CXX11Attrs);
 }
 
 static float EOFData = 0.0;
@@ -328,9 +292,12 @@ bool Parser::ParseLexedFunctionContractsInScope(
   // Consume the previously-pushed token.
   ConsumeAnyToken();
 
+  auto ReturnTypeResolver = [&]() { return RetType; };
+
   bool IsError = false;
-  while (isContractKeyword(Tok)) {
-    StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
+  while (isFunctionContractKeyword(Tok)) {
+    StmtResult Contract =
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
     if (!Contract.isInvalid()) {
       Contracts.push_back(Contract.getAs<ContractStmt>());
     } else {
@@ -394,7 +361,7 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
   }
 
   Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
-  QualType RetType = FunctionToPush->getReturnType();
+
   ParseScope FnScope(this, Scope::FnScope);
   Sema::ContextRAII FnContext(Actions, FunctionToPush,
                               /*NewThisContext=*/false);
@@ -406,10 +373,13 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
 
   // Parse the exception-specification.
   SmallVector<ContractStmt *> Contracts;
-  assert(isContractKeyword(Tok));
+  assert(isFunctionContractKeyword(Tok));
 
-  while (isContractKeyword(Tok)) {
-    StmtResult Contract = ParseFunctionContractSpecifierImpl(RetType);
+  auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
+
+  while (isFunctionContractKeyword(Tok)) {
+    StmtResult Contract =
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
     if (Contract.isUsable()) {
       Contracts.push_back(Contract.getAs<ContractStmt>());
     } else {

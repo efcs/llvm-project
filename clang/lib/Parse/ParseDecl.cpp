@@ -7733,7 +7733,7 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         EndLoc = Range.getEnd();
       }
 
-      if (isContractKeyword(Tok) && Delayed)
+      if (isFunctionContractKeyword(Tok) && Delayed)
         LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
 
     } else {

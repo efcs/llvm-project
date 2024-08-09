@@ -448,6 +448,10 @@ protected:
     unsigned NonOdrUseReason : 2;
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsImmediateEscalating : 1;
+    // True if the expression had constification applied due to a contract
+    // scope.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsInConstificationContext : 1;
 
     /// The location of the declaration name itself.
     SourceLocation Loc;

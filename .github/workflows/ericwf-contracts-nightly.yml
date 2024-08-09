@@ -21,7 +21,7 @@ concurrency:
 jobs:
   check_clang:
     name: "Do it"
-    if: github.repository_owner == 'efcs'
+    if: github.repository_owner == 'EricWF'
     runs-on: aah
     steps:
       - uses: actions/checkout@v4
