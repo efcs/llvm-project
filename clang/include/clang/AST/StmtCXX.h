@@ -532,11 +532,25 @@ class SemaContractHelper;
 class ContractStmt final
     : public Stmt,
       private llvm::TrailingObjects<ContractStmt, Stmt *, const Attr *> {
+
+  // A Note on attributes:
+  // Contracts allow attribute to apppear in two places:
+  //   [[#1]] pre [[#2]] ( ... )
+  //
+  // Unlike most statements, contracts will have meaning ful attributes. For
+  // example, one which overrides the message in diagnostics.
+  //
+  // Because these attributes apply directly to the contract and it's semantics
+  // we store them directly in the contract statement. This is different from
+  // other statements, which use AttributedStmt to wrap the statement.
+  // However, the wrapping behavior makes it non-trivial for a contract to
+  // access its attributes.
+  //
+  // NOTE: We should consider only storing attributes of the form [[#2]] here.
+
   friend class ASTStmtReader;
   friend TrailingObjects;
   friend class SemaContractHelper;
-
-  enum { ResultNameDeclOffset = 0, Count = 1 };
 
   unsigned numTrailingObjects(OverloadToken<Stmt *>) const {
     return ContractAssertBits.HasResultName + 1;
