@@ -30,6 +30,11 @@
 //
 //===----------------------------------------------------------------------===//
 
+#include "nsan.h"
+#include "nsan_flags.h"
+#include "nsan_stats.h"
+#include "nsan_suppressions.h"
+
 #include <assert.h>
 #include <math.h>
 #include <stdint.h>
@@ -42,11 +47,6 @@
 #include "sanitizer_common/sanitizer_report_decorator.h"
 #include "sanitizer_common/sanitizer_stacktrace.h"
 #include "sanitizer_common/sanitizer_symbolizer.h"
-
-#include "nsan/nsan.h"
-#include "nsan/nsan_flags.h"
-#include "nsan/nsan_stats.h"
-#include "nsan/nsan_suppressions.h"
 
 using namespace __sanitizer;
 using namespace __nsan;
@@ -470,7 +470,7 @@ int32_t checkFT(const FT value, ShadowFT Shadow, CheckTypeT CheckType,
 
   if (!flags().disable_warnings) {
     GET_CALLER_PC_BP;
-    BufferedStackTrace stack;
+    UNINITIALIZED BufferedStackTrace stack;
     stack.Unwind(pc, bp, nullptr, false);
     if (GetSuppressionForStack(&stack, CheckKind::Consistency)) {
       // FIXME: optionally print.
@@ -637,7 +637,7 @@ void fCmpFailFT(const FT Lhs, const FT Rhs, ShadowFT LhsShadow,
   }
 
   GET_CALLER_PC_BP;
-  BufferedStackTrace stack;
+  UNINITIALIZED BufferedStackTrace stack;
   stack.Unwind(pc, bp, nullptr, false);
 
   if (GetSuppressionForStack(&stack, CheckKind::Fcmp)) {
