@@ -3317,12 +3317,26 @@ def ContractSemantic : StmtAttr {
     EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
         ["ignore", "observe", "enforce", "quick_enforce"],
         ["Ignore", "Observe", "Enforce", "QuickEnforce"],
-        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>,
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>,
     DefaultBoolArgument<"Override", 0, /*fake*/ 0>
   ];
   let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
   let Documentation = [Undocumented];
 }
+
+
+def ContractEmission : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_emission">];
+  let Args = [
+    EnumArgument<"Emission", "ContractEmissionStyle", /*is_string=*/true,
+        ["in_caller", "in_definition"],
+        ["InCaller", "InDefinition"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
 
 def ContractMessage : StmtAttr {
     let Spellings = [CXX11<"clang", "contract_message">];

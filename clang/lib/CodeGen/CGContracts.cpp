@@ -311,12 +311,12 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   }
 }
 
+// FIXME(EricWF): Do I really need this?
 void CodeGenFunction::EmitContractStmtAsTryBody(const ContractStmt &S) {
   assert(CurContract() && CurContract()->Contract == &S &&
          CurContract()->Checkpoint == EmittingTryBody);
-
-    Builder.CreateStore(EmitScalarExpr(S.getCond()),
-                        CurContract()->EHPredicateStore);
+  Builder.CreateStore(EmitScalarExpr(S.getCond()),
+                      CurContract()->EHPredicateStore);
 
 }
 
@@ -391,7 +391,6 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
     case QuickEnforce:
       return Shared;
     case ContractEvaluationSemantic::Ignore:
-    case ContractEvaluationSemantic::Invalid:
       llvm_unreachable("unhandled semantic");
     }
   }();

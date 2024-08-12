@@ -202,8 +202,6 @@ StringRef ContractStmt::SemanticAsString(ContractEvaluationSemantic Sem) {
     return "enforce";
   case ContractEvaluationSemantic::QuickEnforce:
     return "quick_enforce";
-  case ContractEvaluationSemantic::Invalid:
-    llvm_unreachable("cannot have invalid semantic");
   }
   llvm_unreachable("Unknown contract kind");
 }

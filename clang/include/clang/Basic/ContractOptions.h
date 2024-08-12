@@ -43,16 +43,10 @@ enum class ContractGroupDiagnostic {
   InvalidSemantic,
 };
 
-enum class ContractKeywordKind {
-  None = -1,
-
-  Pre,
-
-  Post,
-
-  Assert,
-};
-
+/// The kind of contract.
+///
+/// NOTE: These enumerations _do not_ match the values in
+/// std::contracts::assertion_kind because they start at 1.
 enum class ContractKind {
   /// A function precondition
   Pre,
@@ -64,8 +58,20 @@ enum class ContractKind {
   Assert
 };
 
+// std::contracts::assertion_kind
+enum class StdContractAssertionKind {
+  Pre = 1,
+
+  Post = 2,
+
+  Assert = 3,
+};
+
 /// Contract evaluation mode. Determines whether to check contracts, and
 // whether contract failures cause compile errors.
+//
+// These values match up with std::contracts::evaluation_semantic. However, only
+// `enforce` and `observe` actually appear in STL enum.
 enum class ContractEvaluationSemantic {
   // Contracts are parsed, syntax checked and type checked, but never evaluated.
   // FIXME(EricWF): This doesn't yet map to an actual enumerator in
@@ -88,10 +94,21 @@ enum class ContractEvaluationSemantic {
   QuickEnforce = 3,
 };
 
+/// The result of checking a contract. The second two values match
+/// std::contracts::detection_mode.
 enum class ContractViolationDetection {
   NoViolation = 0,
   PredicateFailed = 1,
   ExceptionRaised = 2
+};
+
+/// The code generation style for the contract. Inline
+enum class ContractEmissionStyle {
+  /// Emit the contract at every call site, in the caller.
+  InCaller,
+
+  /// Emit the contract with the function definition.
+  InDefinition,
 };
 
 /// Represents the set of contract groups that have been enabled or disabled
@@ -139,6 +156,8 @@ public:
 
   /// The semantics for each contract group, if specified.
   llvm::StringMap<ContractEvaluationSemantic> SemanticsByGroup;
+
+  ContractEmissionStyle DefaultEmission = ContractEmissionStyle::InDefinition;
 };
 
 } // namespace clang

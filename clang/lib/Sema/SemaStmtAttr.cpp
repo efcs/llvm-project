@@ -428,6 +428,27 @@ static Attr *handleContractSemanticAttr(Sema &S, Stmt *st, const ParsedAttr &A,
   return ::new (S.Context) ContractSemanticAttr(S.Context, A, Sem, *CondValue);
 }
 
+static Attr *handleContractEmissionAttr(Sema &S, Stmt *st, const ParsedAttr &A,
+                                        SourceRange Range) {
+
+  assert(A.getNumArgs() == 1 || A.getNumArgs() == 2);
+  // Check that the argument is a string literal.
+  StringRef EmissionStr;
+  SourceLocation LiteralLoc;
+  if (!S.checkStringLiteralArgumentAttr(A, 0, EmissionStr, &LiteralLoc))
+    return nullptr;
+
+  ContractEmissionStyle Emission;
+  if (!ContractEmissionAttr::ConvertStrToContractEmissionStyle(EmissionStr,
+                                                               Emission)) {
+    S.Diag(LiteralLoc, diag::warn_attribute_type_not_supported)
+        << A << EmissionStr;
+    return nullptr;
+  }
+
+  return ::new (S.Context) ContractEmissionAttr(S.Context, A, Emission);
+}
+
 static Attr *handleContractMessageAttr(Sema &S, Stmt *st, const ParsedAttr &A,
                                        SourceRange Range) {
 
@@ -821,6 +842,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleContractSemanticAttr(S, St, A, Range);
   case ParsedAttr::AT_ContractMessage:
     return handleContractMessageAttr(S, St, A, Range);
+  case ParsedAttr::AT_ContractEmission:
+    return handleContractEmissionAttr(S, St, A, Range);
   case ParsedAttr::AT_NoConvergent:
     return handleNoConvergentAttr(S, St, A, Range);
   default:
