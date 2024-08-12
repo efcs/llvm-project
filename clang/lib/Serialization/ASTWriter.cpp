@@ -5704,6 +5704,12 @@ void ASTWriter::WriteDeclAndTypes(ASTContext &Context) {
     if (D->isFromASTFile())
       continue;
 
+    // Skip writing implicit declarations not owning by the current module.
+    // See the implementation of PrepareWritingSpecialDecls for example.
+    if (isWritingStdCXXNamedModules() && !D->getOwningModule() &&
+        D->isImplicit())
+      continue;
+
     // In reduced BMI, skip unreached declarations.
     if (!wasDeclEmitted(D))
       continue;
@@ -6282,8 +6288,7 @@ bool ASTWriter::wasDeclEmitted(const Decl *D) const {
     return true;
 
   bool Emitted = DeclIDs.contains(D);
-  assert((Emitted || (!D->getOwningModule() && isWritingStdCXXNamedModules()) ||
-          GeneratingReducedBMI) &&
+  assert((Emitted || GeneratingReducedBMI) &&
          "The declaration within modules can only be omitted in reduced BMI.");
   return Emitted;
 }
@@ -7589,9 +7594,11 @@ void OMPClauseWriter::VisitOMPNumTeamsClause(OMPNumTeamsClause *C) {
 }
 
 void OMPClauseWriter::VisitOMPThreadLimitClause(OMPThreadLimitClause *C) {
+  Record.push_back(C->varlist_size());
   VisitOMPClauseWithPreInit(C);
-  Record.AddStmt(C->getThreadLimit());
   Record.AddSourceLocation(C->getLParenLoc());
+  for (auto *VE : C->varlist())
+    Record.AddStmt(VE);
 }
 
 void OMPClauseWriter::VisitOMPPriorityClause(OMPPriorityClause *C) {
