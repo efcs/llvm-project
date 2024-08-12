@@ -11996,6 +11996,16 @@ def warn_contract_always_evaluates_to : Warning<
   "contract condition always evaluates to %select{false|true}0">,
   InGroup<ContractViolation>;
 
+def err_contract_postcondition_parameter_type_invalid : Error<
+    "parameter %0 referenced in contract postcondition %select{cannot cannot have an array type|cannot have a function type|must be declared const}1">;
+def note_parameter_with_name : Note<
+  "parameter %0 is declared here">;
+
+def err_lambda_implicit_capture_in_contracts_only : Error<
+         "implicit capture of local entity '%0' is not allowed when used exclusively in contract assertions">;
+
+def note_lambda_implicit_capture_in_contracts_only : Note<
+  "use explicit capture list to capture '%0'">;
 
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {

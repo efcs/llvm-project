@@ -40,6 +40,7 @@
 #include "clang/Sema/SemaOpenMP.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -49,6 +50,7 @@
 
 using namespace clang;
 using namespace sema;
+using llvm::DenseSet;
 
 class clang::SemaContractHelper {
 public:
@@ -85,13 +87,6 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
       (std::string("Condition always evaluates to ") + (*KnownValue ? "true" : "false")) << Cond;
   }
   return Cond;
-#if 0
-  ExprResult E = PerformContextuallyConvertToBool(Cond);
-  if (E.isInvalid()) {
-    return E;
-  }
-  return ActOnFinishFullExpr(E.get(), /*DiscardedValue=*/false);
-#endif
 }
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
@@ -301,6 +296,92 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
   return true;
 }
 
+namespace {
+/// A checker which white-lists certain expressions whose conversion
+/// to or from retainable type would otherwise be forbidden in ARC.
+struct ParamReferenceChecker : RecursiveASTVisitor<ParamReferenceChecker> {
+  typedef RecursiveASTVisitor<ParamReferenceChecker> super;
+
+private:
+  Sema &Actions;
+  const FunctionDecl *FD;
+
+public:
+  bool DidDiagnose = false;
+
+  ContractStmt *CurrentContract = nullptr;
+
+public:
+  ParamReferenceChecker(Sema &S, const FunctionDecl *FD) : Actions(S), FD(FD) {}
+
+  bool TraverseContractStmt(ContractStmt *CS) {
+    bool SetCurrent = CurrentContract == nullptr;
+    if (SetCurrent)
+      CurrentContract = CS;
+    if (CS->getCond())
+      TraverseStmt(CS->getCond());
+    if (SetCurrent)
+      CurrentContract = nullptr;
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    assert(CurrentContract && "No current contract to use in diagnostics?");
+
+    enum DiagSelector {
+      DS_None = -1,
+      DS_Array = 0,
+      DS_Function = 1,
+      DS_NotConst = 2
+    };
+    // [dcl.contract.func] p2900r8 --
+    //   If a  postcondition  odr-uses ([basic.def.odr]) a non-reference
+    //   parameter, ... that parameter shall be declared const and shall not
+    //   have array or function type. [ Note: This requirement applies even to
+    //   declarations that do not specify the postcondition-specifier.]
+    [&]() {
+      auto *PVD = dyn_cast_or_null<ParmVarDecl>(E->getDecl());
+      if (!PVD || DiagnosedDecls.count(PVD) || PVD->getDeclContext() != FD)
+        return;
+
+      QualType PVDType =
+          getFunctionOrMethodParamType(FD, PVD->getFunctionScopeIndex());
+      if (PVDType->isReferenceType())
+        return;
+
+      DiagSelector DiagSelect = [&]() {
+        if (PVDType->isArrayType())
+          return DS_Array;
+        if (PVDType->isFunctionType())
+          return DS_Function;
+        if (!PVDType.isConstQualified())
+          return DS_NotConst;
+        return DS_None;
+      }();
+
+      if (DiagSelect != DS_None) {
+        DiagnosedDecls.insert(PVD);
+        DidDiagnose = true;
+        Actions.Diag(E->getLocation(),
+                     diag::err_contract_postcondition_parameter_type_invalid)
+            << PVD->getIdentifier() << DiagSelect
+            << CurrentContract->getSourceRange();
+        SourceRange TypeRange(PVD->getTypeSpecStartLoc(),
+                              PVD->getTypeSpecEndLoc());
+        Actions.Diag(PVD->getLocation(), diag::note_parameter_with_name)
+            << PVD->getIdentifier() << TypeRange;
+      }
+    }();
+
+    return true;
+  }
+
+private:
+  DenseSet<ParmVarDecl *> DiagnosedDecls;
+};
+
+} // namespace
+
 /// ActOnFinishContractSpecifierSequence - This is called after a
 /// contract-specifier-seq has been parsed.
 ///
@@ -352,8 +433,26 @@ void Sema::ActOnFinishLateParsedContractSpecifierSequence(
       FD->setInvalidDecl(true);
 }
 
+void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD) {
+  if (!FD->hasContracts())
+    return;
+
+  ArrayRef<ContractStmt *> Contracts = FD->getContracts();
+
+  // Check for post-conditions that reference non-const parameters.
+  ParamReferenceChecker Checker(*this, FD);
+  for (auto *CS : Contracts) {
+    if (CS->getContractKind() != ContractKind::Post)
+      continue;
+    Checker.TraverseContractStmt(CS);
+    // FIXME(EricWF): DIagnose non-const function param types.
+  }
+  if (Checker.DidDiagnose)
+    FD->setInvalidDecl(true);
+}
+
 namespace {
-/// RebuildFunctionContracts - A terrible hack to re-bind (NOT rebuild) the
+/// DiagnoseDeclRefVisitor - A terrible hack to re-bind (NOT rebuild) the
 /// ParmVarDecl references in a contract to the new ParmVarDecls.
 struct RebuildFunctionContracts
     : RecursiveASTVisitor<RebuildFunctionContracts> {

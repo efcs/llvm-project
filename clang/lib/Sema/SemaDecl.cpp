@@ -12097,6 +12097,9 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
         checkThisInStaticMemberFunctionType(Method);
     }
 
+    if (NewFD->hasContracts())
+      ActOnContractsOnFinishFunctionDecl(NewFD);
+
     if (CXXConversionDecl *Conversion = dyn_cast<CXXConversionDecl>(NewFD))
       ActOnConversionDeclarator(Conversion);
 

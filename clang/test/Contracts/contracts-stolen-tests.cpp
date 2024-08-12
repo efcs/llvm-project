@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
 namespace parsing_basic_test {
-  int f(int x)
+  int f(const int x)
   pre (x >= 0)
   post (r: r > x); // r is the return value
 

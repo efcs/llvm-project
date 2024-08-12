@@ -15,7 +15,7 @@ bool counter(bool value) {
   return value;
 }
 
-void test(int x) pre(counter(x)) post(counter(x)) { contract_assert(counter(x)); }
+void test(const int x) pre(counter(x)) post(counter(x)) { contract_assert(counter(x)); }
 
 int main() {
   test(1);

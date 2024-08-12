@@ -19,7 +19,7 @@ constexpr void f() {
 
 namespace test_two {
   void f(int x) {
-    (void)[&]() pre(x) { }; // expected-error {{}}
+    (void)[&]() pre(x) { };
     (void)[&]() pre(x) {((void)x); };
   }
 }

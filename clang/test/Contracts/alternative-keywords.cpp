@@ -2,7 +2,7 @@
 
 // expected-no-diagnostics
 
-int f(int x) __pre(x) __post(x > 0) {
+int f(const int x) __pre(x) __post(x > 0) {
   __contract_assert(x);
   return x;
 }

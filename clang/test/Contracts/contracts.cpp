@@ -2,8 +2,8 @@
 
 
 void test_pre_parse(int x) pre(x != 0);
-void test_post_parse(int x) post(x != 0);
-int test_dup_names(int x) // expected-note {{previous declaration is here}}
+void test_post_parse(const int x) post(x != 0);
+int test_dup_names(int& x) // expected-note {{previous declaration is here}}
   post(x :  // expected-error {{declaration of result name 'x' shadows parameter}}
     x != 0);
 
@@ -17,7 +17,7 @@ int test_can_redecl_result_name()
 struct A {
   int xx;
 
-  int test_member(int x) // expected-note {{previous declaration is here}}
+  int test_member(const int x) // expected-note {{previous declaration is here}}
     pre(x != 0)
     post(r : r != 0)
     post(r : r != 1)
@@ -27,7 +27,7 @@ struct A {
   int r;
 };
 
-int test_return_parse(int x) post(r : r == x) {
+int test_return_parse(const int x) post(r : r == x) {
   return x;
 }
 
@@ -73,14 +73,14 @@ void test_converted_to_bool(int x)
 
 namespace result_name_scope_test {
 
-int test_scope(int x) post(r : r != x) {
+int test_scope(const int x) post(r : r != x) {
   return r; // expected-error {{use of undeclared identifier 'r'}}
 }
 
 struct T {
   int r;
 
-  int test_scope(int x) post(y : y != x) {
+  int test_scope(const int x) post(y : y != x) {
     return r + y; // expected-error {{use of undeclared identifier 'y'}}
   }
 

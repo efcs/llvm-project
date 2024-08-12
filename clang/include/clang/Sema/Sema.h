@@ -2756,6 +2756,8 @@ public:
   void ActOnFinishLateParsedContractSpecifierSequence(
     SmallVector<ContractStmt*> Contracts, FunctionDecl *FD);
 
+  void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD);
+
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
   void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
                                          FunctionDecl *NewDecl);

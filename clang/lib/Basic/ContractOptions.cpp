@@ -50,8 +50,6 @@ static const char *semanticToString(ContractEvaluationSemantic Sem) {
     return "observe";
   case ContractEvaluationSemantic::QuickEnforce:
     return "quick_enforce";
-  case ContractEvaluationSemantic::Invalid:
-    return "<invalid>";
   }
   llvm_unreachable("unhandled ContractEvaluationSemantic");
 }
@@ -69,13 +67,13 @@ std::vector<std::string> ContractOptions::serializeContractGroupArgs() const {
   return ArgStrings;
 }
 
-ContractEvaluationSemantic semanticFromString(StringRef Str) {
-  return llvm::StringSwitch<ContractEvaluationSemantic>(Str)
+std::optional<ContractEvaluationSemantic> semanticFromString(StringRef Str) {
+  return llvm::StringSwitch<std::optional<ContractEvaluationSemantic>>(Str)
       .Case("ignore", ContractEvaluationSemantic::Ignore)
       .Case("enforce", ContractEvaluationSemantic::Enforce)
       .Case("observe", ContractEvaluationSemantic::Observe)
       .Case("quick_enforce", ContractEvaluationSemantic::QuickEnforce)
-      .Default(ContractEvaluationSemantic::Invalid);
+      .Default(std::nullopt);
 }
 
 void ContractOptions::addUnparsedContractGroup(
@@ -92,14 +90,15 @@ void ContractOptions::addUnparsedContractGroup(
     if (!validateContractGroup(Key, Diagnoser))
       return;
   }
-  ContractEvaluationSemantic Sem = semanticFromString(Value);
-  if (Sem == ContractEvaluationSemantic::Invalid)
+
+  std::optional<ContractEvaluationSemantic> Sem = semanticFromString(Value);
+  if (!Sem)
     return Diagnoser(ContractGroupDiagnostic::InvalidSemantic, Group, Value);
 
   if (ParseAsValueOnly)
-    DefaultSemantic = Sem;
+    DefaultSemantic = Sem.value();
   else
-    SemanticsByGroup[Key] = Sem;
+    SemanticsByGroup[Key] = Sem.value();
 }
 
 void ContractOptions::parseContractGroups(

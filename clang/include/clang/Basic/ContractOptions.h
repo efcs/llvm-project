@@ -20,13 +20,17 @@
 #include <cassert>
 #include <cstdint>
 #include <functional>
-#include <optional>
-#include <string>
-#include <vector>
 
 namespace clang {
 using llvm::StringRef;
 class ASTContext;
+
+enum class ContractTag { No = 0, Yes = 1 };
+
+constexpr ContractTag NotAContract = ContractTag::No;
+constexpr ContractTag IsAContract = ContractTag::Yes;
+constexpr ContractTag InContract = ContractTag::Yes;
+constexpr ContractTag NotInContract = ContractTag::No;
 
 enum class ContractGroupDiagnostic {
   // The remaining values map to %select values in diagnostics in both
@@ -63,8 +67,6 @@ enum class ContractKind {
 /// Contract evaluation mode. Determines whether to check contracts, and
 // whether contract failures cause compile errors.
 enum class ContractEvaluationSemantic {
-  Invalid = -1,
-
   // Contracts are parsed, syntax checked and type checked, but never evaluated.
   // FIXME(EricWF): This doesn't yet map to an actual enumerator in
   //  std::contracts::evaluation_semantic
