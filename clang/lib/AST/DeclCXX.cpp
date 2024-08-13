@@ -2314,7 +2314,7 @@ CXXMethodDecl::Create(ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
                       TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                       bool isInline, ConstexprSpecKind ConstexprKind,
                       SourceLocation EndLocation, Expr *TrailingRequiresClause,
-                      ArrayRef<ContractStmt *> Contracts) {
+                      ContractSpecifierDecl *Contracts) {
   return new (C, RD) CXXMethodDecl(
       CXXMethod, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
       isInline, ConstexprKind, EndLocation, TrailingRequiresClause, Contracts);
@@ -2326,7 +2326,7 @@ CXXMethodDecl *CXXMethodDecl::CreateDeserialized(ASTContext &C,
       CXXMethodDecl(CXXMethod, C, nullptr, SourceLocation(),
                     DeclarationNameInfo(), QualType(), nullptr, SC_None, false,
                     false, ConstexprSpecKind::Unspecified, SourceLocation(),
-                    nullptr, /*Contracts=*/{});
+                    nullptr, /*Contracts=*/nullptr);
 }
 
 CXXMethodDecl *CXXMethodDecl::getDevirtualizedMethod(const Expr *Base,
@@ -2725,8 +2725,7 @@ CXXConstructorDecl::CXXConstructorDecl(
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited, Expr *TrailingRequiresClause,
-
-    ArrayRef<ContractStmt *> Contracts)
+    ContractSpecifierDecl *Contracts)
     : CXXMethodDecl(CXXConstructor, C, RD, StartLoc, NameInfo, T, TInfo,
                     SC_None, UsesFPIntrin, isInline, ConstexprKind,
                     SourceLocation(), TrailingRequiresClause, Contracts) {
@@ -2767,7 +2766,7 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited, Expr *TrailingRequiresClause,
-    ArrayRef<ContractStmt *> Contracts) {
+    ContractSpecifierDecl *Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConstructorName &&
          "Name must refer to a constructor");
@@ -2902,7 +2901,7 @@ CXXDestructorDecl *CXXDestructorDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
     ConstexprSpecKind ConstexprKind, Expr *TrailingRequiresClause,
-    ArrayRef<ContractStmt *> Contracts) {
+    ContractSpecifierDecl *Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXDestructorName &&
          "Name must refer to a destructor");
@@ -2936,7 +2935,7 @@ CXXConversionDecl *CXXConversionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
     ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-    Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts) {
+    Expr *TrailingRequiresClause, ContractSpecifierDecl *Contracts) {
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConversionFunctionName &&
          "Name must refer to a conversion function");
@@ -3597,3 +3596,60 @@ ResultNameDecl *ResultNameDecl::CreateDeserialized(ASTContext &C, GlobalDeclID I
 }
 
 void ResultNameDecl::anchor() {}
+
+bool ContractSpecifierDecl::IsPostconditionPred(const ContractStmt *CS) {
+  return CS->getContractKind() == ContractKind::Post;
+}
+
+bool ContractSpecifierDecl::IsPreconditionPred(const ContractStmt *CS) {
+  return CS->getContractKind() == ContractKind::Pre;
+}
+
+void ContractSpecifierDecl::anchor() {}
+
+bool ContractSpecifierDecl::hasCanonicalResultName() const {
+  return getCanonicalResultName() != nullptr;
+}
+
+ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
+  for (auto *CS : postconditions()) {
+    if (CS->hasResultName())
+      return CS->getResultName();
+  }
+  return nullptr;
+}
+
+SourceRange ContractSpecifierDecl::getSourceRange() const {
+  return SourceRange(contracts().front()->getBeginLoc(),
+                     contracts().back()->getEndLoc());
+}
+
+SourceLocation ContractSpecifierDecl::getLocation() const {
+  return contracts().front()->getKeywordLoc();
+}
+
+ContractSpecifierDecl *
+ContractSpecifierDecl::Create(ASTContext &C, DeclContext *DC,
+                              ArrayRef<ContractStmt *> Contracts,
+                              bool IsInvalid) {
+  assert(Contracts.size() > 0 &&
+         "ContractSpecifierDecl must have at least one contract");
+  size_t Extra = additionalSizeToAlloc<ContractStmt *>(Contracts.size());
+  return new (C, DC, Extra) ContractSpecifierDecl(
+      DC, Contracts.front()->getKeywordLoc(), Contracts, IsInvalid);
+}
+ContractSpecifierDecl *ContractSpecifierDecl::CreateDeserialized(
+    clang::ASTContext &C, clang::GlobalDeclID ID, unsigned NumContracts) {
+  size_t Extra = additionalSizeToAlloc<ContractStmt *>(NumContracts);
+  auto *Result =
+      new (C, ID, Extra) ContractSpecifierDecl(nullptr, NumContracts);
+  return Result;
+}
+
+ResultNameDecl *
+ContractSpecifierDecl::ExtractResultName(const ContractStmt *CS) {
+  assert(CS && "Null pointer?");
+  if (CS->hasResultName())
+    return CS->getResultName();
+  return nullptr;
+}

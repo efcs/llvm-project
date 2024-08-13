@@ -2744,6 +2744,9 @@ public:
                                Expr *Cond, DeclStmt *ResultNameDecl,
                                ArrayRef<const Attr *> Attrs);
 
+  DeclResult BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                                        bool IsInvalid);
+
   // Check two function declarations for equivalent contract sequences.
   // Return true if a diagnostic was issued, false otherwise.
   bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
@@ -2751,10 +2754,11 @@ public:
 
   // FIXME(EricWF): Remove me. These are just convinence hooks while I move
   // things around in the implementation.
-  void ActOnFinishContractSpecifierSequence(
-      SmallVector<ContractStmt *> ContractStmts);
-  void ActOnFinishLateParsedContractSpecifierSequence(
-    SmallVector<ContractStmt*> Contracts, FunctionDecl *FD);
+  ContractSpecifierDecl *
+  ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
+                                       bool IsInvalid);
+
+  void CheckFunctionContractSpecifier(FunctionDecl *FD);
 
   void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD);
 
@@ -13730,8 +13734,9 @@ public:
                                   ParmVarDecl *Param);
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
-  void InstantiateContracts(SourceLocation PointOfInstantiation,
-                            FunctionDecl *Function);
+  void InstantiateContractSpecifier(SourceLocation PointOfInstantiation,
+                                    FunctionDecl *Function,
+                                    ContractSpecifierDecl *Contracts);
 
   /// Instantiate (or find existing instantiation of) a function template with a
   /// given set of template arguments.

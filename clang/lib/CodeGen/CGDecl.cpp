@@ -105,6 +105,7 @@ void CodeGenFunction::EmitDecl(const Decl &D) {
   case Decl::Binding:
   case Decl::UnresolvedUsingIfExists:
   case Decl::HLSLBuffer:
+  case Decl::ContractSpecifier:
     llvm_unreachable("Declaration should not be in declstmts!");
   case Decl::Record:    // struct/union/class X;
   case Decl::CXXRecord: // struct/union/class X; [C++]

@@ -186,20 +186,23 @@ bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
     StmtResult Contract =
         ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
     if (!Contract.isInvalid()) {
-      DeclarationInfo.Contracts.push_back(Contract.getAs<ContractStmt>());
+      Contracts.push_back(Contract.getAs<ContractStmt>());
     } else {
       IsSuccess = false;
     }
   }
-  if (IsSuccess) {
-    Actions.ActOnFinishContractSpecifierSequence(DeclarationInfo.Contracts);
-  } else {
+  DeclResult Seq =
+      Actions.ActOnFinishContractSpecifierSequence(Contracts, !IsSuccess);
+  if (Seq.isInvalid() || !IsSuccess) {
+    IsSuccess = false;
     DeclarationInfo.setInvalidType(true);
   }
+  assert(DeclarationInfo.Contracts == nullptr && "Already have contracts?");
+
+  DeclarationInfo.Contracts = Seq.getAs<ContractSpecifierDecl>();
+
   return IsSuccess;
 }
-
-struct SingleContractScopeRAII {};
 
 StmtResult Parser::ParseFunctionContractSpecifierImpl(
     llvm::function_ref<QualType()> ReturnTypeResolver) {
@@ -273,9 +276,9 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
 static float EOFData = 0.0;
 
-bool Parser::ParseLexedFunctionContractsInScope(
-    CachedTokens &ContractToks, SmallVector<ContractStmt *> &Contracts,
-    QualType RetType) {
+ContractSpecifierDecl *
+Parser::ParseLexedFunctionContractsInScope(CachedTokens &ContractToks,
+                                           QualType RetType) {
   // Add the 'stop' token.
   Token LastContractToken = ContractToks.back();
   Token ContractEnd;
@@ -295,6 +298,8 @@ bool Parser::ParseLexedFunctionContractsInScope(
   auto ReturnTypeResolver = [&]() { return RetType; };
 
   bool IsError = false;
+  SmallVector<ContractStmt *> Contracts;
+
   while (isFunctionContractKeyword(Tok)) {
     StmtResult Contract =
         ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
@@ -304,8 +309,8 @@ bool Parser::ParseLexedFunctionContractsInScope(
       IsError = true;
     }
   }
-  if (!IsError)
-    Actions.ActOnFinishContractSpecifierSequence(Contracts);
+  DeclResult Req =
+      Actions.ActOnFinishContractSpecifierSequence(Contracts, IsError);
 
   // There could be leftover tokens (e.g. because of an error).
   // Skip through until we reach the original token position.
@@ -318,7 +323,9 @@ bool Parser::ParseLexedFunctionContractsInScope(
 
   ContractToks.clear();
 
-  return !IsError;
+  if (Req.isInvalid())
+    return nullptr;
+  return Req.getAs<ContractSpecifierDecl>();
 }
 
 bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDecl *FD) {
@@ -376,17 +383,19 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
   assert(isFunctionContractKeyword(Tok));
 
   auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
-
+  bool IsInvalid = false;
   while (isFunctionContractKeyword(Tok)) {
     StmtResult Contract =
         ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
     if (Contract.isUsable()) {
       Contracts.push_back(Contract.getAs<ContractStmt>());
     } else {
-      FunctionToPush->setInvalidDecl(true);
+      IsInvalid = true;
     }
   }
-  Actions.ActOnFinishLateParsedContractSpecifierSequence(Contracts, FD);
+  ContractSpecifierDecl *Seq =
+      Actions.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
+  FD->setContracts(Seq);
 
   // There could be leftover tokens (e.g. because of an error).
   // Skip through until we reach the original token position.

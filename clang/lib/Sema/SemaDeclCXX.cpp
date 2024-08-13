@@ -10699,6 +10699,9 @@ void Sema::ActOnFinishDelayedCXXMethodDeclaration(Scope *S, Decl *MethodD) {
   // Check the default arguments, which we may have added.
   if (!Method->isInvalidDecl())
     CheckCXXDefaultArguments(Method);
+
+  if (Method->isInvalidDecl() && Method->hasContracts())
+    CheckFunctionContractSpecifier(Method);
 }
 
 // Emit the given diagnostic for each non-address-space qualifier.

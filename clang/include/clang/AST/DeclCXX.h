@@ -72,6 +72,7 @@ class BaseUsingDecl;
 class TemplateDecl;
 class TemplateParameterList;
 class UsingDecl;
+class ContractSpecifierDecl;
 
 /// Represents an access specifier followed by colon ':'.
 ///
@@ -2070,7 +2071,7 @@ protected:
                 bool UsesFPIntrin, bool isInline,
                 ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
                 Expr *TrailingRequiresClause = nullptr,
-                ArrayRef<ContractStmt *> Contracts = {})
+                ContractSpecifierDecl *Contracts = nullptr)
       : FunctionDecl(DK, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
                      isInline, ConstexprKind, TrailingRequiresClause,
                      Contracts) {
@@ -2085,7 +2086,7 @@ public:
          StorageClass SC, bool UsesFPIntrin, bool isInline,
          ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
          Expr *TrailingRequiresClause = nullptr,
-         ArrayRef<ContractStmt *> Contracts = {});
+         ContractSpecifierDecl *Contracts = nullptr);
 
   static CXXMethodDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -2554,7 +2555,7 @@ class CXXConstructorDecl final
                      bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
                      InheritedConstructor Inherited,
                      Expr *TrailingRequiresClause,
-                     ArrayRef<ContractStmt *> Contracts);
+                     ContractSpecifierDecl *Contracts);
 
   void anchor() override;
 
@@ -2598,7 +2599,7 @@ public:
          bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
          InheritedConstructor Inherited = InheritedConstructor(),
          Expr *TrailingRequiresClause = nullptr,
-         ArrayRef<ContractStmt *> Contracts = {});
+         ContractSpecifierDecl *Contracts = nullptr);
 
   void setExplicitSpecifier(ExplicitSpecifier ES) {
     assert((!ES.getExpr() ||
@@ -2818,7 +2819,7 @@ class CXXDestructorDecl : public CXXMethodDecl {
                     TypeSourceInfo *TInfo, bool UsesFPIntrin, bool isInline,
                     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
                     Expr *TrailingRequiresClause = nullptr,
-                    ArrayRef<ContractStmt *> Contracts = {})
+                    ContractSpecifierDecl *Contracts = nullptr)
       : CXXMethodDecl(CXXDestructor, C, RD, StartLoc, NameInfo, T, TInfo,
                       SC_None, UsesFPIntrin, isInline, ConstexprKind,
                       SourceLocation(), TrailingRequiresClause, Contracts) {
@@ -2834,7 +2835,7 @@ public:
          bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
          ConstexprSpecKind ConstexprKind,
          Expr *TrailingRequiresClause = nullptr,
-         ArrayRef<ContractStmt *> Contracts = {});
+         ContractSpecifierDecl *Contracts = nullptr);
   static CXXDestructorDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   void setOperatorDelete(FunctionDecl *OD, Expr *ThisArg);
@@ -2876,7 +2877,7 @@ class CXXConversionDecl : public CXXMethodDecl {
                     ExplicitSpecifier ES, ConstexprSpecKind ConstexprKind,
                     SourceLocation EndLocation,
                     Expr *TrailingRequiresClause = nullptr,
-                    ArrayRef<ContractStmt *> Contracts = {})
+                    ContractSpecifierDecl *Contracts = nullptr)
       : CXXMethodDecl(CXXConversion, C, RD, StartLoc, NameInfo, T, TInfo,
                       SC_None, UsesFPIntrin, isInline, ConstexprKind,
                       EndLocation, TrailingRequiresClause, Contracts),
@@ -2895,7 +2896,7 @@ public:
          bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
          ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
          Expr *TrailingRequiresClause = nullptr,
-         ArrayRef<ContractStmt *> Contracts = {});
+         ContractSpecifierDecl *Contracts = nullptr);
   static CXXConversionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   ExplicitSpecifier getExplicitSpecifier() {
@@ -4463,6 +4464,99 @@ public:
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
+};
+
+/// Represents a C++11 static_assert declaration.
+class ContractSpecifierDecl final
+    : public Decl,
+      private llvm::TrailingObjects<ContractSpecifierDecl, ContractStmt *> {
+  friend class ASTDeclReader;
+  friend class ASTDeclWriter;
+
+  unsigned NumContracts;
+
+  static bool IsPreconditionPred(const ContractStmt *);
+  static bool IsPostconditionPred(const ContractStmt *);
+  static ResultNameDecl *ExtractResultName(const ContractStmt *);
+
+  ContractSpecifierDecl(DeclContext *DC, unsigned NumContracts)
+      : Decl(Decl::ContractSpecifier, DC, SourceLocation()),
+        NumContracts(NumContracts) {
+    std::uninitialized_fill_n(getTrailingObjects<ContractStmt *>(),
+                              NumContracts, nullptr);
+  }
+
+  ContractSpecifierDecl(DeclContext *DC, SourceLocation Loc,
+                        ArrayRef<ContractStmt *> Contracts, bool IsInvalid)
+      : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(Contracts.size()) {
+    if (IsInvalid)
+      this->setInvalidDecl(true);
+    assert(Contracts.size() > 0 &&
+           "ContractSpecifierSequence must have at least one contract");
+    std::copy(Contracts.begin(), Contracts.end(),
+              getTrailingObjects<ContractStmt *>());
+  }
+
+  void setContracts(ArrayRef<ContractStmt *> Contracts) {
+    assert(*getTrailingObjects<ContractStmt *>() == nullptr);
+    std::copy(Contracts.begin(), Contracts.end(),
+              getTrailingObjects<ContractStmt *>());
+  }
+
+  using FilterRangeT = llvm::iterator_range<llvm::filter_iterator<
+      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
+
+  virtual void anchor();
+
+public:
+  friend class TrailingObjects;
+
+  using PreconditionRangeT = FilterRangeT;
+  using PostconditionRangeT = FilterRangeT;
+
+  ArrayRef<ContractStmt *> contracts() const {
+    return llvm::ArrayRef(getTrailingObjects<ContractStmt *>(), NumContracts);
+  }
+
+  auto preconditions() const {
+    return llvm::make_filter_range(contracts(), IsPreconditionPred);
+  }
+
+  auto postconditions() const {
+    return llvm::make_filter_range(contracts(), IsPostconditionPred);
+  }
+
+  auto result_names() const {
+    return llvm::make_filter_range(
+        llvm::map_range(postconditions(), ExtractResultName),
+        [](ResultNameDecl *R) { return R != nullptr; });
+  }
+
+  unsigned getNumContracts() const { return NumContracts; }
+  unsigned getNumPreconditions() const {
+    return std::distance(preconditions().begin(), preconditions().end());
+  }
+
+  unsigned getNumPostconditions() const {
+    return std::distance(postconditions().begin(), postconditions().end());
+  }
+
+  bool hasCanonicalResultName() const;
+  ResultNameDecl *getCanonicalResultName() const;
+
+  SourceRange getSourceRange() const override LLVM_READONLY;
+  SourceLocation getLocation() const;
+
+  friend class ASTDeclReader;
+
+  static ContractSpecifierDecl *Create(ASTContext &C, DeclContext *DC,
+                                       ArrayRef<ContractStmt *> Contracts,
+                                       bool IsInvalid);
+  static ContractSpecifierDecl *
+  CreateDeserialized(ASTContext &C, GlobalDeclID ID, unsigned NumContracts);
+
+  static bool classof(const Decl *D) { return classofKind(D->getKind()); }
+  static bool classofKind(Kind K) { return K == Decl::ContractSpecifier; }
 };
 
 } // namespace clang

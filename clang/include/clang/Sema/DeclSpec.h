@@ -1977,7 +1977,7 @@ private:
 
 public:
   /// \brief All pre and post contracts specified by the function declaration
-  SmallVector<ContractStmt *> Contracts;
+  ContractSpecifierDecl *Contracts = nullptr;
 
   CachedTokens LateParsedContracts;
 
@@ -2653,12 +2653,8 @@ public:
   }
 
   /// \brief Add a pre contract for this declarator
-  void addContract(ContractStmt *TRC) { Contracts.push_back(TRC); }
-
   /// \brief Get all pre contracts for this declarator
-  const SmallVector<ContractStmt *> &getContracts() {
-    return Contracts;
-  }
+  ContractSpecifierDecl *getContracts() const { return Contracts; }
 
   void addLateParsedContract(CachedTokens &Toks) {
     LateParsedContracts.append(Toks);

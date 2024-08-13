@@ -398,6 +398,10 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::Empty:
     return true;
 
+  // FIXME(EricWF): Is this correct? I think so?
+  case Decl::ContractSpecifier:
+    return true;
+
   // Never redeclarable.
   case Decl::UsingDirective:
   case Decl::Label:

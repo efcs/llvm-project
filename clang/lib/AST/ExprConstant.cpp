@@ -6422,9 +6422,10 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
 
 static bool EvaluatePreContracts(EvalInfo &Info, const FunctionDecl *Callee,
                                  CallStackFrame *Frame) {
-  for (auto *S : Callee->getContracts()) {
-    if (S->getContractKind() != ContractKind::Pre)
-      continue;
+  ContractSpecifierDecl *Contracts = Callee->getContracts();
+  if (!Contracts)
+    return true;
+  for (auto *S : Contracts->preconditions()) {
     if (!EvaluateContract(S, Frame->Info)) {
       return false;
     }
@@ -6437,16 +6438,13 @@ static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
                                   const LValue *ResultSlot) {
   if (Info.checkingPotentialConstantExpression())
     return false;
+
+  ContractSpecifierDecl *Contracts = Callee->getContracts();
+  if (!Contracts)
+    return true;
   BlockScopeRAII Scope(Info);
-  const ResultNameDecl *CanonicalResultName = nullptr;
-  for (auto *S : Callee->getContracts()) {
-    if (S->getContractKind() != ContractKind::Post)
-      continue;
-    if (S->hasResultName()) {
-      CanonicalResultName = S->getResultName()->getCanonicalResultNameDecl();
-      break;
-    }
-  }
+  const ResultNameDecl *CanonicalResultName =
+      Contracts->getCanonicalResultName();
 
   bool NeedsResultSlot =
       (!ResultSlot || !ResultSlot->getLValueBase()) && CanonicalResultName;
@@ -6472,9 +6470,7 @@ static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
   }
   ((void)LastValue);
 
-  for (auto *S : Callee->getContracts()) {
-    if (S->getContractKind() != ContractKind::Post)
-      continue;
+  for (auto *S : Contracts->postconditions()) {
     if (!EvaluateContract(S, Info))
       return false;
   }

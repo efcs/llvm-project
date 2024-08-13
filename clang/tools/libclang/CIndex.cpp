@@ -7061,6 +7061,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
   case Decl::RequiresExprBody:
   case Decl::UnresolvedUsingIfExists:
   case Decl::ResultName:
+  case Decl::ContractSpecifier:
     return C;
 
   // Declaration kinds that don't make any sense here, but are
@@ -7212,6 +7213,7 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
     if (NamedDecl *Friend = cast<FriendTemplateDecl>(D)->getFriendDecl())
       return clang_getCursorDefinition(MakeCXCursor(Friend, TU));
     return clang_getNullCursor();
+    
   }
 
   return clang_getNullCursor();

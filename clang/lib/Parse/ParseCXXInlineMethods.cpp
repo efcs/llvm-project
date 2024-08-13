@@ -621,7 +621,8 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
 
     // Parse the exception-specification.
     SmallVector<ContractStmt *> Contracts;
-    assert(FunctionToPush->getContracts().empty());
+    bool IsInvalid = false;
+    assert(!FunctionToPush->hasContracts());
     auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
     while (isFunctionContractKeyword(Tok)) {
       StmtResult Contract =
@@ -629,11 +630,13 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
       if (!Contract.isInvalid()) {
         Contracts.push_back(Contract.getAs<ContractStmt>());
       } else {
-        FunctionToPush->setInvalidDecl(true);
+        IsInvalid = true;
       }
     }
-    if (!FunctionToPush->isInvalidDecl())
-      Actions.ActOnFinishLateParsedContractSpecifierSequence(Contracts, FunctionToPush);
+    ContractSpecifierDecl *ContractSpec =
+        Actions.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
+    // There shouldn't be any redeclarations of the contract specifier
+    FunctionToPush->setContracts(ContractSpec);
 
     // There could be leftover tokens (e.g. because of an error).
     // Skip through until we reach the original token position.

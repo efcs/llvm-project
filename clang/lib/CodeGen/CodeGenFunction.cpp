@@ -1517,11 +1517,8 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // FIXME(EricWF): I don't think this should go here.
-  for (ContractStmt *S : FD->getContracts()) {
-    if (S->getContractKind() != ContractKind::Pre)
-      continue;
+  for (ContractStmt *S : FD->preconditions())
     EmitStmt(S);
-  }
 
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))

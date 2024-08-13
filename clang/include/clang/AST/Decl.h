@@ -56,6 +56,7 @@ class ASTContext;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
 class ContractStmt;
+class ContractSpecifierDecl;
 class DependentFunctionTemplateSpecializationInfo;
 class EnumDecl;
 class Expr;
@@ -738,7 +739,7 @@ class DeclaratorDecl : public ValueDecl {
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
     Expr *TrailingRequiresClause = nullptr;
-    SmallVector<ContractStmt *> Contracts = {};
+    ContractSpecifierDecl *Contracts = nullptr;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -818,23 +819,25 @@ public:
                         : nullptr;
   }
 
-  bool hasContracts() const {
-    if (hasExtInfo())
-      return !getExtInfo()->Contracts.empty();
-    return false;
-  }
+  bool hasContracts() const { return getContracts() == nullptr; }
 
-  ArrayRef<ContractStmt *> getContracts() const {
+  ContractSpecifierDecl *getContracts() const {
     if (hasExtInfo())
       return getExtInfo()->Contracts;
-    return {};
+    return nullptr;
   }
 
-  void getContracts(ContractKind CK, SmallVector<ContractStmt *> &In) const;
+  using ContractPreconditionRange = llvm::iterator_range<llvm::filter_iterator<
+      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
+  using ContractPostconditionRange = ContractPreconditionRange;
+
+  ContractPreconditionRange preconditions() const;
+  ContractPostconditionRange postconditions() const;
+  ArrayRef<ContractStmt *> contracts() const;
 
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
 
-  void setContracts(ArrayRef<ContractStmt *> Contracts);
+  void setContracts(ContractSpecifierDecl *Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2115,7 +2118,7 @@ protected:
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
                Expr *TrailingRequiresClause = nullptr,
-               ArrayRef<ContractStmt *> Contracts = {});
+               ContractSpecifierDecl *Contracts = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2152,7 +2155,7 @@ public:
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
          Expr *TrailingRequiresClause = nullptr,
-         ArrayRef<ContractStmt *> Contracts = {}) {
+         ContractSpecifierDecl *Contracts = nullptr) {
 
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
@@ -2166,7 +2169,7 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts);
+         Expr *TrailingRequiresClause, ContractSpecifierDecl *Contracts);
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 

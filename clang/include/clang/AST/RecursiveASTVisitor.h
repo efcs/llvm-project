@@ -1606,6 +1606,12 @@ DEF_TRAVERSE_DECL(FriendDecl, {
   }
 })
 
+DEF_TRAVERSE_DECL(ContractSpecifierDecl, {
+  for (auto *C : D->contracts()) {
+    TRY_TO(TraverseStmt(C));
+  }
+})
+
 DEF_TRAVERSE_DECL(FriendTemplateDecl, {
   if (D->getFriendType())
     TRY_TO(TraverseTypeLoc(D->getFriendType()->getTypeLoc()));
@@ -2232,10 +2238,11 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   }
 
   // Visit any contracts attached to the function declaration..
-  const auto &Contracts = D->getContracts();
-  for (const auto &Contract : Contracts) {
-    TRY_TO(TraverseContractStmt(Contract));
+#if 0 // TODO(EricWF): Enable this.
+  if (auto *Contracts = D->getContracts()) {
+    TRY_TO(TraverseDecl(Contracts));
   }
+#endif
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
     // Constructor initializers.

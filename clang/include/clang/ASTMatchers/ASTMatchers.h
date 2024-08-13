@@ -2824,7 +2824,7 @@ AST_MATCHER(ContractStmt, isContractAssert) {
 ///   void g(int x) { contract_assert(x); }
 /// \endcode
 AST_MATCHER(FunctionDecl, hasFunctionContracts) {
-  return !Node.getContracts().empty();
+  return Node.getContracts() != nullptr;
 }
 /// Matches C++ result name declaration inside a post condition.
 ///

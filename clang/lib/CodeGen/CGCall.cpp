@@ -3974,33 +3974,26 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
 
 void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
   SmallVector<const ContractStmt *, 4> PostContracts;
+  const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl);
+  assert(FD && "No current function?");
 
-  ResultNameDecl *RND = nullptr;
-  if (auto *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl)) {
-    for (auto *CA : FD->getContracts()) {
-      if (CA->getContractKind() == ContractKind::Post) {
-        PostContracts.push_back(CA);
-        if (CA->hasResultName() && !RND)
-          RND = CA->getResultName()->getCanonicalResultNameDecl();
-      }
-    }
-  }
+  ContractSpecifierDecl *CSD = FD->getContracts();
+  if (!CSD)
+    return;
+
   std::optional<OpaqueValueExpr> OVEStore;
   std::optional<OpaqueValueMapping> OVEBind;
-  if (RND && RV) {
-    OVEStore.emplace(RND->getLocation(), RND->getType(), VK_LValue, OK_Ordinary,
+  if (auto CRD = CSD->getCanonicalResultName(); CRD && RV) {
+    OVEStore.emplace(CRD->getLocation(), CRD->getType(), VK_LValue, OK_Ordinary,
                      nullptr);
     // llvm::Value *SLocPtr = Builder.CreateLoad(ReturnLocation,
     // "return.sloc.load");
     OVEBind.emplace(*this, &OVEStore.value(),
-                    MakeAddrLValue(ReturnValue, RND->getType()));
-  }
-  if (RND && RV) {
+                    MakeAddrLValue(ReturnValue, CRD->getType()));
   }
 
-  for (auto *CA : PostContracts) {
+  for (auto *CA : FD->postconditions())
     EmitContractStmt(*CA);
-  }
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {

@@ -1496,7 +1496,10 @@ enum DeclCode {
   /// A ResultNameDecl record
   DECL_RESULT_NAME,
 
-  DECL_LAST = DECL_RESULT_NAME,
+  /// A contract specifier sequence on a function
+  DECL_CONTRACT_SPECIFIER,
+
+  DECL_LAST = DECL_CONTRACT_SPECIFIER,
 };
 
 /// Record codes for each kind of statement or expression.

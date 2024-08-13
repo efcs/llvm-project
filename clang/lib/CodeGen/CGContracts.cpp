@@ -333,10 +333,8 @@ void CodeGenFunction::EmitContractStmtAsCatchBody(const ContractStmt &S) {
         CreateConstantInt(*this, ExceptionRaised), CurInfo->ViolationInfoGV,
         /*IsNoReturn=*/CurInfo->Semantic == Enforce);
   } else if (CurInfo->Semantic == QuickEnforce) {
-    // We have to emit a trap block here, as we can't throw from the catch block
-    // in this case.
     CreateTrap(*this);
-  }  else {
+  } else {
     llvm_unreachable("Unhandled semantic");
   }
 }

@@ -3981,10 +3981,8 @@ private:
   bool isGNUAsmQualifier(const Token &TokAfterAsm) const;
   GNUAsmQualifiers::AQ getGNUAsmQualifier(const Token &Tok) const;
   bool parseGNUAsmQualifierListOpt(GNUAsmQualifiers &AQ);
-  bool
-  ParseLexedFunctionContractsInScope(CachedTokens &Toks,
-                                     SmallVector<ContractStmt *> &Contracts,
-                                     QualType RetType);
+  ContractSpecifierDecl *ParseLexedFunctionContractsInScope(CachedTokens &Toks,
+                                                            QualType RetType);
 };
 
 }  // end namespace clang

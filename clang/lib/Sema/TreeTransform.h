@@ -1614,6 +1614,11 @@ public:
     return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
   }
 
+  DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
+                                          bool IsInvalid) {
+    return getSema().ActOnFinishContractSpecifierSequence(Stmts, IsInvalid);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.

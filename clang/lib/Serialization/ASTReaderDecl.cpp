@@ -419,6 +419,7 @@ namespace clang {
     void VisitCapturedDecl(CapturedDecl *CD);
     void VisitEmptyDecl(EmptyDecl *D);
     void VisitLifetimeExtendedTemporaryDecl(LifetimeExtendedTemporaryDecl *D);
+    void VisitContractSpecifierDecl(ContractSpecifierDecl *D);
 
     std::pair<uint64_t, uint64_t> VisitDeclContext(DeclContext *DC);
 
@@ -921,14 +922,16 @@ void ASTDeclReader::VisitEnumConstantDecl(EnumConstantDecl *ECD) {
 void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
   VisitValueDecl(DD);
   DD->setInnerLocStart(readSourceLocation());
-  if (Record.readInt()) { // hasExtInfo
+  BitsUnpacker DeclDeclBits(Record.readInt());
+  bool HaveExtInfo = DeclDeclBits.getNextBit();
+  bool HaveContracts = DeclDeclBits.getNextBit();
+
+  if (HaveExtInfo) { // hasExtInfo
     auto *Info = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     Record.readQualifierInfo(*Info);
     Info->TrailingRequiresClause = Record.readExpr();
-    // unsigned NumContracts = Record.readInt();
-    // for (unsigned I=0; I < NumContracts; ++I)
-    //   Info->Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
-
+    if (HaveContracts)
+      Info->Contracts = Record.readDeclAs<ContractSpecifierDecl>();
     DD->DeclInfo = Info;
   }
   QualType TSIType = Record.readType();
@@ -1097,6 +1100,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->setFriendConstraintRefersToEnclosingTemplate(
       FunctionDeclBits.getNextBit());
   FD->setUsesSEHTry(FunctionDeclBits.getNextBit());
+  bool HasContracts = FunctionDeclBits.getNextBit();
 
   FD->EndRangeLoc = readSourceLocation();
   if (FD->isExplicitlyDefaulted())
@@ -1163,12 +1167,22 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
 
-  unsigned NumContracts = Record.readInt();
-  SmallVector<ContractStmt *, 4> Contracts;
-  for (unsigned I = 0; I < NumContracts; ++I)
+  if (HasContracts)
+    FD->setContracts(readDeclAs<ContractSpecifierDecl>());
+}
+
+void ASTDeclReader::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  VisitDecl(CSD);
+  // bool NumContracts = Record.readInt();
+  assert(CSD->NumContracts > 0);
+  assert(Record.peekInt() != CSD->NumContracts);
+
+  SmallVector<ContractStmt *, 8> Contracts;
+  Contracts.reserve(CSD->NumContracts);
+  for (unsigned I = 0; I < CSD->NumContracts; ++I) {
     Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
-  if (NumContracts != 0)
-    FD->setContracts(std::move(Contracts));
+  }
+  CSD->setContracts(Contracts);
 }
 
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
@@ -4075,6 +4089,10 @@ Decl *ASTReader::ReadDeclRecord(GlobalDeclID ID) {
     break;
   case DECL_RESULT_NAME:
     D = ResultNameDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_CONTRACT_SPECIFIER:
+    D = ContractSpecifierDecl::CreateDeserialized(Context, ID,
+                                                  Record.readInt());
     break;
   case DECL_TOP_LEVEL_STMT_DECL:
     D = TopLevelStmtDecl::CreateDeserialized(Context, ID);

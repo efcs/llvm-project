@@ -821,10 +821,10 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
                                           "\n", &Context);
     }
 
-    const auto &Contracts = D->getContracts();
-    if (!Contracts.empty()) {
+    const ContractSpecifierDecl *Contracts = D->getContracts();
+    if (Contracts) {
       Out << " [[";
-      for (const auto &Contract : Contracts) {
+      for (const auto *Contract : Contracts->contracts()) {
         Contract->printPretty(Out, nullptr, SubPolicy, Indentation, "\n",
                               &Context);
       }

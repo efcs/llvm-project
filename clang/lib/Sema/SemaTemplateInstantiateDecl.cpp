@@ -1475,6 +1475,22 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
   return FD;
 }
 
+Decl *TemplateDeclInstantiator::VisitContractSpecifierDecl(
+    ContractSpecifierDecl *CSD) {
+  SmallVector<ContractStmt *> Contracts;
+  Contracts.reserve(CSD->getNumContracts());
+
+  bool IsInvalid = false;
+  for (auto *CS : CSD->contracts()) {
+    StmtResult Result = SemaRef.SubstStmt(CS, TemplateArgs);
+    if (Result.isInvalid())
+      IsInvalid = true;
+    if (Result.isUsable())
+      Contracts.push_back(cast<ContractStmt>(Result.get()));
+  }
+  return SemaRef.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
+}
+
 Decl *TemplateDeclInstantiator::VisitStaticAssertDecl(StaticAssertDecl *D) {
   Expr *AssertExpr = D->getAssertExpr();
 
@@ -2162,7 +2178,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   }
 
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  ArrayRef<ContractStmt *> Contracts = D->getContracts();
+  ContractSpecifierDecl *Contracts = D->getContracts();
 
   // If we're instantiating a local function declaration, put the result
   // in the enclosing namespace; otherwise we need to find the instantiated
@@ -2593,7 +2609,7 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
 
   CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
   Expr *TrailingRequiresClause = D->getTrailingRequiresClause();
-  ArrayRef<ContractStmt *> Contracts = D->getContracts();
+  ContractSpecifierDecl *Contracts = D->getContracts();
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);
@@ -5187,24 +5203,15 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
           InstantiateDefaultCtorDefaultArgs(Ctor);
         }
       }
-      // If the function has contracts, instantiate them now
-      ArrayRef<ContractStmt *> Contracts = Function->getContracts();
-      if (!Contracts.empty()) {
-        SmallVector<ContractStmt*> NewContracts;
-        for (auto *C : Contracts) {
-          StmtResult NewStmt = SubstStmt(C, TemplateArgs);
-          if (NewStmt.isInvalid()) {
-            Function->setInvalidDecl();
-          }
-          if (NewStmt.isUsable()) {
-            auto *NS = dyn_cast<ContractStmt>(NewStmt.get());
-            assert(NS);
-            NewContracts.push_back(NS);
-          }
-        }
-        SemaRef.ActOnFinishContractSpecifierSequence(NewContracts);
-        Function->setContracts(NewContracts);
-      }
+
+      Decl *NewContracts =
+          Function->getContracts()
+              ? SubstDecl(Function->getContracts(), Function, TemplateArgs)
+              : nullptr;
+      if (Function->hasContracts() && !NewContracts)
+        Function->setInvalidDecl(true);
+      if (NewContracts)
+        Function->setContracts(cast<ContractSpecifierDecl>(NewContracts));
 
       // Instantiate the function body.
       Body = SubstStmt(Pattern, TemplateArgs);

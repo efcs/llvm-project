@@ -2014,7 +2014,7 @@ void DeclaratorDecl::setTrailingRequiresClause(Expr *TrailingRequiresClause) {
   getExtInfo()->TrailingRequiresClause = TrailingRequiresClause;
 }
 
-void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
+void DeclaratorDecl::setContracts(ContractSpecifierDecl *NewContracts) {
   // Make sure the extended decl info is allocated.
   if (!hasExtInfo()) {
     // Save (non-extended) type source info pointer.
@@ -2035,18 +2035,21 @@ void DeclaratorDecl::setContracts(ArrayRef<ContractStmt *> NewContracts) {
       this->isInvalidDecl() &&
           "Adding a different amount of contracts than were initially present");
 #endif
-
-  Contracts.clear();
-  Contracts.append(NewContracts.begin(), NewContracts.end());
-}
-
-void DeclaratorDecl::getContracts(ContractKind CK,
-                                  SmallVector<ContractStmt *> &In) const {
-  assert(CK == ContractKind::Pre || CK == ContractKind::Post);
-  for (auto *C : getContracts()) {
-    if (C->getContractKind() == CK)
-      In.push_back(C);
+  ERICWF_DEBUG_BLOCK {
+    if (Contracts && NewContracts) {
+      if (Contracts != NewContracts) {
+        llvm::errs() << "\n\nOverwriting existing contracts!!!\n";
+        Contracts->dumpColor();
+        NewContracts->dumpColor();
+        llvm::errs() << "\n\n==============================\n\n";
+      } else if (Contracts) {
+        llvm::errs() << "\n\noverwriting contracts with null pointer\n";
+        Contracts->dumpColor();
+        llvm::errs() << "\n\n======================================\n\n";
+      }
+    }
   }
+  Contracts = NewContracts;
 }
 
 void DeclaratorDecl::setTemplateParameterListsInfo(
@@ -3094,7 +3097,7 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            bool UsesFPIntrin, bool isInlineSpecified,
                            ConstexprSpecKind ConstexprKind,
                            Expr *TrailingRequiresClause,
-                           ArrayRef<ContractStmt *> Contracts)
+                           ContractSpecifierDecl *Contracts)
     : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                      StartLoc),
       DeclContext(DK), redeclarable_base(C), Body(), ODRHash(0),
@@ -3131,7 +3134,7 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
   // FIXME(EricWF): Make this conditional?
-  if (!Contracts.empty())
+  if (Contracts)
     setContracts(Contracts);
 }
 
@@ -3675,14 +3678,36 @@ FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
 FunctionDecl *FunctionDecl::getDeclForContracts() {
   // Try getting the contracts from the defining decl, and if those aren't present
   // use the contracts on the first declaration.
-  if (auto *Def = getDefinition(); Def && !Def->getContracts().empty())
+  if (auto *Def = getDefinition(); Def && Def->getContracts())
     return Def;
   return getCanonicalDecl();
 }
 const FunctionDecl *FunctionDecl::getDeclForContracts() const {
-  if (auto *Def = getDefinition(); Def && !Def->getContracts().empty())
+  if (auto *Def = getDefinition(); Def && Def->getContracts())
     return Def;
   return getCanonicalDecl();
+}
+
+ArrayRef<ContractStmt *> DeclaratorDecl::contracts() const {
+  if (auto *CSD = getContracts())
+    return CSD->contracts();
+  return std::nullopt;
+}
+
+DeclaratorDecl::ContractPostconditionRange
+DeclaratorDecl::postconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Post;
+      });
+}
+
+DeclaratorDecl::ContractPreconditionRange
+DeclaratorDecl::preconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Pre;
+      });
 }
 
 /// Returns a value indicating whether this function corresponds to a builtin
@@ -5467,7 +5492,7 @@ FunctionDecl *FunctionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
     bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-    Expr *TrailingRequiresClause, ArrayRef<ContractStmt *> Contracts) {
+    Expr *TrailingRequiresClause, ContractSpecifierDecl *Contracts) {
   FunctionDecl *New = new (C, DC) FunctionDecl(
       Function, C, DC, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
       isInlineSpecified, ConstexprKind, TrailingRequiresClause, Contracts);

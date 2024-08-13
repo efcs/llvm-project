@@ -9205,7 +9205,7 @@ static FunctionDecl *CreateNewFunctionDecl(Sema &SemaRef, Declarator &D,
 
   ExplicitSpecifier ExplicitSpecifier = D.getDeclSpec().getExplicitSpecifier();
   Expr *TrailingRequiresClause = D.getTrailingRequiresClause();
-  SmallVector<ContractStmt *> Contracts = D.getContracts();
+  ContractSpecifierDecl *Contracts = D.getContracts();
 
   SemaRef.CheckExplicitObjectMemberFunction(DC, D, Name, R);
 

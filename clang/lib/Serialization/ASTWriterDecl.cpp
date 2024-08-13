@@ -110,6 +110,7 @@ namespace clang {
     void VisitTemplateDecl(TemplateDecl *D);
     void VisitConceptDecl(ConceptDecl *D);
     void VisitResultNameDecl(ResultNameDecl *D);
+    void VisitContractSpecifierDecl(ContractSpecifierDecl *D);
     void VisitImplicitConceptSpecializationDecl(
         ImplicitConceptSpecializationDecl *D);
     void VisitRequiresExprBodyDecl(RequiresExprBodyDecl *D);
@@ -615,11 +616,18 @@ void ASTDeclWriter::VisitEnumConstantDecl(EnumConstantDecl *D) {
 void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   VisitValueDecl(D);
   Record.AddSourceLocation(D->getInnerLocStart());
-  Record.push_back(D->hasExtInfo());
+  BitsPacker DeclDeclBits;
+  DeclDeclBits.addBit(D->hasExtInfo());
+  DeclDeclBits.addBit(D->hasContracts());
+  Record.push_back(DeclDeclBits);
+
   if (D->hasExtInfo()) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
     Record.AddStmt(Info->TrailingRequiresClause);
+    if (D->hasContracts()) {
+      Record.AddDeclRef(D->getContracts());
+    }
     // Record.push_back(Info->Contracts.size());
     // for (auto *C : Info->Contracts)
     //  Record.AddStmt(C);
@@ -738,6 +746,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   FunctionDeclBits.addBit(D->isLateTemplateParsed());
   FunctionDeclBits.addBit(D->FriendConstraintRefersToEnclosingTemplate());
   FunctionDeclBits.addBit(D->usesSEHTry());
+  FunctionDeclBits.addBit(D->hasContracts());
   Record.push_back(FunctionDeclBits);
 
   Record.AddSourceLocation(D->getEndLoc());
@@ -768,12 +777,20 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
-  auto Contracts = D->getContracts();
-  Record.push_back(Contracts.size());
-  for (auto *C : Contracts)
-    Record.AddStmt(C);
+
+  if (D->hasContracts())
+    Record.AddDeclRef(D->getContracts());
 
   Code = serialization::DECL_FUNCTION;
+}
+
+void ASTDeclWriter::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  VisitDecl(CSD);
+  Record.push_back(CSD->NumContracts);
+  for (auto *C : CSD->contracts())
+    Record.AddStmt(C);
+
+  Code = serialization::DECL_CONTRACT_SPECIFIER;
 }
 
 static void addExplicitSpecifier(ExplicitSpecifier ES,

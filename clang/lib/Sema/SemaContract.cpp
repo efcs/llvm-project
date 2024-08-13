@@ -198,8 +198,13 @@ StmtResult Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                            FunctionDecl *NewDecl) {
 
-  ArrayRef<const ContractStmt *> OrigContracts = OrigDecl->getContracts();
-  ArrayRef<const ContractStmt *> NewContracts = NewDecl->getContracts();
+  ContractSpecifierDecl *OrigContractSpec = OrigDecl->getContracts();
+  ContractSpecifierDecl *NewContractSpec = NewDecl->getContracts();
+  ArrayRef<const ContractStmt *> OrigContracts, NewContracts;
+  if (OrigContractSpec)
+    OrigContracts = OrigContractSpec->contracts();
+  if (NewContractSpec)
+    NewContracts = NewContractSpec->contracts();
 
   enum DifferenceKind {
     DK_None = -1,
@@ -246,6 +251,7 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
   if (DK == DK_None)
     return false;
 
+  assert(!NewContracts.empty() && "Cannot diagnose empty contract sequence");
   SourceRange NewContractRange = SourceRange(
       NewContracts.front()->getBeginLoc(), NewContracts.back()->getEndLoc());
   SourceRange OrigContractRange =
@@ -382,40 +388,44 @@ private:
 
 } // namespace
 
+DeclResult Sema::BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                                            bool IsInvalid) {
+  ContractSpecifierDecl *CSD =
+      ContractSpecifierDecl::Create(Context, CurContext, Contracts, IsInvalid);
+  return CSD;
+}
+
 /// ActOnFinishContractSpecifierSequence - This is called after a
 /// contract-specifier-seq has been parsed.
 ///
 /// It's primary job is to set the canonical result name decl for each result
 /// name.
-void Sema::ActOnFinishContractSpecifierSequence(
-    SmallVector<ContractStmt *> Contracts) {
-  if (Contracts.empty())
-    return;
+ContractSpecifierDecl *
+Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
+                                           bool IsInvalid) {
+  assert(!Contracts.empty() && "Expected at least one contract");
+
+  ContractSpecifierDecl *CSD =
+      ContractSpecifierDecl::Create(Context, CurContext, Contracts, IsInvalid);
 
   ResultNameDecl *CanonicalResult = nullptr;
-  for (auto *CS : Contracts) {
-    if (!CS->hasResultName())
-      continue;
-    if (!CanonicalResult)
-      CanonicalResult = CS->getResultName();
+  for (auto *RD : CSD->result_names()) {
+    if (CanonicalResult)
+      RD->setCanonicalResultNameDecl(CanonicalResult);
     else
-      CS->getResultName()->setCanonicalResultNameDecl(CanonicalResult);
+      CanonicalResult = RD;
   }
+
+  if (IsInvalid)
+    CSD->setInvalidDecl(true);
+
+  return CSD;
 }
 
-void Sema::ActOnFinishLateParsedContractSpecifierSequence(
-    SmallVector<ContractStmt *> Contracts, FunctionDecl *FD) {
-  if (Contracts.empty())
+void Sema::CheckFunctionContractSpecifier(FunctionDecl *FD) {
+  FunctionDecl *First = FD->getFirstDecl();
+  if (!First->hasContracts() && !FD->hasContracts())
     return;
-  if (FD->hasContracts()) {
-    FD->dumpColor();
-    for (auto *CS : Contracts)
-      CS->dumpColor();
-  }
-  assert(FD && "Expected a function declaration");
-  assert(!FD->hasContracts() && "This function should add the contracts");
-  ActOnFinishContractSpecifierSequence(Contracts);
-  FD->setContracts(Contracts);
 
   // Find the declaration we want to diagnose contract mismatches against.
   // If the contracts are only present the first declaration, use that one.
@@ -430,20 +440,16 @@ void Sema::ActOnFinishLateParsedContractSpecifierSequence(
   }();
 
   if (DeclForDiagnosis && CheckEquivalentContractSequence(DeclForDiagnosis, FD))
-      FD->setInvalidDecl(true);
+    FD->setInvalidDecl(true);
 }
 
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD) {
-  if (!FD->hasContracts())
+  ContractSpecifierDecl *CSD = FD->getContracts();
+  if (!CSD)
     return;
-
-  ArrayRef<ContractStmt *> Contracts = FD->getContracts();
-
   // Check for post-conditions that reference non-const parameters.
   ParamReferenceChecker Checker(*this, FD);
-  for (auto *CS : Contracts) {
-    if (CS->getContractKind() != ContractKind::Post)
-      continue;
+  for (auto *CS : CSD->postconditions()) {
     Checker.TraverseContractStmt(CS);
     // FIXME(EricWF): DIagnose non-const function param types.
   }
@@ -511,23 +517,19 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   if (First != Def && First && Def->isThisDeclarationADefinition()
     && First->hasContracts() && !Def->hasContracts()) {
     RebuildFunctionContracts Rebuilder(*this, First, Def);
-    for (auto *CS : First->getContracts()) {
+    for (auto *CS : First->contracts()) {
       Rebuilder.TraverseStmt(CS);
     }
     Def->setContracts(First->getContracts());
   }
+  assert(Def->hasContracts());
 
-  for (auto *CS : Def->getContracts()) {
-    if (CS->hasResultName()) {
-      auto *RND = CS->getResultName();
-      if (RND->getType()->isUndeducedAutoType()) {
-        Diag(RND->getLocation(), diag::err_ericwf_unimplemented) << "Undeduced Auto Result Name";
-      }
+  for (auto *RND : Def->getContracts()->result_names()) {
+    if (RND->getType()->isUndeducedAutoType()) {
+      Diag(RND->getLocation(), diag::err_ericwf_unimplemented)
+          << "Undeduced Auto Result Name";
     }
   }
-
-
-
 }
 
 void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
