@@ -2121,6 +2121,15 @@ private:
   //===--------------------------------------------------------------------===//
   // C++ Contracts
 public:
+  enum ContractEnterScopeKind {
+    CES_None = 0,
+    CES_Prototype = 0x1,
+    CES_Parameters = 0x2,
+    CES_CXXThis = 0x4,
+    CES_Function = 0x8,
+    CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
+  };
   std::optional<ContractKind> getContractKeyword(const Token &Token) const;
   std::optional<ContractKind> getContractKeyword() const {
     return getContractKeyword(Tok);
@@ -2140,17 +2149,18 @@ public:
 private:
   StmtResult ParseContractAssertStatement();
 
-  bool ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+  void ParseContractSpecifierSequence(Declarator &DeclarationInfo,
                                       bool EnterScope,
                                       QualType TrailingReturnType = QualType());
 
   StmtResult ParseFunctionContractSpecifierImpl(
-      llvm::function_ref<QualType()> ReturnTypeResolver = {});
+      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
 
-  bool ParseLexedFunctionContracts(CachedTokens &Toks, FunctionDecl *FD);
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
+                                   ContractEnterScopeKind EnterScopeKinds);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.

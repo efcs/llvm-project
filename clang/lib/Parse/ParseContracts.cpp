@@ -120,7 +120,8 @@ bool Parser::LateParseFunctionContractSpecifier(CachedTokens &Toks) {
 StmtResult Parser::ParseContractAssertStatement() {
   assert((Tok.is(tok::kw_contract_assert)) &&
          "Not a contract asssert statement");
-  return ParseFunctionContractSpecifierImpl({});
+  bool IsInvalidTmp = false;
+  return ParseFunctionContractSpecifierImpl({}, IsInvalidTmp);
 }
 
 /// ParseFunctionContractSpecifierSeq - Parse a series of pre/post contracts on
@@ -142,11 +143,11 @@ StmtResult Parser::ParseContractAssertStatement() {
 ///
 ///   result-name-introducer:
 ///       attributed-identifier :
-bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+void Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
                                             bool EnterScope,
                                             QualType TrailingReturnType) {
   if (!isFunctionContractKeyword(Tok))
-    return true;
+    return;
 
   std::optional<QualType> CachedType;
   auto ReturnTypeResolver = [&]() {
@@ -179,37 +180,34 @@ bool Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
   InitCXXThisScopeForDeclaratorIfRelevant(DeclarationInfo,
                                           DeclarationInfo.getDeclSpec(),
                                           ThisScope);
-  bool IsSuccess = true;
+  bool IsInvalid = false;
+  SourceLocation StartLoc = Tok.getLocation();
 
   SmallVector<ContractStmt *, 4> Contracts;
   while (isFunctionContractKeyword(Tok)) {
+    bool IsInvalidTmp = false;
     StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
-    if (!Contract.isInvalid()) {
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, IsInvalidTmp);
+    IsInvalid |= IsInvalidTmp;
+    if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
-    } else {
-      IsSuccess = false;
-    }
   }
-  DeclResult Seq =
-      Actions.ActOnFinishContractSpecifierSequence(Contracts, !IsSuccess);
-  if (Seq.isInvalid() || !IsSuccess) {
-    IsSuccess = false;
-    DeclarationInfo.setInvalidType(true);
-  }
+  ContractSpecifierDecl *Seq = Actions.ActOnFinishContractSpecifierSequence(
+      Contracts, StartLoc, IsInvalid);
+
   assert(DeclarationInfo.Contracts == nullptr && "Already have contracts?");
 
-  DeclarationInfo.Contracts = Seq.getAs<ContractSpecifierDecl>();
-
-  return IsSuccess;
+  DeclarationInfo.Contracts = Seq;
 }
 
 StmtResult Parser::ParseFunctionContractSpecifierImpl(
-    llvm::function_ref<QualType()> ReturnTypeResolver) {
+    llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid) {
   assert(isAnyContractKeyword(Tok) && "Not a contract keyword?");
   ContractKind CK = getContractKeyword(Tok).value();
   assert((CK == ContractKind::Assert || ReturnTypeResolver) &&
          "Missing return type resolver for function contract sequence");
+
+  auto SetInvalidOnExit = llvm::make_scope_exit([&]() { IsInvalid = true; });
 
   const char *CKStr = getContractKeywordStr(CK);
 
@@ -224,6 +222,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     SkipUntil({tok::equal, tok::l_brace, tok::arrow, tok::kw_try, tok::comma,
                tok::l_paren},
               StopAtSemi | StopBeforeMatch);
+
     return StmtError();
   }
 
@@ -255,23 +254,34 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       ReturnType = ReturnTypeResolver();
     }
 
-    StmtResult RNStmt = Actions.ActOnResultNameDeclarator(
-        CK, getCurScope(), ReturnType, IdLoc, Id);
-    if (!RNStmt.isInvalid())
-      ResultNameStmt = cast<DeclStmt>(RNStmt.get());
-    else
+    StmtResult RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(),
+                                                       ReturnType, IdLoc, Id);
+
+    if (!RND.isUsable())
       return StmtError();
+
+    ResultNameStmt = cast<DeclStmt>(RND.get());
+    if (ResultNameStmt->getSingleDecl()->isInvalidDecl())
+      IsInvalid = true;
   }
 
   ExprResult Cond = parseContractCondition(*this, Actions, ExprLoc);
+  SourceLocation EndLoc = Tok.getLocation();
+
   T.consumeClose();
 
   if (Cond.isInvalid()) {
-    return StmtError();
+    Cond =
+        Actions.CreateRecoveryExpr(ExprLoc, EndLoc, {}, Actions.Context.BoolTy);
+  } else {
+    SetInvalidOnExit.release();
   }
 
-  return Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), ResultNameStmt,
-                                     CXX11Attrs);
+  StmtResult Res = Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(),
+                                               ResultNameStmt, CXX11Attrs);
+  if (Res.isInvalid())
+    IsInvalid = true;
+  return Res;
 }
 
 static float EOFData = 0.0;
@@ -294,23 +304,22 @@ Parser::ParseLexedFunctionContractsInScope(CachedTokens &ContractToks,
 
   // Consume the previously-pushed token.
   ConsumeAnyToken();
-
+  SourceLocation StartLoc = Tok.getLocation();
   auto ReturnTypeResolver = [&]() { return RetType; };
 
-  bool IsError = false;
+  bool IsInvalid = false;
   SmallVector<ContractStmt *> Contracts;
 
   while (isFunctionContractKeyword(Tok)) {
+    bool IsInvalidTmp = false;
     StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
-    if (!Contract.isInvalid()) {
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, IsInvalidTmp);
+    if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
-    } else {
-      IsError = true;
-    }
+    IsInvalid |= IsInvalidTmp;
   }
-  DeclResult Req =
-      Actions.ActOnFinishContractSpecifierSequence(Contracts, IsError);
+  DeclResult Req = Actions.ActOnFinishContractSpecifierSequence(
+      Contracts, StartLoc, IsInvalid);
 
   // There could be leftover tokens (e.g. because of an error).
   // Skip through until we reach the original token position.
@@ -328,7 +337,9 @@ Parser::ParseLexedFunctionContractsInScope(CachedTokens &ContractToks,
   return Req.getAs<ContractSpecifierDecl>();
 }
 
-bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDecl *FD) {
+bool Parser::ParseLexedFunctionContracts(
+    CachedTokens &ContractToks, Decl *FD,
+    Parser::ContractEnterScopeKind ScopesToEnter) {
 
   // Add the 'stop' token.
   Token LastContractToken = ContractToks.back();
@@ -360,42 +371,52 @@ bool Parser::ParseLexedFunctionContracts(CachedTokens &ContractToks, FunctionDec
   else
     FunctionToPush = cast<FunctionDecl>(FD);
 
-  ParseScope ProtoScope(this, Scope::DeclScope | Scope::FunctionPrototypeScope |
+  std::optional<ParseScope> ParserScope;
+  if (ScopesToEnter & ContractEnterScopeKind::CES_Prototype)
+    ParserScope.emplace(this, Scope::DeclScope | Scope::FunctionPrototypeScope |
                                   Scope::FunctionDeclarationScope);
 
-  for (auto *Param : FunctionToPush->parameters()) {
-    Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
+  if (ScopesToEnter & ContractEnterScopeKind::CES_Parameters) {
+    for (auto *Param : FunctionToPush->parameters()) {
+      Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
+    }
   }
 
   Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
 
-  ParseScope FnScope(this, Scope::FnScope);
-  Sema::ContextRAII FnContext(Actions, FunctionToPush,
-                              /*NewThisContext=*/false);
+  std::optional<ParseScope> FnScope;
+  std::optional<Sema::ContextRAII> FnContext;
 
-  Sema::CXXThisScopeRAII ThisScope(
-      Actions, Method ? Method->getParent() : nullptr,
-      Method ? Method->getMethodQualifiers(): Qualifiers{},
-      Method && getLangOpts().CPlusPlus11);
+  if (ScopesToEnter & ContractEnterScopeKind::CES_Function) {
+    FnScope.emplace(this, Scope::FnScope);
+    FnContext.emplace(Actions, FunctionToPush, /*NewThisContext=*/false);
+  }
+
+  std::optional<Sema::CXXThisScopeRAII> ThisScope;
+  if (ScopesToEnter & ContractEnterScopeKind::CES_CXXThis)
+    ThisScope.emplace(Actions, Method ? Method->getParent() : nullptr,
+                      Method ? Method->getMethodQualifiers() : Qualifiers{},
+                      Method && getLangOpts().CPlusPlus11);
 
   // Parse the exception-specification.
   SmallVector<ContractStmt *> Contracts;
   assert(isFunctionContractKeyword(Tok));
 
+  SourceLocation StartLoc = Tok.getLocation();
+
   auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
   bool IsInvalid = false;
   while (isFunctionContractKeyword(Tok)) {
+    bool IsInvalidTmp = false;
     StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
-    if (Contract.isUsable()) {
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, IsInvalidTmp);
+    if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
-    } else {
-      IsInvalid = true;
-    }
+    IsInvalid |= IsInvalidTmp;
   }
-  ContractSpecifierDecl *Seq =
-      Actions.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
-  FD->setContracts(Seq);
+  ContractSpecifierDecl *Seq = Actions.ActOnFinishContractSpecifierSequence(
+      Contracts, StartLoc, IsInvalid);
+  FunctionToPush->setContracts(Seq);
 
   // There could be leftover tokens (e.g. because of an error).
   // Skip through until we reach the original token position.

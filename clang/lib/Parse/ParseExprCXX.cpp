@@ -1643,7 +1643,9 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     }
 
     if (!D.LateParsedContracts.empty()) {
-      ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator());
+      assert(false);
+      ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
+                                  CES_AllScopes);
     }
     assert(LE->getCallOperator() && "LambdaExpr has no call operator");
     assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");

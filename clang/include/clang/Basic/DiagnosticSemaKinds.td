@@ -11997,9 +11997,11 @@ def warn_contract_always_evaluates_to : Warning<
   InGroup<ContractViolation>;
 
 def err_contract_postcondition_parameter_type_invalid : Error<
-    "parameter %0 referenced in contract postcondition %select{cannot cannot have an array type|cannot have a function type|must be declared const}1">;
+    "parameter %0 referenced in contract postcondition %select{cannot have an array type|cannot have a function type|must be declared const}1">;
 def note_parameter_with_name : Note<
   "parameter %0 is declared here">;
+def note_parameter_with_name_and_type : Note<
+  "parameter %0 declared with type %1 here">;
 
 def err_lambda_implicit_capture_in_contracts_only : Error<
          "implicit capture of local entity '%0' is not allowed when used exclusively in contract assertions">;

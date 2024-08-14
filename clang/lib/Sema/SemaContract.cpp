@@ -43,6 +43,7 @@
 #include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallPtrSet.h"
 #include "llvm/ADT/SmallString.h"
 #include "llvm/ADT/SmallVector.h"
@@ -90,14 +91,10 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
 }
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
-                                   Expr *Cond, DeclStmt *ResultNameDecl,
+                                   Expr *Cond, DeclStmt *RND,
                                    ArrayRef<const Attr *> Attrs) {
-  assert((CK == ContractKind::Post || ResultNameDecl == nullptr) &&
-         "ResultNameDecl only allowed for postconditions");
 
-
-  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, ResultNameDecl,
-                              Attrs);
+  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs);
 }
 
 StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
@@ -124,44 +121,26 @@ StmtResult Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
   // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
 
-  if (CK != ContractKind::Post) {
-    assert(II && "ResultName requires an identifier");
+  bool IsInvalid = false;
 
-    Diag(IDLoc, diag::err_result_name_not_allowed) << II;
-    return StmtError();
-  }
-
-  if (RetType->isVoidType())  {
+  if (RetType->isVoidType()) {
+    RetType = Context.IntTy;
     Diag(IDLoc, diag::err_void_result_name) << II;
-    return StmtError();
+    IsInvalid = true;
   }
 
-  if (RetType->isUndeducedAutoType()) {
-    if (!getLangOpts().LateParsedContracts) {
-      Diag(IDLoc, diag::err_ericwf_unimplemented)
-          << "Undeduced Auto Result Name";
-      return StmtError();
+  auto *New = ResultNameDecl::Create(Context, CurContext, IDLoc, II, RetType);
+  StmtResult NewDeclStmt =
+      ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
+  auto InvalidDecl = [&]() {
+    New->setInvalidDecl();
+    return NewDeclStmt;
+  };
 
-    }
-    FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurContext);
-    if (!FD) {
-      Diag(IDLoc, diag::err_ericwf_unimplemented)
-          << "Undeduced Auto Result Name";
-      return StmtError();
-    }
-    if (!FD->isDependentContext()) {
-      if (DeduceReturnType(FD, IDLoc, /*Diagose=*/true))
-        return StmtError();
-
-      RetType = FD->getReturnType();
-      if (RetType->isUndeducedAutoType()) {
-        Diag(IDLoc, diag::err_ericwf_unimplemented)
-            << "Failed to deduce return type";
-        return StmtError();
-      }
-    }
-  }
-
+  auto SetInvalidOnExit = llvm::make_scope_exit([&]() {
+    if (IsInvalid)
+      New->setInvalidDecl();
+  });
 
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   if (II) {
@@ -172,19 +151,51 @@ StmtResult Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
       NamedDecl *PrevDecl = *R.begin();
       if (R.isSingleResult() && PrevDecl->isTemplateParameter()) {
         // Maybe we will complain about the shadowed template parameter.
-        //DiagnoseTemplateParameterShadow(D.getIdentifierLoc(), PrevDecl);
+        // DiagnoseTemplateParameterShadow(D.getIdentifierLoc(), PrevDecl);
         // Just pretend that we didn't see the previous declaration.
         PrevDecl = nullptr;
       }
-      // FIXME(EricWF): Diagnose lookup conflicts with lambda captures and parameter declarations.
-      if (auto* PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_result_name_shadows_param) << II; // FIXME(EricWF): Change the diagnostic here.
+      // FIXME(EricWF): Diagnose lookup conflicts with lambda captures and
+      // parameter declarations.
+      if (auto *PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
+        Diag(IDLoc, diag::err_result_name_shadows_param)
+            << II; // FIXME(EricWF): Change the diagnostic here.
         Diag(PVD->getLocation(), diag::note_previous_declaration);
+        IsInvalid = true;
       }
     }
   }
-  auto *New = ResultNameDecl::Create(Context, CurContext,
-                     IDLoc, II, RetType);
+
+  if (CK != ContractKind::Post) {
+    assert(II && "ResultName requires an identifier");
+
+    Diag(IDLoc, diag::err_result_name_not_allowed) << II;
+  }
+
+  if (RetType->isUndeducedAutoType()) {
+    if (!getLangOpts().LateParsedContracts) {
+      Diag(IDLoc, diag::err_ericwf_unimplemented)
+          << "Undeduced Auto Result Name";
+      return InvalidDecl();
+    }
+    FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurContext);
+    if (!FD) {
+      Diag(IDLoc, diag::err_ericwf_unimplemented)
+          << "Undeduced Auto Result Name";
+      return InvalidDecl();
+    }
+    if (!FD->isDependentContext()) {
+      if (DeduceReturnType(FD, IDLoc, /*Diagose=*/true))
+        return InvalidDecl();
+
+      RetType = FD->getReturnType();
+      if (RetType->isUndeducedAutoType()) {
+        Diag(IDLoc, diag::err_ericwf_unimplemented)
+            << "Failed to deduce return type";
+        return InvalidDecl();
+      }
+    }
+  }
 
   assert(S->isContractAssertScope());
 
@@ -192,7 +203,7 @@ StmtResult Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
   S->AddDecl(New);
   IdResolver.AddDecl(New);
 
-  return ActOnDeclStmt(ConvertDeclToDeclGroup(New), IDLoc, IDLoc);
+  return NewDeclStmt;
 }
 
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
@@ -350,15 +361,15 @@ public:
       if (!PVD || DiagnosedDecls.count(PVD) || PVD->getDeclContext() != FD)
         return;
 
-      QualType PVDType =
-          getFunctionOrMethodParamType(FD, PVD->getFunctionScopeIndex());
+      QualType PVDType = PVD->getOriginalType();
       if (PVDType->isReferenceType())
         return;
 
       DiagSelector DiagSelect = [&]() {
-        if (PVDType->isArrayType())
+        if (PVDType->isArrayType() || PVDType->isArrayParameterType())
           return DS_Array;
-        if (PVDType->isFunctionType())
+        assert(!PVD->getOriginalType()->isArrayType());
+        if (PVDType->isFunctionPointerType())
           return DS_Function;
         if (!PVDType.isConstQualified())
           return DS_NotConst;
@@ -372,10 +383,9 @@ public:
                      diag::err_contract_postcondition_parameter_type_invalid)
             << PVD->getIdentifier() << DiagSelect
             << CurrentContract->getSourceRange();
-        SourceRange TypeRange(PVD->getTypeSpecStartLoc(),
-                              PVD->getTypeSpecEndLoc());
-        Actions.Diag(PVD->getLocation(), diag::note_parameter_with_name)
-            << PVD->getIdentifier() << TypeRange;
+
+        Actions.Diag(PVD->getTypeSpecStartLoc(), diag::note_parameter_type)
+            << PVD->getOriginalType() << PVD->getSourceRange();
       }
     }();
 
@@ -388,10 +398,11 @@ private:
 
 } // namespace
 
-DeclResult Sema::BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
-                                            bool IsInvalid) {
-  ContractSpecifierDecl *CSD =
-      ContractSpecifierDecl::Create(Context, CurContext, Contracts, IsInvalid);
+ContractSpecifierDecl *
+Sema::BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                                 SourceLocation Loc, bool IsInvalid) {
+  ContractSpecifierDecl *CSD = ContractSpecifierDecl::Create(
+      Context, CurContext, Loc, Contracts, IsInvalid);
   return CSD;
 }
 
@@ -402,11 +413,11 @@ DeclResult Sema::BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
 /// name.
 ContractSpecifierDecl *
 Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
-                                           bool IsInvalid) {
-  assert(!Contracts.empty() && "Expected at least one contract");
+                                           SourceLocation Loc, bool IsInvalid) {
+  assert((!Contracts.empty() || IsInvalid) && "Expected at least one contract");
 
-  ContractSpecifierDecl *CSD =
-      ContractSpecifierDecl::Create(Context, CurContext, Contracts, IsInvalid);
+  ContractSpecifierDecl *CSD = ContractSpecifierDecl::Create(
+      Context, CurContext, Loc, Contracts, IsInvalid);
 
   ResultNameDecl *CanonicalResult = nullptr;
   for (auto *RD : CSD->result_names()) {
@@ -441,9 +452,7 @@ void Sema::CheckFunctionContractSpecifier(FunctionDecl *FD) {
 
   if (DeclForDiagnosis && CheckEquivalentContractSequence(DeclForDiagnosis, FD))
     FD->setInvalidDecl(true);
-}
 
-void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD) {
   ContractSpecifierDecl *CSD = FD->getContracts();
   if (!CSD)
     return;
@@ -455,6 +464,10 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD) {
   }
   if (Checker.DidDiagnose)
     FD->setInvalidDecl(true);
+}
+
+void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD) {
+  CheckFunctionContractSpecifier(FD);
 }
 
 namespace {
@@ -511,7 +524,7 @@ void Sema::RebuildFunctionContractsAfterReturnTypeDeduction(FunctionDecl *FD) {
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 
   auto *First = Def->getFirstDecl();
-  if (!Def->getFirstDecl()->hasContracts())
+  if (!First->hasContracts() && !Def->hasContracts())
     return;
 
   if (First != Def && First && Def->isThisDeclarationADefinition()

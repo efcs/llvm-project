@@ -9733,8 +9733,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
                                               isVirtualOkay);
   if (!NewFD) return nullptr;
 
-  NewFD->dumpDeclContext();
-
   if (OriginalLexicalContext && OriginalLexicalContext->isObjCContainer())
     NewFD->setTopLevelDeclInObjCContainer();
 
@@ -10773,6 +10771,11 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
         D.setInvalidType();
       }
     }
+  }
+
+  if (getLangOpts().Contracts) {
+    assert(!D.Contracts || D.Contracts == NewFD->getContracts());
+    ActOnContractsOnFinishFunctionDecl(NewFD);
   }
 
   if (getLangOpts().CPlusPlus) {
@@ -12096,9 +12099,6 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
       if (Method->isStatic())
         checkThisInStaticMemberFunctionType(Method);
     }
-
-    if (NewFD->hasContracts())
-      ActOnContractsOnFinishFunctionDecl(NewFD);
 
     if (CXXConversionDecl *Conversion = dyn_cast<CXXConversionDecl>(NewFD))
       ActOnConversionDeclarator(Conversion);
@@ -15956,7 +15956,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
         }
       }
 
-      if (!getLangOpts().LateParsedContracts && !IsInstantiation)
+      if (!getLangOpts().LateParsedContracts)
         ActOnContractsOnFinishFunctionBody(FD);
 
       // If the function implicitly returns zero (like 'main') or is naked,

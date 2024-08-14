@@ -2035,20 +2035,18 @@ void DeclaratorDecl::setContracts(ContractSpecifierDecl *NewContracts) {
       this->isInvalidDecl() &&
           "Adding a different amount of contracts than were initially present");
 #endif
-  ERICWF_DEBUG_BLOCK {
-    if (Contracts && NewContracts) {
-      if (Contracts != NewContracts) {
+  ERICWF_DEBUG_BLOCK_QUIET {
+    if (Contracts && NewContracts && !NewContracts->isInvalidDecl()) {
+      if (Contracts != NewContracts &&
+          Contracts->getNumContracts() != NewContracts->getNumContracts()) {
         llvm::errs() << "\n\nOverwriting existing contracts!!!\n";
         Contracts->dumpColor();
         NewContracts->dumpColor();
         llvm::errs() << "\n\n==============================\n\n";
-      } else if (Contracts) {
-        llvm::errs() << "\n\noverwriting contracts with null pointer\n";
-        Contracts->dumpColor();
-        llvm::errs() << "\n\n======================================\n\n";
       }
     }
   }
+
   Contracts = NewContracts;
 }
 

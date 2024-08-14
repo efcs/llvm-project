@@ -2446,7 +2446,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
               assert(
                   !cast<FunctionDecl>(TheDecl)->isThisDeclarationADefinition());
               ParseLexedFunctionContracts(D.LateParsedContracts,
-                                          cast<FunctionDecl>(TheDecl));
+                                          cast<FunctionDecl>(TheDecl),
+                                          CES_AllScopes);
             }
           }
 
@@ -2543,7 +2544,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   if (auto *FD = dyn_cast_or_null<FunctionDecl>(FirstDecl)) {
     if (!FD->isInvalidDecl() && !D.LateParsedContracts.empty()) {
       assert(!FD->isThisDeclarationADefinition());
-      ParseLexedFunctionContracts(D.LateParsedContracts, FD);
+      ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
     }
   }
   D.complete(FirstDecl);

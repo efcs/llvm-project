@@ -3620,29 +3620,26 @@ ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
 }
 
 SourceRange ContractSpecifierDecl::getSourceRange() const {
+  if (contracts().empty())
+    return SourceRange(getLocation(), getLocation());
   return SourceRange(contracts().front()->getBeginLoc(),
                      contracts().back()->getEndLoc());
 }
 
-SourceLocation ContractSpecifierDecl::getLocation() const {
-  return contracts().front()->getKeywordLoc();
-}
-
-ContractSpecifierDecl *
-ContractSpecifierDecl::Create(ASTContext &C, DeclContext *DC,
-                              ArrayRef<ContractStmt *> Contracts,
-                              bool IsInvalid) {
-  assert(Contracts.size() > 0 &&
+ContractSpecifierDecl *ContractSpecifierDecl::Create(
+    ASTContext &C, DeclContext *DC, SourceLocation Loc,
+    ArrayRef<ContractStmt *> Contracts, bool IsInvalid) {
+  assert((Contracts.size() > 0 || IsInvalid) &&
          "ContractSpecifierDecl must have at least one contract");
   size_t Extra = additionalSizeToAlloc<ContractStmt *>(Contracts.size());
-  return new (C, DC, Extra) ContractSpecifierDecl(
-      DC, Contracts.front()->getKeywordLoc(), Contracts, IsInvalid);
+  return new (C, DC, Extra)
+      ContractSpecifierDecl(DC, Loc, Contracts, IsInvalid);
 }
 ContractSpecifierDecl *ContractSpecifierDecl::CreateDeserialized(
     clang::ASTContext &C, clang::GlobalDeclID ID, unsigned NumContracts) {
   size_t Extra = additionalSizeToAlloc<ContractStmt *>(NumContracts);
-  auto *Result =
-      new (C, ID, Extra) ContractSpecifierDecl(nullptr, NumContracts);
+  auto *Result = new (C, ID, Extra)
+      ContractSpecifierDecl(nullptr, SourceLocation(), NumContracts);
   return Result;
 }
 
@@ -3652,4 +3649,17 @@ ContractSpecifierDecl::ExtractResultName(const ContractStmt *CS) {
   if (CS->hasResultName())
     return CS->getResultName();
   return nullptr;
+}
+
+ContractSpecifierDecl::ContractSpecifierDecl(DeclContext *DC,
+                                             SourceLocation Loc,
+                                             ArrayRef<ContractStmt *> Contracts,
+                                             bool IsInvalid)
+    : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(Contracts.size()) {
+  if (IsInvalid)
+    this->setInvalidDecl(true);
+  assert((Contracts.size() > 0 || IsInvalid) &&
+         "ContractSpecifierSequence must have at least one contract");
+  std::copy(Contracts.begin(), Contracts.end(),
+            getTrailingObjects<ContractStmt *>());
 }

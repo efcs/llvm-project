@@ -819,7 +819,7 @@ public:
                         : nullptr;
   }
 
-  bool hasContracts() const { return getContracts() == nullptr; }
+  bool hasContracts() const { return getContracts() != nullptr; }
 
   ContractSpecifierDecl *getContracts() const {
     if (hasExtInfo())

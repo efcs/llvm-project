@@ -3975,11 +3975,12 @@ void CodeGenFunction::EmitFunctionEpilog(const CGFunctionInfo &FI,
 void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
   SmallVector<const ContractStmt *, 4> PostContracts;
   const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl);
-  assert(FD && "No current function?");
+
+  if (!FD || !FD->hasContracts())
+    return;
 
   ContractSpecifierDecl *CSD = FD->getContracts();
-  if (!CSD)
-    return;
+  assert(CSD);
 
   std::optional<OpaqueValueExpr> OVEStore;
   std::optional<OpaqueValueMapping> OVEBind;
@@ -3992,8 +3993,13 @@ void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
                     MakeAddrLValue(ReturnValue, CRD->getType()));
   }
 
-  for (auto *CA : FD->postconditions())
-    EmitContractStmt(*CA);
+  for (auto *CA : FD->postconditions()) {
+    assert(CA);
+    assert(CA->getCond());
+    // auto AL = ApplyDebugLocation::CreateArtificial(*this);
+
+    EmitStmt(CA);
+  }
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {

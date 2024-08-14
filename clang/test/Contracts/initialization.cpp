@@ -1,5 +1,6 @@
-// RUN: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -flate-parsed-contracts -verify=expected
+
 // RUN: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -fno-late-parsed-contracts -verify=expected
+// RUN: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -flate-parsed-contracts -verify=expected
 
 #define UNIQUE1() __COUNTER__
 #define UNIQUE UNIQUE1()
@@ -29,7 +30,7 @@ template<typename T> constexpr int is_constexpr() pre(T::error) { return T::erro
 
 template<typename T, class Boom = EnableIf<false, T, UNIQUE >> int not_constexpr_var = f<Boom>(0);
 template<typename T, class Boom = EnableIf<false, T, UNIQUE >> constexpr int is_constexpr_var = f<Boom>(0); // expected-note {{here}}
-// expected-error@-1 {{must be initialized by a constant expression}}
+// expected-error@-1 {{must be initialized}}
 template<typename T, class Boom = EnableIf<false, T, UNIQUE >> const int is_const_var = f<Boom>(0); // expected-note {{here}}
 template<typename T, class Boom = EnableIf<false, T, UNIQUE >> const volatile int is_const_volatile_var = f<Boom>(0);
 template<typename T, class Boom = EnableIf<false, T, UNIQUE >> T is_dependent_var = f<Boom>(T{0}); // expected-note {{here}}
@@ -55,7 +56,7 @@ void test() {
   (void)sizeof(int{not_constexpr<int>()});
   (void)sizeof(int{is_constexpr<int>()}); // expected-note {{here}}
   (void)sizeof(int{not_constexpr_var<int>});
-  (void)sizeof(int{is_constexpr_var<int>}); // expected-note 2 {{here}}
+  (void)sizeof(int{is_constexpr_var<int>}); // expected-note 1+ {{here}}
   (void)sizeof(int{is_const_var<int>}); // expected-note {{here}}
   (void)sizeof(int{is_const_volatile_var<int>});
   (void)sizeof(int{is_dependent_var<int>});

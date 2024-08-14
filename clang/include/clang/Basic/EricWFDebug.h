@@ -61,6 +61,8 @@ inline void printSourceLocation(const char *file, const char *func,
   ERICWF_PRINT_SOURCE_LOC();                                                   \
   if constexpr (::clang::EricWFDebugEnabled)
 
+#define ERICWF_DEBUG_BLOCK_QUIET if constexpr (::clang::EricWFDebugEnabled)
+
 #ifdef ERICWF_DEBUG_ENABLED
 #define ERICWF_ASSERT(...) assert(__VA_ARGS__)
 #else

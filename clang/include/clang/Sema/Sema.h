@@ -2741,11 +2741,12 @@ public:
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
-                               Expr *Cond, DeclStmt *ResultNameDecl,
+                               Expr *Cond, DeclStmt *ResultName,
                                ArrayRef<const Attr *> Attrs);
 
-  DeclResult BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
-                                        bool IsInvalid);
+  ContractSpecifierDecl *
+  BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                             SourceLocation Loc, bool IsInvalid);
 
   // Check two function declarations for equivalent contract sequences.
   // Return true if a diagnostic was issued, false otherwise.
@@ -2756,7 +2757,7 @@ public:
   // things around in the implementation.
   ContractSpecifierDecl *
   ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
-                                       bool IsInvalid);
+                                       SourceLocation Loc, bool IsInvalid);
 
   void CheckFunctionContractSpecifier(FunctionDecl *FD);
 

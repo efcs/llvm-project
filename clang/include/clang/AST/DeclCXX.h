@@ -4479,23 +4479,15 @@ class ContractSpecifierDecl final
   static bool IsPostconditionPred(const ContractStmt *);
   static ResultNameDecl *ExtractResultName(const ContractStmt *);
 
-  ContractSpecifierDecl(DeclContext *DC, unsigned NumContracts)
-      : Decl(Decl::ContractSpecifier, DC, SourceLocation()),
-        NumContracts(NumContracts) {
+  ContractSpecifierDecl(DeclContext *DC, SourceLocation Loc,
+                        unsigned NumContracts)
+      : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(NumContracts) {
     std::uninitialized_fill_n(getTrailingObjects<ContractStmt *>(),
                               NumContracts, nullptr);
   }
 
   ContractSpecifierDecl(DeclContext *DC, SourceLocation Loc,
-                        ArrayRef<ContractStmt *> Contracts, bool IsInvalid)
-      : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(Contracts.size()) {
-    if (IsInvalid)
-      this->setInvalidDecl(true);
-    assert(Contracts.size() > 0 &&
-           "ContractSpecifierSequence must have at least one contract");
-    std::copy(Contracts.begin(), Contracts.end(),
-              getTrailingObjects<ContractStmt *>());
-  }
+                        ArrayRef<ContractStmt *> Contracts, bool IsInvalid);
 
   void setContracts(ArrayRef<ContractStmt *> Contracts) {
     assert(*getTrailingObjects<ContractStmt *>() == nullptr);
@@ -4545,11 +4537,11 @@ public:
   ResultNameDecl *getCanonicalResultName() const;
 
   SourceRange getSourceRange() const override LLVM_READONLY;
-  SourceLocation getLocation() const;
 
   friend class ASTDeclReader;
 
   static ContractSpecifierDecl *Create(ASTContext &C, DeclContext *DC,
+                                       SourceLocation Loc,
                                        ArrayRef<ContractStmt *> Contracts,
                                        bool IsInvalid);
   static ContractSpecifierDecl *

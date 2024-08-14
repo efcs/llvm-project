@@ -204,7 +204,9 @@ struct CurrentContractRAII {
 
 CGContractData *CGContractDataDeleter::Create() { return new CGContractData(); }
 void CGContractDataDeleter::operator()(CGContractData *Data) const {
-  delete Data;
+
+  if (Data)
+    delete Data;
 }
 
 llvm::BasicBlock *

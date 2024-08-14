@@ -2917,18 +2917,20 @@ void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
     OS << " contract_assert";
     break;
   }
-  switch (S->getSemantic(*Context)) {
-  case ContractEvaluationSemantic::Ignore:
-    OS << " ignore";
-    break;
-  case ContractEvaluationSemantic::Enforce:
-    OS << " enforce";
-    break;
-  case ContractEvaluationSemantic::QuickEnforce:
-    OS << " quick_enforce";
-    break;
-  case ContractEvaluationSemantic::Observe:
-    OS << " observe";
-    break;
+  if (Context) {
+    switch (S->getSemantic(*Context)) {
+    case ContractEvaluationSemantic::Ignore:
+      OS << " ignore";
+      break;
+    case ContractEvaluationSemantic::Enforce:
+      OS << " enforce";
+      break;
+    case ContractEvaluationSemantic::QuickEnforce:
+      OS << " quick_enforce";
+      break;
+    case ContractEvaluationSemantic::Observe:
+      OS << " observe";
+      break;
+    }
   }
 }

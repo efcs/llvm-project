@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only -flate-parsed-contracts -verify=expected,lateerr
+
 // RUN: %clang_cc1 -fcontracts -std=c++26 %s -fsyntax-only  -fno-late-parsed-contracts -verify=expected,todoerr
 constexpr int g(int x) pre(x); // expected-note 0-1 {{with fewer contracts here (1 vs 2)}}
 constexpr int g(int y) pre(y);

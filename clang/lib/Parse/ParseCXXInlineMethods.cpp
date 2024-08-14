@@ -576,79 +576,9 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     LM.ExceptionSpecTokens = nullptr;
   }
 
-  if (!LM.ContractTokens.empty()) {
-    CachedTokens *Toks = &LM.ContractTokens;
-
-    // Add the 'stop' token.
-    Token LastContractToken = Toks->back();
-    Token ContractEnd;
-    ContractEnd.startToken();
-    ContractEnd.setKind(tok::eof);
-    ContractEnd.setLocation(LastContractToken.getEndLoc());
-    ContractEnd.setEofData(LM.Method);
-    Toks->push_back(ContractEnd);
-
-    // Parse the default argument from its saved token stream.
-    Toks->push_back(Tok); // So that the current token doesn't get lost
-    PP.EnterTokenStream(*Toks, true, /*IsReinject*/ true);
-
-    // Consume the previously-pushed token.
-    ConsumeAnyToken();
-
-    // C++11 [expr.prim.general]p3:
-    //   If a declaration declares a member function or member function
-    //   template of a class X, the expression this is a prvalue of type
-    //   "pointer to cv-qualifier-seq X" between the optional cv-qualifer-seq
-    //   and the end of the function-definition, member-declarator, or
-    //   declarator.
-    CXXMethodDecl *Method;
-    FunctionDecl *FunctionToPush;
-    if (FunctionTemplateDecl *FunTmpl =
-            dyn_cast<FunctionTemplateDecl>(LM.Method))
-      FunctionToPush = FunTmpl->getTemplatedDecl();
-    else
-      FunctionToPush = cast<FunctionDecl>(LM.Method);
-    Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
-
-    ParseScope FnScope(this, Scope::FnScope);
-    Sema::ContextRAII FnContext(Actions, FunctionToPush,
-                                /*NewThisContext=*/false);
-
-    Sema::CXXThisScopeRAII ThisScope(
-        Actions, Method ? Method->getParent() : nullptr,
-        Method ? Method->getMethodQualifiers() : Qualifiers{},
-        Method && getLangOpts().CPlusPlus11);
-
-    // Parse the exception-specification.
-    SmallVector<ContractStmt *> Contracts;
-    bool IsInvalid = false;
-    assert(!FunctionToPush->hasContracts());
-    auto ReturnTypeResolver = [&]() { return FunctionToPush->getReturnType(); };
-    while (isFunctionContractKeyword(Tok)) {
-      StmtResult Contract =
-          ParseFunctionContractSpecifierImpl(ReturnTypeResolver);
-      if (!Contract.isInvalid()) {
-        Contracts.push_back(Contract.getAs<ContractStmt>());
-      } else {
-        IsInvalid = true;
-      }
-    }
-    ContractSpecifierDecl *ContractSpec =
-        Actions.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
-    // There shouldn't be any redeclarations of the contract specifier
-    FunctionToPush->setContracts(ContractSpec);
-
-    // There could be leftover tokens (e.g. because of an error).
-    // Skip through until we reach the original token position.
-    while (Tok.isNot(tok::eof))
-      ConsumeAnyToken();
-
-    // Clean up the remaining EOF token.
-    if (Tok.is(tok::eof) && Tok.getEofData() == LM.Method)
-      ConsumeAnyToken();
-
-    LM.ContractTokens.clear();
-  }
+  if (!LM.ContractTokens.empty())
+    ParseLexedFunctionContracts(LM.ContractTokens, LM.Method,
+                                Parser::CES_Function | Parser::CES_CXXThis);
 
   InFunctionTemplateScope.Scopes.Exit();
 

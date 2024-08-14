@@ -7213,7 +7213,6 @@ CXCursor clang_getCursorDefinition(CXCursor C) {
     if (NamedDecl *Friend = cast<FriendTemplateDecl>(D)->getFriendDecl())
       return clang_getCursorDefinition(MakeCXCursor(Friend, TU));
     return clang_getNullCursor();
-    
   }
 
   return clang_getNullCursor();

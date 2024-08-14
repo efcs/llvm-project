@@ -1537,7 +1537,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   if (!D.LateParsedContracts.empty()) {
     assert(getLangOpts().LateParsedContracts);
     assert(!FD->getReturnType()->isUndeducedAutoType());
-    ParseLexedFunctionContracts(D.LateParsedContracts, FD);
+    ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
   }
   return FuncWithBody;
 }

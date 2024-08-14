@@ -1477,18 +1477,22 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
 
 Decl *TemplateDeclInstantiator::VisitContractSpecifierDecl(
     ContractSpecifierDecl *CSD) {
+  assert(CSD && CSD->getNumContracts() != 0);
   SmallVector<ContractStmt *> Contracts;
   Contracts.reserve(CSD->getNumContracts());
 
   bool IsInvalid = false;
+
   for (auto *CS : CSD->contracts()) {
     StmtResult Result = SemaRef.SubstStmt(CS, TemplateArgs);
-    if (Result.isInvalid())
-      IsInvalid = true;
     if (Result.isUsable())
       Contracts.push_back(cast<ContractStmt>(Result.get()));
+    if (Result.isInvalid())
+      IsInvalid = true;
   }
-  return SemaRef.ActOnFinishContractSpecifierSequence(Contracts, IsInvalid);
+
+  return SemaRef.ActOnFinishContractSpecifierSequence(
+      Contracts, CSD->getLocation(), IsInvalid);
 }
 
 Decl *TemplateDeclInstantiator::VisitStaticAssertDecl(StaticAssertDecl *D) {
@@ -5210,9 +5214,11 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
               : nullptr;
       if (Function->hasContracts() && !NewContracts)
         Function->setInvalidDecl(true);
-      if (NewContracts)
+      if (NewContracts) {
+        if (NewContracts->isInvalidDecl())
+          Function->setInvalidDecl(true);
         Function->setContracts(cast<ContractSpecifierDecl>(NewContracts));
-
+      }
       // Instantiate the function body.
       Body = SubstStmt(Pattern, TemplateArgs);
 
