@@ -10773,11 +10773,6 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
     }
   }
 
-  if (getLangOpts().Contracts) {
-    assert(!D.Contracts || D.Contracts == NewFD->getContracts());
-    ActOnContractsOnFinishFunctionDecl(NewFD);
-  }
-
   if (getLangOpts().CPlusPlus) {
     // Precalculate whether this is a friend function template with a constraint
     // that depends on an enclosing template, per [temp.friend]p9.
@@ -12176,6 +12171,8 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     if (!Redeclaration && LangOpts.CUDA)
       CUDA().checkTargetOverload(NewFD, Previous);
   }
+
+  ActOnContractsOnFinishFunctionDecl(NewFD, DeclIsDefn);
 
   // Check if the function definition uses any AArch64 SME features without
   // having the '+sme' feature enabled and warn user if sme locally streaming
@@ -15725,6 +15722,8 @@ Decl *Sema::ActOnStartOfFunctionDef(Scope *FnBodyScope, Decl *D,
       getCurLexicalContext()->getDeclKind() != Decl::ObjCImplementation)
     Diag(FD->getLocation(), diag::warn_function_def_in_objc_container);
 
+  // ActOnContractsOnStartOfFunctionDef()
+
   return D;
 }
 
@@ -15956,8 +15955,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
         }
       }
 
-      if (!getLangOpts().LateParsedContracts)
-        ActOnContractsOnFinishFunctionBody(FD);
+      ActOnContractsOnFinishFunctionBody(FD);
 
       // If the function implicitly returns zero (like 'main') or is naked,
       // don't complain about missing return statements.

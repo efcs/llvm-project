@@ -617,10 +617,11 @@ enum class TemplateSubstitutionKind : char {
 #define EMPTY(DERIVED, BASE)
 #define LIFETIMEEXTENDEDTEMPORARY(DERIVED, BASE)
 
-    // Decls which use special-case instantiation code.
+    // Decls which use special-case instantiation code.q
 #define BLOCK(DERIVED, BASE)
 #define CAPTURED(DERIVED, BASE)
 #define IMPLICITPARAM(DERIVED, BASE)
+#define CONTRACTSPECIFIER(DERIVED, BASE)
 
 #include "clang/AST/DeclNodes.inc"
 

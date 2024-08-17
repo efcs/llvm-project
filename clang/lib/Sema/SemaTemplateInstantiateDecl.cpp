@@ -1475,15 +1475,21 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
   return FD;
 }
 
+#if 0
 Decl *TemplateDeclInstantiator::VisitContractSpecifierDecl(
     ContractSpecifierDecl *CSD) {
+
   assert(CSD && CSD->getNumContracts() != 0);
   SmallVector<ContractStmt *> Contracts;
   Contracts.reserve(CSD->getNumContracts());
-
   bool IsInvalid = false;
 
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
+
   for (auto *CS : CSD->contracts()) {
+    if ()
+
     StmtResult Result = SemaRef.SubstStmt(CS, TemplateArgs);
     if (Result.isUsable())
       Contracts.push_back(cast<ContractStmt>(Result.get()));
@@ -1494,6 +1500,7 @@ Decl *TemplateDeclInstantiator::VisitContractSpecifierDecl(
   return SemaRef.ActOnFinishContractSpecifierSequence(
       Contracts, CSD->getLocation(), IsInvalid);
 }
+#endif
 
 Decl *TemplateDeclInstantiator::VisitStaticAssertDecl(StaticAssertDecl *D) {
   Expr *AssertExpr = D->getAssertExpr();
@@ -2919,9 +2926,31 @@ Decl *TemplateDeclInstantiator::VisitCXXConversionDecl(CXXConversionDecl *D) {
   return VisitCXXMethodDecl(D);
 }
 
+#if 0
 Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
-    llvm_unreachable("Shouldnt be instantiated");
+
+    auto *CurContext = SemaRef.CurContext;
+    assert(CurContext);
+    auto *FD = dyn_cast<FunctionDecl>(CurContext);
+    if (!FD) {
+      llvm::errs() << "Unknown current context?";
+      CurContext->dumpAsDecl();
+      assert(false);
+      return D;
+    }
+    QualType RetType = FD->getReturnType();
+
+
+
+    ResultNameDecl *RND =
+    SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, RetType, D->getLocation(), D->getIdentifier());
+  if (SemaRef.CurrentInstantiationScope)
+    SemaRef.CurrentInstantiationScope->InstantiatedLocal(D, RND);
+  else
+    llvm::errs() << "No local instantiation scope?" << "\n";
+  return RND;
 }
+#endif
 
 Decl *TemplateDeclInstantiator::VisitParmVarDecl(ParmVarDecl *D) {
   return SemaRef.SubstParmVarDecl(D, TemplateArgs, /*indexAdjustment*/ 0,
@@ -3870,6 +3899,20 @@ Decl *TemplateDeclInstantiator::VisitRecordDecl(RecordDecl *D) {
   llvm_unreachable("There are only CXXRecordDecls in C++");
 }
 
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+  QualType NewType = SemaRef.SubstType(D->getType(), TemplateArgs,
+                                       D->getLocation(), D->getDeclName());
+  if (NewType.isNull())
+    NewType = D->getType();
+
+  ResultNameDecl *NewRND =
+      SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, NewType,
+                                        D->getLocation(), D->getIdentifier());
+  NewRND->setDeclContext(Owner);
+
+  return NewRND;
+}
+
 Decl *
 TemplateDeclInstantiator::VisitClassTemplateSpecializationDecl(
     ClassTemplateSpecializationDecl *D) {
@@ -4581,6 +4624,7 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
   LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(getFunctionScopes().back());
 
   for (auto *decl : PatternDecl->decls()) {
+    assert(!isa<ResultNameDecl>(decl));
     if (!isa<VarDecl>(decl) || isa<ParmVarDecl>(decl))
       continue;
 
@@ -4659,6 +4703,32 @@ bool Sema::addInstantiatedParametersToScope(
         ++FParamIdx;
       }
     }
+  }
+
+  return false;
+}
+
+bool Sema::addInstantiatedResultNamesToScope(
+    FunctionDecl *Function, const FunctionDecl *PatternDecl,
+    LocalInstantiationScope &Scope,
+    const MultiLevelTemplateArgumentList &TemplateArgs) {
+
+  ContractSpecifierDecl *CSD = PatternDecl->getContracts();
+  if (!CSD)
+    return false;
+
+  ResultNameDecl *Canon = nullptr;
+  for (auto *RND : CSD->result_names()) {
+    auto *NewRND = ActOnResultNameDeclarator(
+        ContractKind::Post, nullptr, Function->getReturnType(),
+        RND->getLocation(), RND->getIdentifier());
+    if (!NewRND)
+      return true;
+    if (!Canon)
+      Canon = NewRND;
+    else
+      NewRND->setCanonicalResultNameDecl(Canon);
+    Scope.InstantiatedLocal(RND, NewRND);
   }
 
   return false;
@@ -5208,22 +5278,14 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
         }
       }
 
-      Decl *NewContracts =
-          Function->getContracts()
-              ? SubstDecl(Function->getContracts(), Function, TemplateArgs)
-              : nullptr;
-      if (Function->hasContracts() && !NewContracts)
-        Function->setInvalidDecl(true);
-      if (NewContracts) {
-        if (NewContracts->isInvalidDecl())
-          Function->setInvalidDecl(true);
-        Function->setContracts(cast<ContractSpecifierDecl>(NewContracts));
-      }
       // Instantiate the function body.
       Body = SubstStmt(Pattern, TemplateArgs);
 
       if (Body.isInvalid())
         Function->setInvalidDecl();
+      else if (PatternDecl->hasContracts())
+        InstantiateContractSpecifier(PointOfInstantiation, Function,
+                                     PatternDecl, TemplateArgs);
     }
     // FIXME: finishing the function body while in an expression evaluation
     // context seems wrong. Investigate more.
@@ -6140,7 +6202,8 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
       !cast<ParmVarDecl>(D)->getType()->isInstantiationDependentType())
     return D;
   if (isa<ParmVarDecl>(D) || isa<NonTypeTemplateParmDecl>(D) ||
-      isa<TemplateTypeParmDecl>(D) || isa<TemplateTemplateParmDecl>(D) ||
+      isa<ResultNameDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
+      isa<TemplateTemplateParmDecl>(D) ||
       (ParentDependsOnArgs && (ParentDC->isFunctionOrMethod() ||
                                isa<OMPDeclareReductionDecl>(ParentDC) ||
                                isa<OMPDeclareMapperDecl>(ParentDC))) ||

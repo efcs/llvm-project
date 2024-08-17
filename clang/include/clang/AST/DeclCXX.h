@@ -4525,6 +4525,8 @@ public:
         [](ResultNameDecl *R) { return R != nullptr; });
   }
 
+  bool hasNondependentPlaceholders() const;
+
   unsigned getNumContracts() const { return NumContracts; }
   unsigned getNumPreconditions() const {
     return std::distance(preconditions().begin(), preconditions().end());

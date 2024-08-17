@@ -1588,10 +1588,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
 
-    if (getLangOpts().LateParsedContracts)
-      LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-    else
-      ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute
@@ -1643,7 +1640,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     }
 
     if (!D.LateParsedContracts.empty()) {
-      assert(false);
       ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
                                   CES_AllScopes);
     }

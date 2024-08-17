@@ -12013,6 +12013,12 @@ def err_lambda_implicit_capture_in_contracts_only : Error<
 def note_lambda_implicit_capture_in_contracts_only : Note<
   "use explicit capture list to capture '%0'">;
 
+def err_auto_result_name_on_non_def_decl : Error<
+   "postcondition with result name '%0' cannot appear on a function declaration with deduced return type unless it is a definition">;
+   // "result name '%0' cannot appear in postcondition for a non-template function declaration with a deduced return type">;
+def note_function_return_type : Note<
+    "function return type declared here">;
+
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<

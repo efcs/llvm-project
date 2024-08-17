@@ -3612,9 +3612,10 @@ bool ContractSpecifierDecl::hasCanonicalResultName() const {
 }
 
 ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
-  for (auto *CS : postconditions()) {
-    if (CS->hasResultName())
-      return CS->getResultName();
+  for (auto *RND : result_names()) {
+    // The first result name should always be the canonical one, but
+    // this can't hurt either?
+    return RND->getCanonicalResultNameDecl();
   }
   return nullptr;
 }
@@ -3622,8 +3623,7 @@ ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
 SourceRange ContractSpecifierDecl::getSourceRange() const {
   if (contracts().empty())
     return SourceRange(getLocation(), getLocation());
-  return SourceRange(contracts().front()->getBeginLoc(),
-                     contracts().back()->getEndLoc());
+  return SourceRange(getLocation(), contracts().back()->getEndLoc());
 }
 
 ContractSpecifierDecl *ContractSpecifierDecl::Create(
@@ -3662,4 +3662,13 @@ ContractSpecifierDecl::ContractSpecifierDecl(DeclContext *DC,
          "ContractSpecifierSequence must have at least one contract");
   std::copy(Contracts.begin(), Contracts.end(),
             getTrailingObjects<ContractStmt *>());
+}
+
+bool ContractSpecifierDecl::hasNondependentPlaceholders() const {
+  auto *CRND = getCanonicalResultName();
+  if (!getDeclContext()->isDependentContext() &&
+      CRND->getType()->isDependentType() &&
+      CRND->getType()->isUndeducedAutoType())
+    return true;
+  return false;
 }

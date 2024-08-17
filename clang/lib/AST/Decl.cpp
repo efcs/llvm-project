@@ -3131,7 +3131,6 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
   FunctionDeclBits.FriendConstraintRefersToEnclosingTemplate = false;
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
-  // FIXME(EricWF): Make this conditional?
   if (Contracts)
     setContracts(Contracts);
 }

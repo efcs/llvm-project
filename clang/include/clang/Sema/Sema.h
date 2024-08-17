@@ -2731,12 +2731,12 @@ public:
 
 public:
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
-                                 Expr *Cond, DeclStmt *ResultNameDecl,
+                                 Expr *Cond, ResultNameDecl *ResultNameDecl,
                                  ParsedAttributes &Attrs);
 
-  StmtResult ActOnResultNameDeclarator(ContractKind CK, Scope *S, QualType T,
-                                       SourceLocation IDLoc,
-                                       IdentifierInfo *II);
+  ResultNameDecl *ActOnResultNameDeclarator(ContractKind CK, Scope *S,
+                                            QualType T, SourceLocation IDLoc,
+                                            IdentifierInfo *II);
 
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 
@@ -2761,13 +2761,26 @@ public:
 
   void CheckFunctionContractSpecifier(FunctionDecl *FD);
 
-  void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD);
-
+  void ActOnContractsOnStartOfFunctionDef(Scope *S, FunctionDecl *FD);
+  void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
   void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
                                          FunctionDecl *NewDecl);
 
-  void RebuildFunctionContractsAfterReturnTypeDeduction(FunctionDecl *FD);
+  /// Rebuild the contract specifier written on one declaration in the context
+  /// of a the definition. This rebinds parameters and result names as needed.
+  ContractSpecifierDecl *
+  RebuildContractSpecifierForDecl(FunctionDecl *FirstDecl,
+                                  FunctionDecl *Definition);
+
+  ///
+  DeclResult
+  RebuildContractsWithPlaceholderReturnType(ContractSpecifierDecl *CS);
+
+  void InstantiateContractSpecifier(
+      SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
+      const FunctionDecl *Pattern,
+      const MultiLevelTemplateArgumentList &TemplateArgs);
 
   ///@}
 
@@ -13738,9 +13751,6 @@ public:
                                   ParmVarDecl *Param);
   void InstantiateExceptionSpec(SourceLocation PointOfInstantiation,
                                 FunctionDecl *Function);
-  void InstantiateContractSpecifier(SourceLocation PointOfInstantiation,
-                                    FunctionDecl *Function,
-                                    ContractSpecifierDecl *Contracts);
 
   /// Instantiate (or find existing instantiation of) a function template with a
   /// given set of template arguments.
@@ -13902,6 +13912,11 @@ private:
   /// instantiation scope, and set the parameter names to those used
   /// in the template.
   bool addInstantiatedParametersToScope(
+      FunctionDecl *Function, const FunctionDecl *PatternDecl,
+      LocalInstantiationScope &Scope,
+      const MultiLevelTemplateArgumentList &TemplateArgs);
+
+  bool addInstantiatedResultNamesToScope(
       FunctionDecl *Function, const FunctionDecl *PatternDecl,
       LocalInstantiationScope &Scope,
       const MultiLevelTemplateArgumentList &TemplateArgs);

@@ -141,7 +141,7 @@ public:
 
 //===----------------------------------------------------------------------===//
 // Declaration deserialization
-//===----------------------------------------------------------------------===//
+//===----------------------------------------------------------------------===//u
 
 namespace clang {
 class ASTDeclReader : public DeclVisitor<ASTDeclReader, void> {
@@ -474,6 +474,9 @@ public:
   void VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D);
   void VisitOMPRequiresDecl(OMPRequiresDecl *D);
   void VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D);
+
+  void VisitResultNameDecl(ResultNameDecl *RND);
+  void VisitContractSpecifierDecl(ContractSpecifierDecl *CSD);
   };
 
   } // namespace clang

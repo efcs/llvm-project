@@ -238,7 +238,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   EnterExpressionEvaluationContext EC(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
-  DeclStmt *ResultNameStmt = nullptr;
+  ResultNameDecl *RND = nullptr;
   // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
   // can diagnose it but we don't do the same for contract assert... Should we?
   if ((CK != ContractKind::Assert) && Tok.is(tok::identifier) &&
@@ -254,14 +254,13 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       ReturnType = ReturnTypeResolver();
     }
 
-    StmtResult RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(),
-                                                       ReturnType, IdLoc, Id);
+    RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(), ReturnType,
+                                            IdLoc, Id);
 
-    if (!RND.isUsable())
+    if (!RND)
       return StmtError();
 
-    ResultNameStmt = cast<DeclStmt>(RND.get());
-    if (ResultNameStmt->getSingleDecl()->isInvalidDecl())
+    if (RND->isInvalidDecl())
       IsInvalid = true;
   }
 
@@ -277,8 +276,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     SetInvalidOnExit.release();
   }
 
-  StmtResult Res = Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(),
-                                               ResultNameStmt, CXX11Attrs);
+  StmtResult Res =
+      Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), RND, CXX11Attrs);
   if (Res.isInvalid())
     IsInvalid = true;
   return Res;
