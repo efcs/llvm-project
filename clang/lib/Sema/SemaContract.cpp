@@ -688,7 +688,7 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
     Def->isInvalidDecl();
   return CSD;
 
-  Def->setContracts(First->getContracts());
+
 }
 
 ///
