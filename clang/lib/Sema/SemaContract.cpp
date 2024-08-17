@@ -185,11 +185,14 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
     IsInvalid = true;
   }
 
-  if (RetType->isUndeducedAutoType() && !RetType->isDependentType())
+  bool HasInventedPlaceholderTypes =
+      RetType->isUndeducedAutoType() && !RetType->isDependentType();
+  if (HasInventedPlaceholderTypes)
     RetType = Context.getAutoType(QualType(), AutoTypeKeyword::Auto, true,
                                   false, nullptr, {});
+  auto *New = ResultNameDecl::Create(Context, CurContext, IDLoc, II, RetType,
+                                     nullptr, HasInventedPlaceholderTypes);
 
-  auto *New = ResultNameDecl::Create(Context, CurContext, IDLoc, II, RetType);
   if (IsInvalid)
     New->isInvalidDecl();
 
@@ -445,14 +448,20 @@ void Sema::InstantiateContractSpecifier(
     SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
     const FunctionDecl *Pattern,
     const MultiLevelTemplateArgumentList &TemplateArgs) {
-  llvm::errs() << "Instantiation: \n";
-  Instantiation->dumpColor();
-  llvm::errs() << "Pattern: \n";
-  Pattern->dumpColor();
+
   ContractSpecifierDecl *PatternCSD = Pattern->getContracts();
   if (!PatternCSD)
     return;
   bool IsInvalid = false;
+
+  auto *Method = const_cast<CXXMethodDecl *>(
+      dyn_cast_if_present<CXXMethodDecl>(Instantiation));
+
+  Sema::ContextRAII SavedContext(*this, Instantiation);
+  Sema::CXXThisScopeRAII ThisxScope(
+      SemaRef, Method ? Method->getParent() : nullptr,
+      Method ? Method->getMethodQualifiers().withConst() : Qualifiers{},
+      Method != nullptr);
 
   LocalInstantiationScope Scope(*this, true);
   // if (addInstantiatedResultNamesToScope(Instantiation, Pattern, Scope,
@@ -463,8 +472,7 @@ void Sema::InstantiateContractSpecifier(
 
   SmallVector<ContractStmt *> NewContracts;
   for (auto *CS : PatternCSD->contracts()) {
-    if (CS->hasResultName()) {
-    }
+
     StmtResult NewStmt = SubstStmt(CS, TemplateArgs);
     if (NewStmt.isInvalid())
       IsInvalid = true;
@@ -563,14 +571,17 @@ void Sema::ActOnContractsOnStartOfFunctionDef(Scope *S, FunctionDecl *FD) {}
 
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
-  if (!D->hasContracts() && !IsDefinition)
-    return;
 
   FunctionDecl *FD;
-  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D))
+  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D)) {
     FD = FunTmpl->getTemplatedDecl();
-  else
-    FD = cast<FunctionDecl>(D);
+  } else
+    FD = D;
+  if (D != FD && FD->getContracts() == D->getContracts())
+    D->setContracts(nullptr);
+
+  if (!FD->hasContracts() && !IsDefinition)
+    return;
 
   auto *First = FD->getFirstDecl();
   if (!First->hasContracts())
@@ -593,36 +604,14 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
   assert(FD->hasContracts());
 
   if (FD->hasContracts()) {
-    assert(FD->getContracts()->getDeclContext());
-    // FIXME(EricWF): Remove this
-    FD->getContracts()->getDeclContext()->dumpAsDecl();
-
-    FD->getContracts()->setDeclContext(FD);
-    assert(isa<FunctionDecl>(FD->getContracts()->getDeclContext()));
-    assert(dyn_cast<FunctionDecl>(FD->getContracts()->getDeclContext()) == FD);
     diagnoseParamTypes(*this, FD, FD->getContracts());
   }
   ContractSpecifierDecl *CSD = FD->getContracts();
 
-  if (FD->isThisDeclarationADefinition() != IsDefinition) {
-    llvm::errs() << "FunctionDecl: " << FD->getName() << "\n";
-    llvm::errs() << "IsDefinition: " << IsDefinition << "\n";
-    llvm::errs() << "isThisDeclarationADefinition: "
-                 << FD->isThisDeclarationADefinition() << "\n";
-    llvm::errs() << "Orign Decl: \n";
-    D->dumpColor();
-    if (FD != D) {
-      llvm::errs() << "Extracted Decl: \n";
-      FD->dumpColor();
-    }
-    llvm::errs() << "First Decl: \n";
-    First->dumpColor();
-  }
   // When the declared return type of a non-templated function contains a
   // placeholder type, a postcondition-specifier with a result-name-introducer
   // shall be present only on a definition.
-  if (CSD->hasCanonicalResultName() &&
-      FD->getReturnType()->isUndeducedAutoType() && !FD->isTemplated()) {
+  if (CSD->hasInventedPlaceholdersTypes() && !FD->isTemplateInstantiation()) {
     if (!IsDefinition && !FD->isThisDeclarationADefinition()) {
       Diag(CSD->getCanonicalResultName()->getLocation(),
            diag::err_auto_result_name_on_non_def_decl)
@@ -660,7 +649,13 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
 
   assert(Def->getContracts() == First->getContracts() || !Def->hasContracts());
   Def->setContracts(nullptr);
-
+  Sema::ContextRAII SavedContext(*this, Def);
+  std::optional<Sema::CXXThisScopeRAII> ThisScope;
+  if (auto *CXXMethod = dyn_cast<CXXMethodDecl>(Def)) {
+    ThisScope.emplace(*this, CXXMethod->getParent(),
+                      CXXMethod->getMethodQualifiers().withConst(),
+                      /*IsLambda*/ true);
+  }
   RebuildFunctionContracts Rebuilder(*this, true);
   for (unsigned I = 0; I < First->getNumParams(); ++I) {
     Rebuilder.transformedLocalDecl(First->getParamDecl(I),
@@ -697,14 +692,10 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
 }
 
 ///
-DeclResult
-Sema::RebuildContractsWithPlaceholderReturnType(ContractSpecifierDecl *CSD) {
-  assert(CSD->getDeclContext());
-  FunctionDecl *FD = dyn_cast<FunctionDecl>(CSD->getDeclContext());
-  assert(FD && "Expected a function declaration context");
-  assert(CSD->hasNondependentPlaceholders() &&
+DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
+  ContractSpecifierDecl *CSD = FD->getContracts();
+  assert(CSD && CSD->hasInventedPlaceholdersTypes() &&
          "Cannot rebuild contracts without placeholders");
-  FD->dumpColor();
 
   RebuildFunctionContracts Rebuilder(*this, true);
 
@@ -714,6 +705,8 @@ Sema::RebuildContractsWithPlaceholderReturnType(ContractSpecifierDecl *CSD) {
       return false;
 
     if (FD->getReturnType()->isUndeducedType()) {
+      assert(!FD->isInvalidDecl());
+      assert(!CSD->isInvalidDecl());
       if (DeduceReturnType(FD, Loc, true)) {
         Diag(CSD->getLocation(), diag::err_ericwf_unimplemented)
             << "IDK what's wrong";
@@ -784,16 +777,17 @@ Sema::RebuildContractsWithPlaceholderReturnType(ContractSpecifierDecl *CSD) {
 // This is probably BAD BAD NOT GOOD.
 // But it works nicely.
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
-  assert(Def->isThisDeclarationADefinition() && "Wrong declaration passed?");
 
   // If we had a deduced return type on a non-template function, we can now
   // attempt to deduce the return type and rebuild the contracts with the
   // deduced return type.
-  if (Def->getContracts()->hasNondependentPlaceholders() ||
-      (Def->getContracts() == Def->getFirstDecl()->getContracts() &&
-       Def != Def->getFirstDecl())) {
-    DeclResult Res =
-        RebuildContractsWithPlaceholderReturnType(Def->getContracts());
+  if (Def->hasContracts() &&
+      Def->getContracts()->hasInventedPlaceholdersTypes()) {
+    assert((Def->isThisDeclarationADefinition() ||
+            Def->isTemplateInstantiation()) &&
+           "Wrong declaration passed?");
+
+    DeclResult Res = RebuildContractsWithPlaceholderReturnType(Def);
     if (Res.isInvalid()) {
       Def->setInvalidDecl(true);
       return;
@@ -804,48 +798,6 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
     if (NewCSD->isInvalidDecl())
       Def->setInvalidDecl(true);
   }
-
-#if 0
-  QualType Replacement;
-  auto CheckFunctionReturnType = [&](SourceLocation Loc) -> bool {
-    if (!Replacement.isNull())
-      return false;
-
-    if (Def->getReturnType()->isUndeducedType()) {
-      if (DeduceReturnType(Def, Loc, true))
-        return true;
-    }
-    assert(!Def->getReturnType()->isUndeducedType());
-    Replacement = Def->getReturnType();
-    return false;
-  };
-
-
-
-  if (!Transformed.empty()) {
-    bool IsInvalid = false;
-    SmallVector<ContractStmt*> NewContracts;
-
-    auto Transformer = RebuildAutoResultName(*this, Replacement);
-    for (auto [K, V] : Transformed)
-      Transformer.transformedLocalDecl(K, {V});
-
-    for (auto *CS : Def->contracts()) {
-      if (!CS->hasResultName()) {
-        NewContracts.push_back(CS);
-      } else {
-        StmtResult NewStmt = Transformer.TransformContractStmt(CS);
-        if (NewStmt.isInvalid())
-          IsInvalid = true;
-        else
-          NewContracts.push_back(NewStmt.getAs<ContractStmt>());
-      }
-    }
-
-    ContractSpecifierDecl *Specifier = ActOnFinishContractSpecifierSequence(NewContracts, Def->getContracts()->getLocation(), IsInvalid);
-    Def->setContracts(Specifier);
-  }
-#endif
 }
 
 void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,

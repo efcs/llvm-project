@@ -302,8 +302,12 @@ static bool StmtCanThrow(const Stmt *S) {
 // Emit the contract expression.
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   assert(!CurContract() || CurContract()->Contract == &S);
+
   if (!CurContract()) {
-    return EmitContractStmtAsFullStmt(S);
+    // FIXME(EricWF): Remove this. It's a hack to prevent crashing.
+    disableDebugInfo();
+    EmitContractStmtAsFullStmt(S);
+    enableDebugInfo();
   } else if (CurContract()->Checkpoint == EmittingTryBody) {
     return EmitContractStmtAsTryBody(S);
   } else if (CurContract()->Checkpoint == EmittingCatchBody) {

@@ -8656,6 +8656,13 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
       SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
       Sema::ExpressionEvaluationContextRecord::EK_Other,
       /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+  std::optional<Sema::CXXThisScopeRAII> OptThisScope;
+  if (S->getContractKind() != ContractKind::Assert) {
+    OptThisScope.emplace(getSema(),
+                         dyn_cast_if_present<CXXRecordDecl>(
+                             getSema().getFunctionLevelDeclContext()),
+                         Qualifiers());
+  }
 
   Sema::ContractScopeRAII ContractScope(getSema());
 

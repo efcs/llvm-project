@@ -2775,7 +2775,7 @@ public:
 
   ///
   DeclResult
-  RebuildContractsWithPlaceholderReturnType(ContractSpecifierDecl *CS);
+  RebuildContractsWithPlaceholderReturnType(FunctionDecl *Definition);
 
   void InstantiateContractSpecifier(
       SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,

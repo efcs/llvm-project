@@ -5283,7 +5283,7 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
 
       if (Body.isInvalid())
         Function->setInvalidDecl();
-      else if (PatternDecl->hasContracts())
+      if (PatternDecl->hasContracts())
         InstantiateContractSpecifier(PointOfInstantiation, Function,
                                      PatternDecl, TemplateArgs);
     }

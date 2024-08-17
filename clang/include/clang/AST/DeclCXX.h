@@ -4417,11 +4417,14 @@ class ResultNameDecl : public ValueDecl {
   /// changes to the return value in the post conditions must be visible to
   /// subsequent post conditions.
   ResultNameDecl *CanonicalResultNameDecl = nullptr;
+  bool HasInventedPlaceholderType = false;
 
   ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id,
-                 QualType T, ResultNameDecl *CanonicalResultNameDecl = nullptr)
+                 QualType T, ResultNameDecl *CanonicalResultNameDecl = nullptr,
+                 bool HasInventedPlaceholderType = false)
       : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T),
-        CanonicalResultNameDecl(CanonicalResultNameDecl) {
+        CanonicalResultNameDecl(CanonicalResultNameDecl),
+        HasInventedPlaceholderType(HasInventedPlaceholderType) {
     assert(!CanonicalResultNameDecl ||
            CanonicalResultNameDecl->CanonicalResultNameDecl == nullptr);
     assert(!CanonicalResultNameDecl || CanonicalResultNameDecl->getType() == T);
@@ -4435,7 +4438,8 @@ public:
   static ResultNameDecl *
   Create(ASTContext &C, DeclContext *DC, SourceLocation IdLoc,
          IdentifierInfo *Id, QualType T,
-         ResultNameDecl *CanonicalResultNameDecl = nullptr);
+         ResultNameDecl *CanonicalResultNameDecl = nullptr,
+         bool HasInventedPlaceholderType = false);
   static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   using ValueDecl::getDeclName;
@@ -4462,6 +4466,8 @@ public:
       return CanonicalResultNameDecl;
     return this;
   }
+
+  bool hasInventedPlaceholderType() const { return HasInventedPlaceholderType; }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
@@ -4525,7 +4531,7 @@ public:
         [](ResultNameDecl *R) { return R != nullptr; });
   }
 
-  bool hasNondependentPlaceholders() const;
+  bool hasInventedPlaceholdersTypes() const;
 
   unsigned getNumContracts() const { return NumContracts; }
   unsigned getNumPreconditions() const {

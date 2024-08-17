@@ -12963,10 +12963,7 @@ QualType Sema::deduceVarTypeFromInitializer(VarDecl *VDecl,
     SourceLocation Loc = TSI->getTypeLoc().getBeginLoc();
     Diag(Loc, diag::warn_auto_var_is_id) << VN << Range;
   }
-  if (isContractAssertionContext()) {
-    if (VDecl)
-      VDecl->dumpColor();
-  }
+
   return DeducedType;
 }
 

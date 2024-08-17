@@ -3584,11 +3584,13 @@ const StreamingDiagnostic &clang::operator<<(const StreamingDiagnostic &DB,
   return DB << getAccessName(AS);
 }
 
-ResultNameDecl *
-ResultNameDecl::Create(ASTContext &C, DeclContext *DC, SourceLocation IdLoc,
-                       IdentifierInfo *Id, QualType T,
-                       ResultNameDecl *CanonicalResultNameDecl) {
-  return new (C, DC) ResultNameDecl(DC, IdLoc, Id, T, CanonicalResultNameDecl);
+ResultNameDecl *ResultNameDecl::Create(ASTContext &C, DeclContext *DC,
+                                       SourceLocation IdLoc, IdentifierInfo *Id,
+                                       QualType T,
+                                       ResultNameDecl *CanonicalResultNameDecl,
+                                       bool HasInventedPlaceholderType) {
+  return new (C, DC) ResultNameDecl(DC, IdLoc, Id, T, CanonicalResultNameDecl,
+                                    HasInventedPlaceholderType);
 }
 
 ResultNameDecl *ResultNameDecl::CreateDeserialized(ASTContext &C, GlobalDeclID ID) {
@@ -3664,11 +3666,7 @@ ContractSpecifierDecl::ContractSpecifierDecl(DeclContext *DC,
             getTrailingObjects<ContractStmt *>());
 }
 
-bool ContractSpecifierDecl::hasNondependentPlaceholders() const {
+bool ContractSpecifierDecl::hasInventedPlaceholdersTypes() const {
   auto *CRND = getCanonicalResultName();
-  if (!getDeclContext()->isDependentContext() &&
-      CRND->getType()->isDependentType() &&
-      CRND->getType()->isUndeducedAutoType())
-    return true;
-  return false;
+  return CRND && CRND->hasInventedPlaceholderType();
 }
