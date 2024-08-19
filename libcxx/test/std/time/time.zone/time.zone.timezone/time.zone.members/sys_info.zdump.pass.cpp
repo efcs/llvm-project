@@ -14,7 +14,7 @@
 // XFAIL: availability-tzdb-missing
 
 // TODO TZDB Investigate
-// XFAIL: target={{armv(7|8)l-linux-gnueabihf}}
+// UNSUPPORTED: target={{armv(7|8)l-linux-gnueabihf}}
 
 // This is way to freaking long of a test...
 // REQUIRES: No_Never_Dont_Run_This_Ever

@@ -4354,8 +4354,8 @@ void LoopVectorizationPlanner::emitInvalidCostRemarks(
   SmallVector<RecipeVFPair> InvalidCosts;
   for (const auto &Plan : VPlans) {
     for (ElementCount VF : Plan->vectorFactors()) {
-      VPCostContext CostCtx(CM.TTI, Legal->getWidestInductionType(), LLVMCtx,
-                            CM);
+      VPCostContext CostCtx(CM.TTI, *CM.TLI, Legal->getWidestInductionType(),
+                            LLVMCtx, CM);
       auto Iter = vp_depth_first_deep(Plan->getVectorLoopRegion()->getEntry());
       for (VPBasicBlock *VPBB : VPBlockUtils::blocksOnly<VPBasicBlock>(Iter)) {
         for (auto &R : *VPBB) {
@@ -6730,9 +6730,12 @@ void LoopVectorizationCostModel::collectValuesToIgnore() {
     return RequiresScalarEpilogue &&
            !TheLoop->contains(cast<Instruction>(U)->getParent());
   };
+
+  LoopBlocksDFS DFS(TheLoop);
+  DFS.perform(LI);
   MapVector<Value *, SmallVector<Value *>> DeadInvariantStoreOps;
-  for (BasicBlock *BB : TheLoop->blocks())
-    for (Instruction &I : *BB) {
+  for (BasicBlock *BB : reverse(make_range(DFS.beginRPO(), DFS.endRPO())))
+    for (Instruction &I : reverse(*BB)) {
       // Find all stores to invariant variables. Since they are going to sink
       // outside the loop we do not need calculate cost for them.
       StoreInst *SI;
@@ -6765,6 +6768,13 @@ void LoopVectorizationCostModel::collectValuesToIgnore() {
         Value *PointerOp = getLoadStorePointerOperand(&I);
         DeadInterleavePointerOps.push_back(PointerOp);
       }
+
+      // Queue branches for analysis. They are dead, if their successors only
+      // contain dead instructions.
+      if (auto *Br = dyn_cast<BranchInst>(&I)) {
+        if (Br->isConditional())
+          DeadOps.push_back(&I);
+      }
     }
 
   // Mark ops feeding interleave group members as free, if they are only used
@@ -6789,8 +6799,36 @@ void LoopVectorizationCostModel::collectValuesToIgnore() {
   // Mark ops that would be trivially dead and are only used by ignored
   // instructions as free.
   BasicBlock *Header = TheLoop->getHeader();
+
+  // Returns true if the block contains only dead instructions. Such blocks will
+  // be removed by VPlan-to-VPlan transforms and won't be considered by the
+  // VPlan-based cost model, so skip them in the legacy cost-model as well.
+  auto IsEmptyBlock = [this](BasicBlock *BB) {
+    return all_of(*BB, [this](Instruction &I) {
+      return ValuesToIgnore.contains(&I) || VecValuesToIgnore.contains(&I) ||
+             (isa<BranchInst>(&I) && !cast<BranchInst>(&I)->isConditional());
+    });
+  };
   for (unsigned I = 0; I != DeadOps.size(); ++I) {
     auto *Op = dyn_cast<Instruction>(DeadOps[I]);
+
+    // Check if the branch should be considered dead.
+    if (auto *Br = dyn_cast_or_null<BranchInst>(Op)) {
+      BasicBlock *ThenBB = Br->getSuccessor(0);
+      BasicBlock *ElseBB = Br->getSuccessor(1);
+      bool ThenEmpty = IsEmptyBlock(ThenBB);
+      bool ElseEmpty = IsEmptyBlock(ElseBB);
+      if ((ThenEmpty && ElseEmpty) ||
+          (ThenEmpty && ThenBB->getSingleSuccessor() == ElseBB &&
+           ElseBB->phis().empty()) ||
+          (ElseEmpty && ElseBB->getSingleSuccessor() == ThenBB &&
+           ThenBB->phis().empty())) {
+        VecValuesToIgnore.insert(Br);
+        DeadOps.push_back(Br->getCondition());
+      }
+      continue;
+    }
+
     // Skip any op that shouldn't be considered dead.
     if (!Op || !TheLoop->contains(Op) ||
         (isa<PHINode>(Op) && Op->getParent() == Header) ||
@@ -7062,7 +7100,8 @@ InstructionCost LoopVectorizationPlanner::cost(VPlan &Plan,
                                                ElementCount VF) const {
   InstructionCost Cost = 0;
   LLVMContext &LLVMCtx = OrigLoop->getHeader()->getContext();
-  VPCostContext CostCtx(CM.TTI, Legal->getWidestInductionType(), LLVMCtx, CM);
+  VPCostContext CostCtx(CM.TTI, *CM.TLI, Legal->getWidestInductionType(),
+                        LLVMCtx, CM);
 
   // Cost modeling for inductions is inaccurate in the legacy cost model
   // compared to the recipes that are generated. To match here initially during
@@ -7843,7 +7882,9 @@ void LoopVectorizationPlanner::buildVPlans(ElementCount MinVF,
   auto MaxVFTimes2 = MaxVF * 2;
   for (ElementCount VF = MinVF; ElementCount::isKnownLT(VF, MaxVFTimes2);) {
     VFRange SubRange = {VF, MaxVFTimes2};
-    VPlans.push_back(buildVPlan(SubRange));
+    auto Plan = buildVPlan(SubRange);
+    VPlanTransforms::optimize(*Plan, *PSE.getSE());
+    VPlans.push_back(std::move(Plan));
     VF = SubRange.End;
   }
 }
@@ -9361,46 +9402,6 @@ void VPWidenLoadEVLRecipe::execute(VPTransformState &State) {
   if (isReverse())
     Res = createReverseEVL(Builder, Res, EVL, "vp.reverse");
   State.set(this, Res, 0);
-}
-
-void VPWidenStoreRecipe::execute(VPTransformState &State) {
-  auto *SI = cast<StoreInst>(&Ingredient);
-
-  VPValue *StoredVPValue = getStoredValue();
-  bool CreateScatter = !isConsecutive();
-  const Align Alignment = getLoadStoreAlignment(&Ingredient);
-
-  auto &Builder = State.Builder;
-  State.setDebugLocFrom(getDebugLoc());
-
-  for (unsigned Part = 0; Part < State.UF; ++Part) {
-    Instruction *NewSI = nullptr;
-    Value *Mask = nullptr;
-    if (auto *VPMask = getMask()) {
-      // Mask reversal is only needed for non-all-one (null) masks, as reverse
-      // of a null all-one mask is a null mask.
-      Mask = State.get(VPMask, Part);
-      if (isReverse())
-        Mask = Builder.CreateVectorReverse(Mask, "reverse");
-    }
-
-    Value *StoredVal = State.get(StoredVPValue, Part);
-    if (isReverse()) {
-      // If we store to reverse consecutive memory locations, then we need
-      // to reverse the order of elements in the stored value.
-      StoredVal = Builder.CreateVectorReverse(StoredVal, "reverse");
-      // We don't want to update the value in the map as it might be used in
-      // another expression. So don't call resetVectorValue(StoredVal).
-    }
-    Value *Addr = State.get(getAddr(), Part, /*IsScalar*/ !CreateScatter);
-    if (CreateScatter)
-      NewSI = Builder.CreateMaskedScatter(StoredVal, Addr, Alignment, Mask);
-    else if (Mask)
-      NewSI = Builder.CreateMaskedStore(StoredVal, Addr, Alignment, Mask);
-    else
-      NewSI = Builder.CreateAlignedStore(StoredVal, Addr, Alignment);
-    State.addMetadata(NewSI, SI);
-  }
 }
 
 void VPWidenStoreEVLRecipe::execute(VPTransformState &State) {
