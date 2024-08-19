@@ -2137,6 +2137,9 @@ public:
     CommaLoc = SourceLocation();
     EllipsisLoc = SourceLocation();
     PackIndexingExpr = nullptr;
+    Contracts = nullptr;
+    assert(LateParsedContracts.empty() && "Late-parsed contracts unhandled");
+    LateParsedContracts.clear();
   }
 
   /// mayOmitIdentifier - Return true if the identifier is either optional or
@@ -2798,53 +2801,6 @@ struct FieldDeclarator {
                            const ParsedAttributes &DeclarationAttrs)
       : D(DS, DeclarationAttrs, DeclaratorContext::Member),
         BitfieldSize(nullptr) {}
-};
-
-class ContractSpecifiers {
-public:
-  enum Specifier { CS_None = 0, CS_Pre, CS_Post };
-
-  struct ContractInfo {
-    Specifier Kind;
-    // Either the parsed expression or token soup for the contract.
-    const IdentifierInfo *ReturnValueIdent;
-    SourceLocation ReturnValueIdentLoc;
-
-    Expr *ParsedContract;
-    std::unique_ptr<CachedTokens> ContractTokens;
-
-  public:
-    ContractInfo(Specifier Kind, const IdentifierInfo *ReturnValueIdent,
-                 SourceLocation ReturnValueIdentLoc, Expr *ParsedContract,
-                 std::unique_ptr<CachedTokens> xContractTokens)
-        : Kind(Kind), ReturnValueIdent(ReturnValueIdent),
-          ReturnValueIdentLoc(ReturnValueIdentLoc),
-          ParsedContract(ParsedContract),
-          ContractTokens(std::move(xContractTokens)) {
-
-      assert(Kind == CS_Post || ReturnValueIdent == nullptr);
-      assert((ContractTokens == nullptr) != (ParsedContract == nullptr));
-    }
-
-    bool isDelayed() const {
-      assert(ParsedContract == nullptr || ContractTokens == nullptr);
-      return ContractTokens != nullptr;
-    }
-    bool isPre() const { return Kind == CS_Pre; }
-    bool isPost() const { return Kind == CS_Post; }
-    bool hasReturnIdentifier() const { return ReturnValueIdent != nullptr; }
-  };
-
-  void addContract(ContractInfo CI) { Contracts.push_back(std::move(CI)); }
-
-  const SmallVectorImpl<ContractInfo> &getContracts() const {
-    return Contracts;
-  }
-
-  bool hasContracts() const { return !Contracts.empty(); }
-
-private:
-  SmallVector<ContractInfo, 2> Contracts;
 };
 
 /// Represents a C++11 virt-specifier-seq.

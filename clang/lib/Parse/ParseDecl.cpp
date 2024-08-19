@@ -2332,10 +2332,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   if (Tok.is(tok::kw_requires))
     ParseTrailingRequiresClause(D);
 
-  // FIXME(EricWF): What are we doing here?
-  if (getLangOpts().LateParsedContracts)
-    LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-  else
+  if (isFunctionContractKeyword(Tok))
     ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
   // Save late-parsed attributes for now; they need to be parsed in the
@@ -2441,15 +2438,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
                 ParseFunctionDefinition(D, TemplateInfo, &LateParsedAttrs);
           }
 
-          if (TheDecl && isa<FunctionDecl>(TheDecl)) {
-            if (!D.LateParsedContracts.empty()) {
-              assert(
-                  !cast<FunctionDecl>(TheDecl)->isThisDeclarationADefinition());
-              ParseLexedFunctionContracts(D.LateParsedContracts,
-                                          cast<FunctionDecl>(TheDecl),
-                                          CES_AllScopes);
-            }
-          }
+          assert(D.LateParsedContracts.empty());
 
           return Actions.ConvertDeclToDeclGroup(TheDecl);
         }
@@ -2543,6 +2532,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     ParseLexedAttributeList(LateParsedAttrs, FirstDecl, true, false);
   if (auto *FD = dyn_cast_or_null<FunctionDecl>(FirstDecl)) {
     if (!FD->isInvalidDecl() && !D.LateParsedContracts.empty()) {
+      assert(false);
       assert(!FD->isThisDeclarationADefinition());
       ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
     }
@@ -7710,9 +7700,9 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         EndLoc = Range.getEnd();
       }
 
-      if (isFunctionContractKeyword(Tok) && Delayed)
+      if (isFunctionContractKeyword(Tok) && Delayed) {
         LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-
+      }
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
     }

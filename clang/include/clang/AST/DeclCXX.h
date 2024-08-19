@@ -4408,7 +4408,7 @@ const StreamingDiagnostic &operator<<(const StreamingDiagnostic &DB,
 ///
 /// Where `r` refers to the value returned by the function
 class ResultNameDecl : public ValueDecl {
-
+  friend class ContractSpecifierDecl;
   /// The canonical declaration of a result name is the result name declared in
   /// the first post condition (with a result name) on a particular function.
   ///
@@ -4416,18 +4416,31 @@ class ResultNameDecl : public ValueDecl {
   /// during codegen and constant evaluation. This is necessary because the
   /// changes to the return value in the post conditions must be visible to
   /// subsequent post conditions.
-  ResultNameDecl *CanonicalResultNameDecl = nullptr;
+  ///
+  // FIXME(EricWF): Remove this? I think we can dig the canonical result name
+  // out of the decl context? But I think that will be rather bug prone. Maybe
+  // we could make the ContractSpecifierDecl a DeclContext and dig it up from
+  // there?
+  ResultNameDecl *CanonicalResultName = nullptr;
+
+  /// Whether this result name is using a dummy placeholder type to represent
+  /// the deduced return type of a non-template function until the actual return
+  /// type is known.
+  ///
+  /// Result names are only allowed on non-template functions with deduced
+  /// return types if that function declaration is also a definition.
   bool HasInventedPlaceholderType = false;
 
   ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id,
-                 QualType T, ResultNameDecl *CanonicalResultNameDecl = nullptr,
+                 QualType T, ResultNameDecl *CanonicalDecl = nullptr,
                  bool HasInventedPlaceholderType = false)
       : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T),
-        CanonicalResultNameDecl(CanonicalResultNameDecl),
-        HasInventedPlaceholderType(HasInventedPlaceholderType) {
-    assert(!CanonicalResultNameDecl ||
-           CanonicalResultNameDecl->CanonicalResultNameDecl == nullptr);
-    assert(!CanonicalResultNameDecl || CanonicalResultNameDecl->getType() == T);
+        HasInventedPlaceholderType(HasInventedPlaceholderType) {}
+
+  void setCanonicalResultName(ResultNameDecl *CRND) {
+    assert(CRND != this &&
+           "setCanonicalResultName called on the canonical result");
+    this->CanonicalResultName = CRND;
   }
 
   void anchor() override;
@@ -4435,36 +4448,27 @@ class ResultNameDecl : public ValueDecl {
 public:
   friend class ASTDeclReader;
 
-  static ResultNameDecl *
-  Create(ASTContext &C, DeclContext *DC, SourceLocation IdLoc,
-         IdentifierInfo *Id, QualType T,
-         ResultNameDecl *CanonicalResultNameDecl = nullptr,
-         bool HasInventedPlaceholderType = false);
+  static ResultNameDecl *Create(ASTContext &C, DeclContext *DC,
+                                SourceLocation IdLoc, IdentifierInfo *Id,
+                                QualType T, ResultNameDecl *CRND = nullptr,
+                                bool HasInventedPlaceholderType = false);
   static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   using ValueDecl::getDeclName;
   using ValueDecl::setType;
 
-  void setCanonicalResultNameDecl(ResultNameDecl *D) {
-    CanonicalResultNameDecl = D;
-  }
-
   /// Returns true if this declaration is the canonical result name declaration
   /// (This is true if it doesn't reference another result name).
-  bool isCanonicalResultNameDecl() const {
-    return CanonicalResultNameDecl == nullptr;
+  bool isCanonicalResultName() const {
+    return getCanonicalResultName() == this;
   }
 
-  ResultNameDecl *getCanonicalResultNameDecl() {
-    if (CanonicalResultNameDecl)
-      return CanonicalResultNameDecl;
-    return this;
+  ResultNameDecl *getCanonicalResultName() {
+    return CanonicalResultName ? CanonicalResultName : this;
   }
 
-  const ResultNameDecl *getCanonicalResultNameDecl() const {
-    if (CanonicalResultNameDecl)
-      return CanonicalResultNameDecl;
-    return this;
+  const ResultNameDecl *getCanonicalResultName() const {
+    return CanonicalResultName ? CanonicalResultName : this;
   }
 
   bool hasInventedPlaceholderType() const { return HasInventedPlaceholderType; }
@@ -4473,13 +4477,20 @@ public:
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
 };
 
-/// Represents a C++11 static_assert declaration.
+/// Represents a series of contracts on a function declaration.
+/// For instance:
+///
+///   int foo(const int x) pre(x) post(r : x < r);
+///
+/// This declaration also stores whether any of the contracts are invalid.
 class ContractSpecifierDecl final
     : public Decl,
       private llvm::TrailingObjects<ContractSpecifierDecl, ContractStmt *> {
+  friend class TrailingObjects;
   friend class ASTDeclReader;
   friend class ASTDeclWriter;
 
+  /// The number of contracts in this sequence.
   unsigned NumContracts;
 
   static bool IsPreconditionPred(const ContractStmt *);
@@ -4496,11 +4507,7 @@ class ContractSpecifierDecl final
   ContractSpecifierDecl(DeclContext *DC, SourceLocation Loc,
                         ArrayRef<ContractStmt *> Contracts, bool IsInvalid);
 
-  void setContracts(ArrayRef<ContractStmt *> Contracts) {
-    assert(*getTrailingObjects<ContractStmt *>() == nullptr);
-    std::copy(Contracts.begin(), Contracts.end(),
-              getTrailingObjects<ContractStmt *>());
-  }
+  void setContracts(ArrayRef<ContractStmt *> Contracts);
 
   using FilterRangeT = llvm::iterator_range<llvm::filter_iterator<
       ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
@@ -4508,53 +4515,56 @@ class ContractSpecifierDecl final
   virtual void anchor();
 
 public:
-  friend class TrailingObjects;
-
-  using PreconditionRangeT = FilterRangeT;
-  using PostconditionRangeT = FilterRangeT;
-
-  ArrayRef<ContractStmt *> contracts() const {
-    return llvm::ArrayRef(getTrailingObjects<ContractStmt *>(), NumContracts);
-  }
-
-  auto preconditions() const {
-    return llvm::make_filter_range(contracts(), IsPreconditionPred);
-  }
-
-  auto postconditions() const {
-    return llvm::make_filter_range(contracts(), IsPostconditionPred);
-  }
-
-  auto result_names() const {
-    return llvm::make_filter_range(
-        llvm::map_range(postconditions(), ExtractResultName),
-        [](ResultNameDecl *R) { return R != nullptr; });
-  }
-
-  bool hasInventedPlaceholdersTypes() const;
-
-  unsigned getNumContracts() const { return NumContracts; }
-  unsigned getNumPreconditions() const {
-    return std::distance(preconditions().begin(), preconditions().end());
-  }
-
-  unsigned getNumPostconditions() const {
-    return std::distance(postconditions().begin(), postconditions().end());
-  }
-
-  bool hasCanonicalResultName() const;
-  ResultNameDecl *getCanonicalResultName() const;
-
-  SourceRange getSourceRange() const override LLVM_READONLY;
-
-  friend class ASTDeclReader;
-
   static ContractSpecifierDecl *Create(ASTContext &C, DeclContext *DC,
                                        SourceLocation Loc,
                                        ArrayRef<ContractStmt *> Contracts,
                                        bool IsInvalid);
   static ContractSpecifierDecl *
   CreateDeserialized(ASTContext &C, GlobalDeclID ID, unsigned NumContracts);
+
+public:
+  ArrayRef<ContractStmt *> contracts() const {
+    return llvm::ArrayRef(getTrailingObjects<ContractStmt *>(), NumContracts);
+  }
+
+  /// Returns a range representing the preconditions in this contract sequence
+  /// (in order of declaration)
+  auto preconditions() const {
+    return llvm::make_filter_range(contracts(), IsPreconditionPred);
+  }
+
+  /// Returns a range representing the postconditions in this contract sequence
+  /// (in order of declaration).
+  auto postconditions() const {
+    return llvm::make_filter_range(contracts(), IsPostconditionPred);
+  }
+
+  /// Returns a range representing the result names in this contract sequence
+  /// (in order of declaration).
+  auto result_names() const {
+    return llvm::make_filter_range(
+        llvm::map_range(postconditions(), ExtractResultName),
+        [](ResultNameDecl *R) { return R != nullptr; });
+  }
+
+  /// Returns true if this function contract sequence contains result names &
+  /// those result names use an invented placeholder type to allow us to delay
+  /// the deduction of the return type.
+  bool hasInventedPlaceholdersTypes() const;
+
+  unsigned getNumContracts() const { return NumContracts; }
+
+  /// True if and only if there is a postcondition with a result name in this
+  /// contract sequence.
+  bool hasCanonicalResultName() const;
+
+  /// Returns the canonical result name for this contract sequence.
+  const ResultNameDecl *getCanonicalResultName() const;
+
+  /// Update the declaration context of this contract sequence and of any result name declarations contained within it.
+  void setOwningFunction(DeclContext *FD);
+
+  SourceRange getSourceRange() const override LLVM_READONLY;
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Decl::ContractSpecifier; }

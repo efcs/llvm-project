@@ -4168,7 +4168,7 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
     // Allow reading the result of a function call inside a post contract.
     // FIXME(EricWF): There's more validation that needs to be done here.
     if (auto *RND = dyn_cast<ResultNameDecl>(D); RND) {
-      assert(RND == RND->getCanonicalResultNameDecl());
+      assert(RND == RND->getCanonicalResultName());
 
       APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
 
@@ -8895,8 +8895,8 @@ bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
     // return Success(Frame->ResultSlot;
   } else {
     APValue::LValueBase Base(
-        VD->getCanonicalResultNameDecl(), Frame->Index,
-        Frame->getCurrentTemporaryVersion(VD->getCanonicalResultNameDecl()));
+        VD->getCanonicalResultName(), Frame->Index,
+        Frame->getCurrentTemporaryVersion(VD->getCanonicalResultName()));
     return Success(Base);
   }
 }

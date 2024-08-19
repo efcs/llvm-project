@@ -29,6 +29,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/CodeGen/SwiftCallingConv.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Assumptions.h"
@@ -3993,13 +3994,13 @@ void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
                     MakeAddrLValue(ReturnValue, CRD->getType()));
   }
 
+  disableDebugInfo();
+  auto Reenabler = llvm::make_scope_exit([this]() { enableDebugInfo(); });
   for (auto *CA : FD->postconditions()) {
-    assert(CA);
-    assert(CA->getCond());
-    // auto AL = ApplyDebugLocation::CreateArtificial(*this);
-
+    // FIXME(EricWF): We're disabling
     EmitStmt(CA);
   }
+  enableDebugInfo();
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {

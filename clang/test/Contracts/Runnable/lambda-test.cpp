@@ -1,6 +1,6 @@
-// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=observe -flate-parsed-contracts
+// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=observe
 // RUN: %t
-// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=enforce  -fno-late-parsed-contracts
+// RUN: %clangxx -std=c++26 %s -fcontracts -o %t -fcontract-evaluation-semantic=enforce
 // RUN: %t
 
 #include "my_assert.h"

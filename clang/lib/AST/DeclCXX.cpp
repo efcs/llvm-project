@@ -3613,15 +3613,6 @@ bool ContractSpecifierDecl::hasCanonicalResultName() const {
   return getCanonicalResultName() != nullptr;
 }
 
-ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
-  for (auto *RND : result_names()) {
-    // The first result name should always be the canonical one, but
-    // this can't hurt either?
-    return RND->getCanonicalResultNameDecl();
-  }
-  return nullptr;
-}
-
 SourceRange ContractSpecifierDecl::getSourceRange() const {
   if (contracts().empty())
     return SourceRange(getLocation(), getLocation());
@@ -3662,8 +3653,44 @@ ContractSpecifierDecl::ContractSpecifierDecl(DeclContext *DC,
     this->setInvalidDecl(true);
   assert((Contracts.size() > 0 || IsInvalid) &&
          "ContractSpecifierSequence must have at least one contract");
+  setContracts(Contracts);
+}
+
+const ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
+  for (auto *RN : result_names()) {
+    // The first result name should be the canonical one.
+    assert(RN->isCanonicalResultName() &&
+           "Unexpected non-canonical result name");
+    return RN;
+  }
+  return nullptr;
+}
+
+void ContractSpecifierDecl::setContracts(ArrayRef<ContractStmt *> Contracts) {
+  assert((Contracts.size() > 0 || isInvalidDecl()) &&
+         "ContractSpecifierDecl must have at least one contract");
+  assert(Contracts.size() == NumContracts &&
+      "ContractSpecifierDecl must have at least one contract");
+
   std::copy(Contracts.begin(), Contracts.end(),
             getTrailingObjects<ContractStmt *>());
+  auto *DC = getDeclContext();
+  // Update the result names to point to the correct canonical result name.
+  ResultNameDecl *CanonicalResultName = nullptr;
+  for (auto *RND : result_names()) {
+    if (CanonicalResultName)
+      RND->setCanonicalResultName(CanonicalResultName);
+    else
+      CanonicalResultName = RND;
+    RND->setDeclContext(DC);
+  }
+}
+
+void ContractSpecifierDecl::setOwningFunction(DeclContext *FD) {
+  setDeclContext(FD);
+  for (auto *RND : result_names())
+    RND->setDeclContext(FD);
+
 }
 
 bool ContractSpecifierDecl::hasInventedPlaceholdersTypes() const {

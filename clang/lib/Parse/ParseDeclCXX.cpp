@@ -2551,9 +2551,7 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
     }
   }
 
-  if (!NeedLateParse) {
-    NeedLateParse = !DeclaratorInfo.getLateParsedContracts().empty();
-  }
+  NeedLateParse |= !DeclaratorInfo.getLateParsedContracts().empty();
 
   if (NeedLateParse) {
     // Push this method onto the stack of late-parsed method
@@ -2576,10 +2574,7 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
       FTI.ExceptionSpecTokens = nullptr;
     }
 
-    if (!DeclaratorInfo.LateParsedContracts.empty()) {
-      LateMethod->ContractTokens =
-          std::move(DeclaratorInfo.LateParsedContracts);
-    }
+    LateMethod->ContractTokens = std::move(DeclaratorInfo.LateParsedContracts);
   }
 }
 
@@ -2736,11 +2731,7 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
                                                               VS);
   }
 
-  // FIXME(EricWF): Why is this here?
-  if (getLangOpts().LateParsedContracts)
-    LateParseFunctionContractSpecifierSeq(DeclaratorInfo.LateParsedContracts);
-  else
-    ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
+  ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {

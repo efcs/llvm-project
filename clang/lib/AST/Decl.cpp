@@ -2025,29 +2025,7 @@ void DeclaratorDecl::setContracts(ContractSpecifierDecl *NewContracts) {
     getExtInfo()->TInfo = savedTInfo;
   }
 
-  // FIXME(EricWF): This should be empty already
-  auto &Contracts = getExtInfo()->Contracts;
-
-#if 0
-  assert(
-      Contracts.empty() || NewContracts.size() == Contracts.size() ||
-      NewContracts.empty() ||
-      this->isInvalidDecl() &&
-          "Adding a different amount of contracts than were initially present");
-#endif
-  ERICWF_DEBUG_BLOCK_QUIET {
-    if (Contracts && NewContracts && !NewContracts->isInvalidDecl()) {
-      if (Contracts != NewContracts &&
-          Contracts->getNumContracts() != NewContracts->getNumContracts()) {
-        llvm::errs() << "\n\nOverwriting existing contracts!!!\n";
-        Contracts->dumpColor();
-        NewContracts->dumpColor();
-        llvm::errs() << "\n\n==============================\n\n";
-      }
-    }
-  }
-
-  Contracts = NewContracts;
+  getExtInfo()->Contracts = NewContracts;
 }
 
 void DeclaratorDecl::setTemplateParameterListsInfo(

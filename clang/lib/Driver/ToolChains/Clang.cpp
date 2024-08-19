@@ -7407,8 +7407,6 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
 
       Args.addOptOutFlag(CmdArgs, options::OPT_fcontract_exceptions,
                          options::OPT_fno_contract_exceptions);
-      Args.addOptInFlag(CmdArgs, options::OPT_flate_parsed_contracts,
-                        options::OPT_fno_late_parsed_contracts);
     }();
   }
 

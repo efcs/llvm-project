@@ -2746,12 +2746,22 @@ public:
 
   ContractSpecifierDecl *
   BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
-                             SourceLocation Loc, bool IsInvalid);
+                             DeclContext *DC, SourceLocation Loc,
+                             bool IsInvalid);
 
   // Check two function declarations for equivalent contract sequences.
   // Return true if a diagnostic was issued, false otherwise.
   bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                        FunctionDecl *NewDecl);
+  bool CheckContractsOnRedeclaration(FunctionDecl *OrigDecl,
+                                     FunctionDecl *NewDecl);
+
+
+  /// Perform semantic analysis for a contract specifier on the specified function.
+  /// For function templates, these checks should be performed with the instantiation of
+  /// the body, and not the declaration.
+  void CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition,
+    bool IsInstantiation);
 
   // FIXME(EricWF): Remove me. These are just convinence hooks while I move
   // things around in the implementation.
@@ -2759,16 +2769,11 @@ public:
   ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
                                        SourceLocation Loc, bool IsInvalid);
 
-  void CheckFunctionContractSpecifier(FunctionDecl *FD);
-
-  void ActOnContractsOnStartOfFunctionDef(Scope *S, FunctionDecl *FD);
   void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
-  void ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
-                                         FunctionDecl *NewDecl);
 
-  /// Rebuild the contract specifier written on one declaration in the context
-  /// of a the definition. This rebinds parameters and result names as needed.
+  /// Rebuild the contract specifier against another declaration of the function
+  /// (using the new functions parameters)
   ContractSpecifierDecl *
   RebuildContractSpecifierForDecl(FunctionDecl *FirstDecl,
                                   FunctionDecl *Definition);
@@ -13912,11 +13917,6 @@ private:
   /// instantiation scope, and set the parameter names to those used
   /// in the template.
   bool addInstantiatedParametersToScope(
-      FunctionDecl *Function, const FunctionDecl *PatternDecl,
-      LocalInstantiationScope &Scope,
-      const MultiLevelTemplateArgumentList &TemplateArgs);
-
-  bool addInstantiatedResultNamesToScope(
       FunctionDecl *Function, const FunctionDecl *PatternDecl,
       LocalInstantiationScope &Scope,
       const MultiLevelTemplateArgumentList &TemplateArgs);

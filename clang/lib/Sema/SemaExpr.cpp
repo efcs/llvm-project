@@ -3213,7 +3213,7 @@ static ContractConstification getContractConstification(Sema &S,
     return CC_None;
 
   if (auto Var = dyn_cast<VarDecl>(VD)) {
-    if (Var->isLocalVarDeclOrParm() && !Var->getType()->isReferenceType())
+    if (Var->isLocalVarDeclOrParm())
       return CC_ApplyConst;
   }
 

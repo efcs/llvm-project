@@ -2288,9 +2288,9 @@ void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
 void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
   dumpName(D);
   dumpType(D->getType());
-  if (D->getCanonicalResultNameDecl() != D) {
+  if (!D->isCanonicalResultName()) {
     OS << " canonical ";
-    dumpPointer(D->getCanonicalResultNameDecl());
+    dumpPointer(D->getCanonicalResultName());
   } else {
     dumpPointer(D);
   }

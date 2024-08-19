@@ -305,9 +305,9 @@ void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
 
   if (!CurContract()) {
     // FIXME(EricWF): Remove this. It's a hack to prevent crashing.
-    disableDebugInfo();
+
     EmitContractStmtAsFullStmt(S);
-    enableDebugInfo();
+
   } else if (CurContract()->Checkpoint == EmittingTryBody) {
     return EmitContractStmtAsTryBody(S);
   } else if (CurContract()->Checkpoint == EmittingCatchBody) {

@@ -1,8 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts -fno-late-parsed-contracts
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts -flate-parsed-contracts
-
-
-
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
 constexpr int f(int x) post(r : r != 0) { // expected-error {{contract failed}}
   return x;

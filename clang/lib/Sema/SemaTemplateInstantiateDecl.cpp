@@ -2926,32 +2926,6 @@ Decl *TemplateDeclInstantiator::VisitCXXConversionDecl(CXXConversionDecl *D) {
   return VisitCXXMethodDecl(D);
 }
 
-#if 0
-Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
-
-    auto *CurContext = SemaRef.CurContext;
-    assert(CurContext);
-    auto *FD = dyn_cast<FunctionDecl>(CurContext);
-    if (!FD) {
-      llvm::errs() << "Unknown current context?";
-      CurContext->dumpAsDecl();
-      assert(false);
-      return D;
-    }
-    QualType RetType = FD->getReturnType();
-
-
-
-    ResultNameDecl *RND =
-    SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, RetType, D->getLocation(), D->getIdentifier());
-  if (SemaRef.CurrentInstantiationScope)
-    SemaRef.CurrentInstantiationScope->InstantiatedLocal(D, RND);
-  else
-    llvm::errs() << "No local instantiation scope?" << "\n";
-  return RND;
-}
-#endif
-
 Decl *TemplateDeclInstantiator::VisitParmVarDecl(ParmVarDecl *D) {
   return SemaRef.SubstParmVarDecl(D, TemplateArgs, /*indexAdjustment*/ 0,
                                   std::nullopt,
@@ -4703,32 +4677,6 @@ bool Sema::addInstantiatedParametersToScope(
         ++FParamIdx;
       }
     }
-  }
-
-  return false;
-}
-
-bool Sema::addInstantiatedResultNamesToScope(
-    FunctionDecl *Function, const FunctionDecl *PatternDecl,
-    LocalInstantiationScope &Scope,
-    const MultiLevelTemplateArgumentList &TemplateArgs) {
-
-  ContractSpecifierDecl *CSD = PatternDecl->getContracts();
-  if (!CSD)
-    return false;
-
-  ResultNameDecl *Canon = nullptr;
-  for (auto *RND : CSD->result_names()) {
-    auto *NewRND = ActOnResultNameDeclarator(
-        ContractKind::Post, nullptr, Function->getReturnType(),
-        RND->getLocation(), RND->getIdentifier());
-    if (!NewRND)
-      return true;
-    if (!Canon)
-      Canon = NewRND;
-    else
-      NewRND->setCanonicalResultNameDecl(Canon);
-    Scope.InstantiatedLocal(RND, NewRND);
   }
 
   return false;

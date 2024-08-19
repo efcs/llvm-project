@@ -1929,9 +1929,9 @@ void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
   }
   printDeclType(RND->getType(), Name, false);
   Out << RND->getDeclName();
-  if (RND->getCanonicalResultNameDecl() != RND) {
+  if (!RND->isCanonicalResultName()) {
     Out << " = ";
-    RND->getCanonicalResultNameDecl()->printQualifiedName(Out);
+    RND->getCanonicalResultName()->printQualifiedName(Out);
     Out << " " << RND << " ";
   }
 }

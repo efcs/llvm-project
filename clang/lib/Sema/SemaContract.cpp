@@ -403,7 +403,7 @@ public:
     //   declarations that do not specify the postcondition-specifier.]
     [&]() {
       auto *PVD = dyn_cast_or_null<ParmVarDecl>(E->getDecl());
-      if (!PVD || DiagnosedDecls.count(PVD) || !isRelevantParmVar(PVD))
+      if (!PVD || DiagnosedDecls.count(PVD) || !isRelevantParmVar(PVD) || PVD->getType()->isDependentType())
         return;
 
       QualType PVDType = PVD->getOriginalType();
@@ -431,7 +431,7 @@ public:
             << CurrentContract->getSourceRange();
 
         Actions.Diag(PVD->getTypeSpecStartLoc(), diag::note_parameter_type)
-            << PVD->getOriginalType() << PVD->getSourceRange();
+            << (DiagSelect == DS_NotConst ? PVD->getType() : PVD->getOriginalType()) << PVD->getSourceRange();
       }
     }();
 
@@ -443,6 +443,27 @@ private:
 };
 
 } // namespace
+
+
+static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
+                               ContractSpecifierDecl *CSD) {
+
+  // Check for post-conditions that reference non-const parameters.
+  ParamReferenceChecker Checker(S, FD);
+  for (auto *CS : CSD->postconditions()) {
+    Checker.TraverseContractStmt(CS);
+    // FIXME(EricWF): DIagnose non-const function param types.
+  }
+}
+
+void Sema::CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition, bool IsInstantiation) {
+  assert(FD && FD->hasContracts());
+
+
+  diagnoseParamTypes(*this, FD, FD->getContracts());
+
+
+}
 
 void Sema::InstantiateContractSpecifier(
     SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
@@ -464,15 +485,9 @@ void Sema::InstantiateContractSpecifier(
       Method != nullptr);
 
   LocalInstantiationScope Scope(*this, true);
-  // if (addInstantiatedResultNamesToScope(Instantiation, Pattern, Scope,
-  // TemplateArgs)) {
-  //   Instantiation->setInvalidDecl(true);
-  //   return;
-  // }
 
   SmallVector<ContractStmt *> NewContracts;
   for (auto *CS : PatternCSD->contracts()) {
-
     StmtResult NewStmt = SubstStmt(CS, TemplateArgs);
     if (NewStmt.isInvalid())
       IsInvalid = true;
@@ -480,21 +495,21 @@ void Sema::InstantiateContractSpecifier(
       NewContracts.push_back(NewStmt.getAs<ContractStmt>());
   }
 
-  ContractSpecifierDecl *NewCSD = ActOnFinishContractSpecifierSequence(
-      NewContracts, PatternCSD->getLocation(), IsInvalid);
-  NewCSD->setDeclContext(Instantiation);
+  ContractSpecifierDecl *NewCSD = BuildContractSpecifierDecl(
+      NewContracts, Instantiation, PatternCSD->getLocation(), IsInvalid);
   assert(NewCSD);
 
-  if (NewCSD->isInvalidDecl())
-    Instantiation->setInvalidDecl(true);
   Instantiation->setContracts(NewCSD);
+  if (!Instantiation->isDependentContext())
+    CheckFunctionContracts(Instantiation, /*IsDefinition=*/false, /*IsInstantiation=*/true);
 }
 
 ContractSpecifierDecl *
 Sema::BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
-                                 SourceLocation Loc, bool IsInvalid) {
-  ContractSpecifierDecl *CSD = ContractSpecifierDecl::Create(
-      Context, CurContext, Loc, Contracts, IsInvalid);
+                                 DeclContext *DC, SourceLocation Loc,
+                                 bool IsInvalid) {
+  ContractSpecifierDecl *CSD =
+      ContractSpecifierDecl::Create(Context, DC, Loc, Contracts, IsInvalid);
   return CSD;
 }
 
@@ -508,66 +523,8 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
                                            SourceLocation Loc, bool IsInvalid) {
   assert((!Contracts.empty() || IsInvalid) && "Expected at least one contract");
 
-  ContractSpecifierDecl *CSD = ContractSpecifierDecl::Create(
-      Context, CurContext, Loc, Contracts, IsInvalid);
-
-  ResultNameDecl *CanonicalResult = nullptr;
-  for (auto *RD : CSD->result_names()) {
-    if (CanonicalResult)
-      RD->setCanonicalResultNameDecl(CanonicalResult);
-    else
-      CanonicalResult = RD;
-  }
-
-  if (IsInvalid)
-    CSD->setInvalidDecl(true);
-
-  return CSD;
+  return BuildContractSpecifierDecl(Contracts, CurContext, Loc, IsInvalid);
 }
-
-static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
-                               ContractSpecifierDecl *CSD) {
-
-  // Check for post-conditions that reference non-const parameters.
-  ParamReferenceChecker Checker(S, FD);
-  for (auto *CS : CSD->postconditions()) {
-    Checker.TraverseContractStmt(CS);
-    // FIXME(EricWF): DIagnose non-const function param types.
-  }
-  if (Checker.DidDiagnose)
-    FD->setInvalidDecl(true);
-}
-
-static bool functionHasContracts(FunctionDecl *FD) {
-  return FD->hasContracts() || FD->getFirstDecl()->hasContracts();
-}
-
-void Sema::CheckFunctionContractSpecifier(FunctionDecl *FD) {
-  if (!functionHasContracts(FD))
-    return;
-
-#if 0
-  // Find the declaration we want to diagnose contract mismatches against.
-  // If the contracts are only present the first declaration, use that one.
-  // Othewise, use the most recent declaration.
-  auto DeclForDiagnosis = [&]() {
-    FunctionDecl *PrevDecl = FD->getFirstDecl();
-    if (PrevDecl && PrevDecl != FD && PrevDecl->hasContracts()) {
-      if (FD->getPreviousDecl()->hasContracts())
-        PrevDecl = FD->getPreviousDecl();
-    }
-    return PrevDecl == FD ? nullptr : PrevDecl;
-  }();
-
-  if (DeclForDiagnosis && CheckEquivalentContractSequence(DeclForDiagnosis, FD))
-    FD->setInvalidDecl(true);
-#endif
-
-  ContractSpecifierDecl *CSD = FD->getContracts();
-  if (!CSD)
-    return;
-}
-void Sema::ActOnContractsOnStartOfFunctionDef(Scope *S, FunctionDecl *FD) {}
 
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
@@ -580,33 +537,37 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
   if (D != FD && FD->getContracts() == D->getContracts())
     D->setContracts(nullptr);
 
-  if (!FD->hasContracts() && !IsDefinition)
+  if (!FD->hasContracts() && !FD->getFirstDecl()->hasContracts())
     return;
 
   auto *First = FD->getFirstDecl();
-  if (!First->hasContracts())
-    return;
 
   // If the definition has omitted the contracts, but the first declaration has
   // them, we need to rebuild the contracts to refer to the parameters of the
   // definition.
+  //
+  // For function templates, we'll create a copy when we instantiate the definition.
   if (First->hasContracts() && !FD->hasContracts() && IsDefinition &&
       !FD->isTemplateInstantiation()) {
     // Note: This case is mutually exclusive with the NonDependentPlaceholders
     // case, since we can't have a placeholder return type on a declaration that
     // isn't a definition.
     ContractSpecifierDecl *NewCSD = RebuildContractSpecifierForDecl(First, FD);
-    if (NewCSD->isInvalidDecl())
-      FD->setInvalidDecl(true);
-    NewCSD->setDeclContext(FD);
+    NewCSD->setOwningFunction(FD);
     FD->setContracts(NewCSD);
   }
   assert(FD->hasContracts());
 
-  if (FD->hasContracts()) {
-    diagnoseParamTypes(*this, FD, FD->getContracts());
-  }
+  // Diagnose parameters which are either array types, function types, or non-const value types.
+  // If this is a template, delay the diagnosis until instantiation.
+
   ContractSpecifierDecl *CSD = FD->getContracts();
+
+  if (!D->isTemplateInstantiation()) {
+    // Note: IsInstantiation here means whether we're calling during the instantiation of the contract specifier,
+    // rather than whether the FD declares a function instantiation.
+    CheckFunctionContracts(FD, IsDefinition, /*IsInstantiation=*/false);
+  }
 
   // When the declared return type of a non-templated function contains a
   // placeholder type, a postcondition-specifier with a result-name-introducer
@@ -623,7 +584,6 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
         RND->setInvalidDecl(true);
     }
   }
-  CheckFunctionContractSpecifier(FD);
 }
 
 namespace {
@@ -678,10 +638,8 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
       NewContracts.push_back(NewStmt.getAs<ContractStmt>());
   }
 
-  auto *CSD = ActOnFinishContractSpecifierSequence(
-      NewContracts, Def->getContracts()->getLocation(), IsInvalid);
-  CSD->setDeclContext(Def);
-
+  auto *CSD = BuildContractSpecifierDecl(
+      NewContracts, Def, Def->getContracts()->getLocation(), IsInvalid);
   Def->setContracts(CSD);
 
   if (CSD->isInvalidDecl())
@@ -747,9 +705,9 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
       NewContracts.push_back(NewStmt.getAs<ContractStmt>());
   }
 
-  auto *NewCSD = ActOnFinishContractSpecifierSequence(
-      NewContracts, FD->getContracts()->getLocation(), IsInvalid);
-  NewCSD->setDeclContext(FD);
+  auto *NewCSD = BuildContractSpecifierDecl(
+      NewContracts, FD, FD->getContracts()->getLocation(), IsInvalid);
+
   FD->setContracts(NewCSD);
   if (NewCSD->isInvalidDecl())
     FD->isInvalidDecl();
@@ -793,24 +751,13 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
       return;
     }
     auto *NewCSD = Res.getAs<ContractSpecifierDecl>();
-    NewCSD->setDeclContext(Def);
+    NewCSD->setOwningFunction(Def);
     Def->setContracts(NewCSD);
     if (NewCSD->isInvalidDecl())
       Def->setInvalidDecl(true);
   }
-}
 
-void Sema::ActOnContractsOnMergeFunctionDecl(FunctionDecl *OrigDecl,
-                                             FunctionDecl *NewDecl) {
-  auto *OrigFD = dyn_cast<FunctionDecl>(OrigDecl);
-  auto *NewFD = dyn_cast<FunctionDecl>(NewDecl);
-  if (!OrigFD && !NewFD)
-    return;
-  if (OrigFD && NewFD) {
-    CheckEquivalentContractSequence(OrigFD, NewFD);
-    return;
-  }
-  assert(false);
+
 }
 
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
@@ -841,57 +788,3 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
     OldScope->setIsContractScope(OldInContractScope);
   }
 }
-
-#if 0
-void Sema::InstantiateContractSpecifier(SourceLocation PointOfInstantiation,
-                                    FunctionDecl *Decl) {
-  const FunctionProtoType *Proto = Decl->getType()->castAs<FunctionProtoType>();
-  if (Proto->getExceptionSpecType() != EST_Uninstantiated)
-    return;
-
-  InstantiatingTemplate Inst(*this, PointOfInstantiation, Decl,
-                             InstantiatingTemplate::ExceptionSpecification());
-  if (Inst.isInvalid()) {
-    // We hit the instantiation depth limit. Clear the exception specification
-    // so that our callers don't have to cope with EST_Uninstantiated.
-    UpdateExceptionSpec(Decl, EST_None);
-    return;
-  }
-  if (Inst.isAlreadyInstantiating()) {
-    // This exception specification indirectly depends on itself. Reject.
-    // FIXME: Corresponding rule in the standard?
-    Diag(PointOfInstantiation, diag::err_exception_spec_cycle) << Decl;
-    UpdateExceptionSpec(Decl, EST_None);
-    return;
-  }
-
-  // Enter the scope of this instantiation. We don't use
-  // PushDeclContext because we don't have a scope.
-  Sema::ContextRAII savedContext(*this, Decl);
-  LocalInstantiationScope Scope(*this);
-
-  MultiLevelTemplateArgumentList TemplateArgs =
-      getTemplateInstantiationArgs(Decl, Decl->getLexicalDeclContext(),
-          /*Final=*/false, /*Innermost=*/std::nullopt,
-          /*RelativeToPrimary*/ true);
-
-  // FIXME: We can't use getTemplateInstantiationPattern(false) in general
-  // here, because for a non-defining friend declaration in a class template,
-  // we don't store enough information to map back to the friend declaration in
-  // the template.
-  FunctionDecl *Template = Proto->getExceptionSpecTemplate();
-  if (addInstantiatedParametersToScope(Decl, Template, Scope, TemplateArgs)) {
-    UpdateExceptionSpec(Decl, EST_None);
-    return;
-  }
-
-  // The noexcept specification could reference any lambda captures. Ensure
-  // those are added to the LocalInstantiationScope.
-  LambdaScopeForCallOperatorInstantiationRAII PushLambdaCaptures(
-      *this, Decl, TemplateArgs, Scope,
-      /*ShouldAddDeclsFromParentScope=*/false);
-
-  SubstExceptionSpec(Decl, Template->getType()->castAs<FunctionProtoType>(),
-                     TemplateArgs);
-}
-#endif

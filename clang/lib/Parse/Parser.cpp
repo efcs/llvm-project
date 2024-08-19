@@ -1521,25 +1521,7 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
   if (LateParsedAttrs)
     ParseLexedAttributeList(*LateParsedAttrs, Res, false, true);
 
-  Decl *FuncWithBody = ParseFunctionStatementBody(Res, BodyScope);
-  if (!FuncWithBody || FuncWithBody->isInvalidDecl())
-    return FuncWithBody;
-  FunctionDecl *FunctionToPush;
-  if (FunctionTemplateDecl *FunTmpl =
-          dyn_cast<FunctionTemplateDecl>(FuncWithBody))
-    FunctionToPush = FunTmpl->getTemplatedDecl();
-  else
-    FunctionToPush = cast<FunctionDecl>(FuncWithBody);
-  assert(FunctionToPush);
-  FunctionDecl *FD =
-      FunctionToPush; // dyn_cast_or_null<FunctionDecl>(FuncWithBody);
-  assert(FD);
-  if (!D.LateParsedContracts.empty()) {
-    assert(getLangOpts().LateParsedContracts);
-    assert(!FD->getReturnType()->isUndeducedAutoType());
-    ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
-  }
-  return FuncWithBody;
+  return ParseFunctionStatementBody(Res, BodyScope);
 }
 
 void Parser::SkipFunctionBody() {

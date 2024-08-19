@@ -785,6 +785,9 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
 }
 
 void ASTDeclWriter::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  assert(!CSD->hasInventedPlaceholdersTypes() &&
+         "Cannot have invented placeholders on a serializable declaration");
+
   VisitDecl(CSD);
   Record.push_back(CSD->NumContracts);
   for (auto *C : CSD->contracts())
@@ -1718,9 +1721,9 @@ void ASTDeclWriter::VisitConceptDecl(ConceptDecl *D) {
 
 void ASTDeclWriter::VisitResultNameDecl(ResultNameDecl *D) {
   VisitNamedDecl(D);
-  Record.push_back(D->isCanonicalResultNameDecl());
-  if (!D->isCanonicalResultNameDecl()) {
-    Record.AddDeclRef(D->getCanonicalResultNameDecl());
+  Record.push_back(D->isCanonicalResultName());
+  if (!D->isCanonicalResultName()) {
+    Record.AddDeclRef(D->getCanonicalResultName());
   }
   Code = serialization::DECL_RESULT_NAME;
 }

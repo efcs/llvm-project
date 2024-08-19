@@ -1,5 +1,5 @@
 
-// RUN:  %clang_cc1 -std=c++2b  -verify -fcontracts -fsyntax-only -fno-late-parsed-contracts %s
+// RUN:  %clang_cc1 -std=c++2b  -verify -fcontracts -fsyntax-only %s
 
 // Test cases for contract assertions and lambda captures
 

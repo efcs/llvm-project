@@ -911,7 +911,7 @@ void ASTDeclReader::VisitResultNameDecl(ResultNameDecl *VD) {
   VisitNamedDecl(VD);
   bool IsCanonical = Record.readInt();
   if (!IsCanonical) {
-    VD->setCanonicalResultNameDecl(readDeclAs<ResultNameDecl>());
+    VD->setCanonicalResultName(readDeclAs<ResultNameDecl>());
   }
 }
 
