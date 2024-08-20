@@ -482,6 +482,7 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
   }
   DeclRefExprBits.IsImmediateEscalating = false;
   DeclRefExprBits.HadMultipleCandidates = 0;
+  DeclRefExprBits.IsConstified = false;
   setDependence(computeDependence(this, Ctx));
 }
 

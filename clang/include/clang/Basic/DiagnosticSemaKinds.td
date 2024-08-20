@@ -12000,7 +12000,7 @@ def note_previous_contracts : Note<
   "|with a non-equivalent condition}0">;
 
 def err_contract_attr_bool_arg_not_constant : Error<
-  "argument to '%0' attribute must be a boolean constant expression">;
+  "argument to %0 attribute must be a boolean constant expression">;
 
 def warn_contract_always_evaluates_to : Warning<
   "contract condition always evaluates to %select{false|true}0">,
@@ -12014,16 +12014,19 @@ def note_parameter_with_name_and_type : Note<
   "parameter %0 declared with type %1 here">;
 
 def err_lambda_implicit_capture_in_contracts_only : Error<
-         "implicit capture of local entity '%0' is not allowed when used exclusively in contract assertions">;
+         "implicit capture of local entity %0 is not allowed when used exclusively in contract assertions">;
 
 def note_lambda_implicit_capture_in_contracts_only : Note<
-  "use explicit capture list to capture '%0'">;
+  "use explicit capture list to capture %0">;
 
 def err_auto_result_name_on_non_def_decl : Error<
-   "postcondition with result name '%0' cannot appear on a function declaration with deduced return type unless it is a definition">;
+   "postcondition with result name %0 cannot appear on a function declaration with deduced return type unless it is a definition">;
    // "result name '%0' cannot appear in postcondition for a non-template function declaration with a deduced return type">;
 def note_function_return_type : Note<
     "function return type declared here">;
+
+def note_contract_context : Note<
+  "within contract context introduced here">;
 
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {

@@ -74,7 +74,7 @@ static const char *getContractKeywordStr(ContractKind CK) {
 
 static ExprResult parseContractCondition(Parser &P, Sema &Actions,
                                          SourceLocation Loc) {
-  Sema::ContractScopeRAII ContractScope(Actions);
+  Sema::ContractScopeRAII ContractScope(Actions, Loc);
   ExprResult CondResult = Actions.CorrectDelayedTyposInExpr(P.ParseConditionalExpression());
   if (CondResult.isInvalid())
     return CondResult;

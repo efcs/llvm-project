@@ -51,3 +51,15 @@ int foo(T v) {
   contract_assert((assert_same<decltype(v3), const int>(), true));
 }
 template int foo(int); // expected-note {{requested here}}
+
+namespace DecompDecl {
+struct A {
+  int a = 101;
+  int b = 42;
+};
+void f(A& x) {
+  auto [a, b] = x;
+  contract_assert(++a);
+}
+
+}

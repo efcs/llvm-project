@@ -618,19 +618,12 @@ void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   Record.AddSourceLocation(D->getInnerLocStart());
   BitsPacker DeclDeclBits;
   DeclDeclBits.addBit(D->hasExtInfo());
-  DeclDeclBits.addBit(D->hasContracts());
   Record.push_back(DeclDeclBits);
 
   if (D->hasExtInfo()) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
     Record.AddStmt(Info->TrailingRequiresClause);
-    if (D->hasContracts()) {
-      Record.AddDeclRef(D->getContracts());
-    }
-    // Record.push_back(Info->Contracts.size());
-    // for (auto *C : Info->Contracts)
-    //  Record.AddStmt(C);
   }
   // The location information is deferred until the end of the record.
   Record.AddTypeRef(D->getTypeSourceInfo() ? D->getTypeSourceInfo()->getType()

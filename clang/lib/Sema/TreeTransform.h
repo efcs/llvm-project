@@ -8664,7 +8664,7 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
                          Qualifiers());
   }
 
-  Sema::ContractScopeRAII ContractScope(getSema());
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getKeywordLoc());
 
   StmtResult NewResultName;
   if (S->hasResultName()) {

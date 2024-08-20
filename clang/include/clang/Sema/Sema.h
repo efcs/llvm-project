@@ -6566,19 +6566,44 @@ public:
     return ExprEvalContexts.back().isConstificationContext();
   }
 
+  struct ContractScopeRecord {
+
+    SourceLocation KeywordLoc;
+    QualType PreviousCXXThisType;
+    bool AddedConstToCXXThis = false;
+    bool WasInContractContext = false;
+    Scope *SaveScope = nullptr;
+    ContractScopeRecord *Previous = nullptr;
+
+  public:
+    ContractScopeRecord(SourceLocation KeywordLoc, QualType PreviousCXXThisType,
+                        bool AddedConstToCXXThis, bool WasInContractContext,
+                        Scope *SaveScope, ContractScopeRecord *Previous)
+        : KeywordLoc(KeywordLoc), PreviousCXXThisType(PreviousCXXThisType),
+          AddedConstToCXXThis(AddedConstToCXXThis),
+          WasInContractContext(WasInContractContext), SaveScope(SaveScope),
+          Previous(Previous) {}
+
+    ContractScopeRecord(ContractScopeRecord const &) = delete;
+    ContractScopeRecord &operator=(ContractScopeRecord const &) = delete;
+  };
+
   struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S, bool ReplaceThis = false);
+    ContractScopeRAII(Sema &S, SourceLocation ContractLoc,
+                      bool ReplaceThis = false);
     ~ContractScopeRAII();
 
   private:
     ContractScopeRAII(ContractScopeRAII const &) = delete;
+    ContractScopeRAII &operator=(ContractScopeRAII const &) = delete;
 
     Sema &S;
-    bool OldValue;
-    QualType OldCXXThisType;
-    Scope *OldScope;
-    bool OldInContractScope;
+    ContractScopeRecord Record;
   };
+
+  // The contract whos condition is the current expression evaluation context.
+  // or null if we're not inside a contract.
+  ContractScopeRecord *CurrentContractEntry = nullptr;
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
@@ -8169,6 +8194,11 @@ public:
   /// current context not being a non-static member function. In such cases,
   /// this provides the type used for 'this'.
   QualType CXXThisTypeOverride;
+
+  /// Whether the current CXXThisTypeOverride has `const` added to it by a
+  /// contract constification context when the current 'this' type would have
+  /// otherwise been non-const. Used when issuing diagnostics.
+  bool ContractAddedConstToCXXThis = false;
 
   /// RAII object used to temporarily allow the C++ 'this' expression
   /// to be used, with the given qualifiers on the current class type.

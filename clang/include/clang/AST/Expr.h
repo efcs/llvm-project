@@ -1270,6 +1270,9 @@ constexpr ContractConstification CC_ApplyConst =
 ///   DeclRefExprBits.RefersToEnclosingVariableOrCapture
 ///       Specifies when this declaration reference expression (validly)
 ///       refers to an enclosed local or a captured variable.
+///   DeclRefExprBits.IsInConstificationContext
+///     Specifies when this declaration reference expression is in a context
+///     where constification is applied.
 class DeclRefExpr final
     : public Expr,
       private llvm::TrailingObjects<DeclRefExpr, NestedNameSpecifierLoc,
@@ -1493,6 +1496,10 @@ public:
     DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = Set;
     setDependence(computeDependence(this, Context));
   }
+
+  void setIsConstified(bool Value) { DeclRefExprBits.IsConstified = Value; }
+
+  bool isConstified() const { return DeclRefExprBits.IsConstified; }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == DeclRefExprClass;

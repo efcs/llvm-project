@@ -760,11 +760,26 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 
 }
 
-Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
-    : S(S), OldValue(S.ExprEvalContexts.back().InContractAssertion),
-      OldCXXThisType(S.CXXThisTypeOverride), OldScope(S.getCurScope()),
-      OldInContractScope(OldScope ? OldScope->isContractScope() : false) {
+Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
+                                           bool OverrideThis)
+    : S(S), Record{Loc,
+                   S.CXXThisTypeOverride,
+                   false,
+                   S.ExprEvalContexts.back().InContractAssertion,
+                   S.getCurScope(),
+                   S.CurrentContractEntry} {
+
+  // Setup the constification context when building declref expressions.
   S.ExprEvalContexts.back().InContractAssertion = true;
+
+  // P2900R8 [expr.prim.this]p2
+  //   If the expression 'this' appears ... in a contract assertion
+  //     (including as the result of the implicit transformation in the body of
+  //     a non-static member function and including in the bodies of nested
+  //     lambda-expressions),
+  // ...
+  //  const is combined with the cv-qualifier-seq used to generate the resulting
+  //  type (see below
   if (!S.CXXThisTypeOverride.isNull()) {
     assert(S.CXXThisTypeOverride->isPointerType());
     QualType ClassType = S.CXXThisTypeOverride->getPointeeType();
@@ -772,19 +787,25 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, bool OverrideThis)
       // If the 'this' object is const-qualified, we need to remove the
       // const-qualification for the contract check.
       ClassType.addConst();
+      Record.AddedConstToCXXThis = true;
       S.CXXThisTypeOverride = S.Context.getPointerType(ClassType);
     }
   }
-  if (OldScope) {
-    OldScope->setIsContractScope(true);
+
+  if (Record.SaveScope) {
+    if (Record.SaveScope->isControlScope())
+      Record.SaveScope = nullptr;
+    else
+      Record.SaveScope->setIsContractScope(true);
   }
 }
 
 Sema::ContractScopeRAII::~ContractScopeRAII() {
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
-  S.ExprEvalContexts.back().InContractAssertion = OldValue;
-  S.CXXThisTypeOverride = OldCXXThisType;
-  if (OldScope) {
-    OldScope->setIsContractScope(OldInContractScope);
-  }
+  S.ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
+  S.CXXThisTypeOverride = Record.PreviousCXXThisType;
+  if (Record.SaveScope)
+    Record.SaveScope->setIsContractScope(false);
+
+  S.CurrentContractEntry = Record.Previous;
 }

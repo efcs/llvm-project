@@ -3209,12 +3209,42 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
 static ContractConstification getContractConstification(Sema &S,
                                                         const ValueDecl *VD) {
   assert(VD);
-
   if (!S.isConstificationContext())
     return CC_None;
 
-  if (auto Var = dyn_cast<VarDecl>(VD)) {
-    if (Var->isLocalVarDeclOrParm())
+  // if the unqualified-id appears in the predicate of a contract assertion
+  //  ([basic.contract]) and the entity is
+  // ...
+
+  // — the result object of (possibly deduced, see [dcl.spec.auto]) type T of a
+  // function
+  //  call and the unqualified-id is the result name ([dcl.contract.res]) in a
+  //  postcondition assertion,
+  if (isa<ResultNameDecl>(VD))
+    return CC_ApplyConst;
+
+  // — a structured binding of type T whose corresponding variable has automatic
+  // storage
+  //  duration, or
+  if (auto *Bound = dyn_cast<BindingDecl>(VD)) {
+    if (auto *Var = Bound->getHoldingVar();
+        Var &&
+        (Var->isLocalVarDeclOrParm() || Var->getStorageClass() == SC_Auto))
+      return CC_ApplyConst;
+    return CC_None;
+  }
+
+  // — a variable with automatic storage duration ...
+  if (auto Var = dyn_cast<VarDecl>(VD);
+      (Var &&
+       (Var->isLocalVarDeclOrParm() || Var->getStorageClass() == SC_Auto))) {
+    // ... of object type T, or
+    if (Var->getType()->isObjectType())
+      return CC_ApplyConst;
+
+    // of type 'reference to T'
+    if (Var->getType()->isReferenceType() &&
+        Var->getType().getNonReferenceType()->isObjectType())
       return CC_ApplyConst;
   }
 
@@ -3283,7 +3313,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
   // is expanded by some outer '...' in the context of the use.
   type = type.getNonPackExpansionType();
 
-  ContractConstification CC = CC_None;
+  bool TypeWasSetByLambdaCapture = false;
 
   switch (D->getKind()) {
     // Ignore all the non-ValueDecl kinds.
@@ -3369,19 +3399,14 @@ ExprResult Sema::BuildDeclarationNameExpr(
     valueKind = VK_LValue;
     type = type.getNonReferenceType();
 
-
     // FIXME: Does the addition of const really only apply in
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
-
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
-      if (!CapturedType.isNull())
+      if (!CapturedType.isNull()) {
         type = CapturedType;
-      else {
-        CC = getContractConstification(*this, cast<VarDecl>(VD));
-        if (CC == CC_ApplyConst)
-          type.addConst();
+        TypeWasSetByLambdaCapture = true;
       }
     }
 
@@ -3390,7 +3415,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
   case Decl::ResultName: // FIXME(EricWF): Is this even close to correct?
     valueKind = VK_LValue;
-    type = type.getNonReferenceType().withConst();
+    type = type.getNonReferenceType();
     break;
 
   case Decl::Binding:
@@ -3479,9 +3504,21 @@ ExprResult Sema::BuildDeclarationNameExpr(
     break;
   }
 
+  const ContractConstification Constification =
+      getContractConstification(*this, VD);
+  bool ApplyConstification = !TypeWasSetByLambdaCapture &&
+                             Constification == CC_ApplyConst &&
+                             !type.isConstQualified();
+
+  if (ApplyConstification)
+    type = type.withConst();
+
   auto *E =
       BuildDeclRefExpr(VD, type, valueKind, NameInfo, &SS, FoundD,
                        /*FIXME: TemplateKWLoc*/ SourceLocation(), TemplateArgs);
+
+  if (ApplyConstification)
+    E->setIsConstified(true);
 
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
@@ -17206,101 +17243,6 @@ TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
   if (isUnevaluatedContext())
     return TInfo;
   return TransformToPE(*this).TransformType(TInfo);
-}
-
-#define ENT(X) case Sema::ExpressionEvaluationContext::X: return #X
-static StringRef ToString(Sema::ExpressionEvaluationContext Ctx) {
-  switch (Ctx) {
-  ENT(Unevaluated);
-  ENT(UnevaluatedList);
-  ENT(UnevaluatedAbstract);
-  ENT(DiscardedStatement);
-  ENT(ConstantEvaluated);
-  ENT(ImmediateFunctionContext);
-  ENT(PotentiallyEvaluated);
-  ENT(PotentiallyEvaluatedIfUsed);
-  }
-  llvm_unreachable("All cases handeled");
-}
-#undef ENT
-
-#define ENT(X) case Sema::ExpressionEvaluationContextRecord::X: return #X
-static StringRef ToString(Sema::ExpressionEvaluationContextRecord::ExpressionKind EK) {
-  switch (EK) {
-  ENT(EK_Decltype);
-  ENT(EK_AttrArgument);
-  ENT(EK_Other);
-  ENT(EK_TemplateArgument);
-  }
-  llvm_unreachable("all cases handled");
-}
-#undef ENT
-
-static StringRef ToString(bool B) {
-  return B ? "true" : "false";
-}
-
-struct StaticData {
-  unsigned LastDepth = 0;
-};
-
-StaticData Data = {};
-
-[[maybe_unused]] static void Dump(Sema& S) {
-  unsigned int CurDepth = S.ExprEvalContexts.size();
-  auto DoDump = [](const auto &Record, int Depth) {
-    static const char *const Banner =
-        "\n================================================================\n";
-    llvm::errs() << Banner;
-    llvm::errs() << "Entering Eval Context: (Depth: " << Depth << ") "
-                 << &Record << "\n";
-    llvm::errs() << "  Context    : " << ToString(Record.Context) << "\n";
-    llvm::errs() << "  Kind       : " << ToString(Record.ExprContext) << "\n";
-    llvm::errs() << "  InContract : " << ToString(Record.InContractAssertion)
-                 << "\n";
-    llvm::errs() << "  Discarded  : "
-                 << ToString(Record.isDiscardedStatementContext()) << "\n";
-    llvm::errs() << "  # Lambdas  : " << Record.Lambdas.size() << "\n";
-    llvm::errs() << "  Mangle Ctx : " << Record.ManglingContextDecl;
-    if (Record.ManglingContextDecl) {
-      Record.ManglingContextDecl->dumpColor();
-    }
-    llvm::errs() << Banner;
-  };
-  [&]() {
-    unsigned int ContractDepth = 0;
-    bool InAssert = false;
-    int Idx = 0;
-    for (auto &Record : llvm::reverse(S.ExprEvalContexts)) {
-
-      if (Record.InContractAssertion) {
-        ++ContractDepth;
-        if (!InAssert) {
-          llvm::errs() << "Flipping to true at index: " << Idx << "\n";
-        }
-        InAssert = true;
-      } else {
-        if (InAssert) {
-          llvm::errs() << "Flipping to false at index: " << Idx << "\n";
-        }
-        InAssert = false;
-      }
-      ++Idx;
-    }
-    llvm::errs() << "Ended with broken depth of: " << ContractDepth << "\n";
-  }();
-   if (CurDepth > Data.LastDepth) {
-    for (unsigned int i = Data.LastDepth; i < CurDepth; ++i) {
-      DoDump(S.ExprEvalContexts[i], i);
-    }
-  }
-  else {
-    for (unsigned int i = Data.LastDepth > 2 ? Data.LastDepth - 2 : 0; i < CurDepth; ++i) {
-      DoDump(S.ExprEvalContexts[i], i);
-    }
-  }
-  Data.LastDepth = CurDepth;
-
 }
 
 void

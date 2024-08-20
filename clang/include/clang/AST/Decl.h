@@ -739,7 +739,6 @@ class DeclaratorDecl : public ValueDecl {
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo;
     Expr *TrailingRequiresClause = nullptr;
-    ContractSpecifierDecl *Contracts = nullptr;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -819,25 +818,7 @@ public:
                         : nullptr;
   }
 
-  bool hasContracts() const { return getContracts() != nullptr; }
-
-  ContractSpecifierDecl *getContracts() const {
-    if (hasExtInfo())
-      return getExtInfo()->Contracts;
-    return nullptr;
-  }
-
-  using ContractPreconditionRange = llvm::iterator_range<llvm::filter_iterator<
-      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
-  using ContractPostconditionRange = ContractPreconditionRange;
-
-  ContractPreconditionRange preconditions() const;
-  ContractPostconditionRange postconditions() const;
-  ArrayRef<ContractStmt *> contracts() const;
-
   void setTrailingRequiresClause(Expr *TrailingRequiresClause);
-
-  void setContracts(ContractSpecifierDecl *Contracts);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2020,6 +2001,10 @@ private:
   /// no formals.
   ParmVarDecl **ParamInfo = nullptr;
 
+  /// The contract sequence specified on this function declaration if there is
+  /// any, otherwise nullptr
+  ContractSpecifierDecl *Contracts = nullptr;
+
   /// The active member of this union is determined by
   /// FunctionDeclBits.HasDefaultedOrDeletedInfo.
   union {
@@ -3049,6 +3034,22 @@ public:
       return FPT->getFunctionEffects();
     return {};
   }
+
+  /// Set the function level contracts for this function. Update the specifier
+  /// decl and it's children to have this declaration as a declaration context.
+  void setContracts(ContractSpecifierDecl *CSD);
+
+  bool hasContracts() const { return Contracts != nullptr; }
+
+  ContractSpecifierDecl *getContracts() const { return Contracts; }
+
+  using ContractRange = llvm::iterator_range<llvm::filter_iterator<
+      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
+
+  // Convenience functions to get the preconditions and postconditions.
+  ArrayRef<ContractStmt *> contracts() const;
+  ContractRange preconditions() const;
+  ContractRange postconditions() const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

@@ -2014,20 +2014,6 @@ void DeclaratorDecl::setTrailingRequiresClause(Expr *TrailingRequiresClause) {
   getExtInfo()->TrailingRequiresClause = TrailingRequiresClause;
 }
 
-void DeclaratorDecl::setContracts(ContractSpecifierDecl *NewContracts) {
-  // Make sure the extended decl info is allocated.
-  if (!hasExtInfo()) {
-    // Save (non-extended) type source info pointer.
-    auto *savedTInfo = DeclInfo.get<TypeSourceInfo*>();
-    // Allocate external info struct.
-    DeclInfo = new (getASTContext()) ExtInfo;
-    // Restore savedTInfo into (extended) decl info.
-    getExtInfo()->TInfo = savedTInfo;
-  }
-
-  getExtInfo()->Contracts = NewContracts;
-}
-
 void DeclaratorDecl::setTemplateParameterListsInfo(
     ASTContext &Context, ArrayRef<TemplateParameterList *> TPLists) {
   assert(!TPLists.empty());
@@ -3657,28 +3643,33 @@ FunctionDecl *FunctionDecl::getDeclForContracts() {
     return Def;
   return getCanonicalDecl();
 }
+
 const FunctionDecl *FunctionDecl::getDeclForContracts() const {
   if (auto *Def = getDefinition(); Def && Def->getContracts())
     return Def;
   return getCanonicalDecl();
 }
 
-ArrayRef<ContractStmt *> DeclaratorDecl::contracts() const {
-  if (auto *CSD = getContracts())
+void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
+  Contracts = CSD;
+  if (CSD)
+    CSD->setOwningFunction(this);
+}
+
+ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
+  if (auto *CSD = Contracts)
     return CSD->contracts();
   return std::nullopt;
 }
 
-DeclaratorDecl::ContractPostconditionRange
-DeclaratorDecl::postconditions() const {
+FunctionDecl::ContractRange FunctionDecl::postconditions() const {
   return llvm::make_filter_range(
       contracts(), +[](const ContractStmt *CS) {
         return CS->getContractKind() == ContractKind::Post;
       });
 }
 
-DeclaratorDecl::ContractPreconditionRange
-DeclaratorDecl::preconditions() const {
+FunctionDecl::ContractRange FunctionDecl::preconditions() const {
   return llvm::make_filter_range(
       contracts(), +[](const ContractStmt *CS) {
         return CS->getContractKind() == ContractKind::Pre;

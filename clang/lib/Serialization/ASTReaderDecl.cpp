@@ -928,14 +928,11 @@ void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
   DD->setInnerLocStart(readSourceLocation());
   BitsUnpacker DeclDeclBits(Record.readInt());
   bool HaveExtInfo = DeclDeclBits.getNextBit();
-  bool HaveContracts = DeclDeclBits.getNextBit();
 
   if (HaveExtInfo) { // hasExtInfo
     auto *Info = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     Record.readQualifierInfo(*Info);
     Info->TrailingRequiresClause = Record.readExpr();
-    if (HaveContracts)
-      Info->Contracts = Record.readDeclAs<ContractSpecifierDecl>();
     DD->DeclInfo = Info;
   }
   QualType TSIType = Record.readType();
@@ -1171,8 +1168,11 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
 
-  if (HasContracts)
-    FD->setContracts(readDeclAs<ContractSpecifierDecl>());
+  if (HasContracts) {
+    ContractSpecifierDecl *CSD = readDeclAs<ContractSpecifierDecl>();
+    CSD->setOwningFunction(FD);
+    FD->setContracts(CSD);
+  }
 }
 
 void ASTDeclReader::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {

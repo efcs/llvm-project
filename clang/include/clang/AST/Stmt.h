@@ -449,9 +449,9 @@ protected:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsImmediateEscalating : 1;
     // True if the expression had constification applied due to a contract
-    // scope.
+    // scope (and it wouldn't have otherwise been const).
     LLVM_PREFERRED_TYPE(bool)
-    unsigned IsInConstificationContext : 1;
+    unsigned IsConstified : 1;
 
     /// The location of the declaration name itself.
     SourceLocation Loc;
