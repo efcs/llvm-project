@@ -91,35 +91,3 @@ int test_result_name_scope() post(r : r != 0) {
   ((void)r); // expected-error {{use of undeclared identifier 'r'}}
   return 42;
 }
-
-namespace test_constification {
-bool eat(int&);
-struct S {
-  bool f(); // expected-note 1+ {{'f' declared here}}
-  void g()
-    pre(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const test_constification::S', but function is not marked const}}
-    pre(++m) // expected-error {{read-only variable is not assignable}}
-    post(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const test_constification::S', but function is not marked const}}
-    post(++m) // expected-error {{read-only variable is not assignable}}
-  {
-    contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const test_constification::S', but function is not marked const}}
-    contract_assert(++m); // expected-error {{read-only variable is not assignable}}
-  }
-  int m;
-};
-template <class T>
-struct ST {
-  bool f(); // expected-note 1+ {{'f' declared here}}
-void g()
-  pre(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const test_constification::ST<int>', but function is not marked const}}
-  pre(++m) // expected-error {{read-only variable is not assignable}}
-  post(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const test_constification::ST<int>', but function is not marked const}}
-  post(++m) // expected-error {{read-only variable is not assignable}}
-  {
-    contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const test_constification::ST<int>', but function is not marked const}}
-    contract_assert(++m); // expected-error {{read-only variable is not assignable}}
-  }
-  T m;
-};
-template struct ST<int>; // expected-note {{in instantiation of member function 'test_constification::ST<int>::g' requested here}}
-}

@@ -6605,6 +6605,11 @@ public:
   // or null if we're not inside a contract.
   ContractScopeRecord *CurrentContractEntry = nullptr;
 
+  SourceLocation getCurrentContractKeywordLoc() {
+    assert(CurrentContractEntry && "No current contract?");
+    return CurrentContractEntry->KeywordLoc;
+  }
+
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
   /// assignment.

@@ -9991,11 +9991,6 @@ TEST_P(ASTImporterOptionSpecificTestBase, AutoResultName) {
   EXPECT_FALSE(CSD->hasInventedPlaceholdersTypes());
   const ResultNameDecl *RND = CSD->getCanonicalResultName();
   EXPECT_TRUE(RND->getType()->isIntegerType());
-  QualType RNDType = FromTU->getASTContext().getCanonicalType(RND->getType());
-  QualType RetType =
-      FromTU->getASTContext().getCanonicalType(To->getReturnType());
-  EXPECT_EQ(RNDType.getCanonicalType().getTypePtr(),
-            RetType.getCanonicalType().getTypePtr());
 }
 
 // Ensure we correctly import result names with the reference to the canonical

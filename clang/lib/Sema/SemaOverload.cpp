@@ -5907,7 +5907,8 @@ ExprResult Sema::PerformImplicitObjectArgumentInitialization(
         if (CurrentContractEntry && CurrentContractEntry->AddedConstToCXXThis) {
           // If we're in a contract assertion context, we can't modify the
           // 'this' type. So we'll just return an error here.
-          Diag(CurrentContractEntry->KeywordLoc, diag::note_contract_context);
+          Diag(CurrentContractEntry->KeywordLoc,
+               diag::note_cxx_this_const_in_contract_introduced_here);
         }
         return ExprError();
       }

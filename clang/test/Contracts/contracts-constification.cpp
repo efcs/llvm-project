@@ -19,9 +19,8 @@ int *y = nullptr;
 int foo() {
   int x = 42;
   contract_assert(
-    ++x && // expected-error {{read-only variable}}
+    ++x && // expected-error {{it is considered 'const'}}
     (y = &x)); // expected-error {{discards qualifiers}}
-
 }
 
 template <class T, class U>
@@ -42,8 +41,8 @@ int foo(T v) {
   int v2 = v;
   const int v3 = v; // expected-note {{declared const here}}
   contract_assert((
-  ++v, // expected-error {{read-only variable}}
-  ++v2, // expected-error {{read-only variable}}
+  ++v, // expected-error {{it is considered 'const'}}
+  ++v2, // expected-error {{it is considered 'const' inside of a contract}}
   ++v3  // expected-error {{const-qualified type 'const int'}}
   ));
   contract_assert((assert_same<decltype(v), T>(), true));
@@ -61,5 +60,50 @@ void f(A& x) {
   auto [a, b] = x;
   contract_assert(++a);
 }
+
+}
+
+namespace ModifiedIntReturnValue {
+
+template <class T>
+auto bar(T x) post(r : ++r != 42) { // expected-error {{cannot assign to variable 'r' because it is considered 'const' inside of a contract}}
+return x;
+}
+template auto bar(int); // expected-note {{requested here}}
+}
+
+namespace NonStaticMembers {
+
+bool eat(int&);
+struct S {
+  bool f(); // expected-note 1+ {{'f' declared here}}
+  void g()
+  pre(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::S', but function is not marked const}}
+  // expected-note@-1 {{'this' is 'const' within contract introduced here}}
+  pre(++m) // expected-error {{considered 'const'}}
+  post(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::S', but function is not marked const}}
+  // expected-note@-1 {{'this' is 'const' within contract introduced here}}
+  post(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
+  {
+    contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::S', but function is not marked const}}
+    contract_assert(++m); // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
+  }
+  int m;
+};
+template <class T>
+struct ST {
+  bool f(); // expected-note 1+ {{'f' declared here}}
+  void g()
+  pre(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+  pre(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
+  post(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+  post(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
+  {
+    contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+    contract_assert(++m); // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
+  }
+  T m;
+};
+template struct ST<int>; // expected-note {{in instantiation of member function 'NonStaticMembers::ST<int>::g' requested here}}
 
 }

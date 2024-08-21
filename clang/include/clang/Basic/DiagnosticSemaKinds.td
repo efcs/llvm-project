@@ -7497,6 +7497,9 @@ def note_typecheck_assign_const : Note<
   "member function %q1 is declared const here|"
   "%select{|nested }1data member %2 declared const here}0">;
 
+def err_typecheck_assign_constified : Error<
+    "cannot assign to %select{variable %1|non-static data member}0 because it is considered 'const' inside of a contract">;
+
 def warn_unsigned_always_true_comparison : Warning<
   "result of comparison of %select{%3|unsigned expression}0 %2 "
   "%select{unsigned expression|%3}0 is always %4">,
@@ -12027,6 +12030,10 @@ def note_function_return_type : Note<
 
 def note_contract_context : Note<
   "within contract context introduced here">;
+def note_cxx_this_const_in_contract_introduced_here : Note<
+  "'this' is 'const' within contract introduced here">;
+def err_keyword_not_allowed_in_contract : Error<
+    "'%0' cannot be used inside a contract">;
 
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {

@@ -13247,6 +13247,11 @@ enum {
   ConstUnknown,  // Keep as last element
 };
 
+enum {
+  ConstifiedVariable,
+  ConstifiedCXXThis,
+};
+
 /// Emit the "read-only variable not assignable" error and print notes to give
 /// more information about why the variable is not assignable, such as pointing
 /// to the declaration of a const variable, showing that a method is const, or
@@ -13278,7 +13283,6 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           assert(DiagnosticEmitted && "Expected diagnostic not emitted.");
           break;
         }
-
         if (!IsTypeModifiable(Field->getType(), IsDereference)) {
           if (!DiagnosticEmitted) {
             S.Diag(Loc, diag::err_typecheck_assign_const)
@@ -13345,6 +13349,10 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
         }
         S.Diag(VD->getLocation(), diag::note_typecheck_assign_const)
             << ConstVariable << VD << VD->getType() << VD->getSourceRange();
+      } else if (DRE->isConstified()) {
+        S.Diag(Loc, diag::err_typecheck_assign_constified)
+            << ExprRange << /*IsMemberExpr=*/false << VD;
+        DiagnosticEmitted = true;
       }
     }
   } else if (isa<CXXThisExpr>(E)) {
@@ -13358,6 +13366,10 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           }
           S.Diag(MD->getLocation(), diag::note_typecheck_assign_const)
               << ConstMethod << MD << MD->getSourceRange();
+        } else if (S.isConstificationContext()) {
+          S.Diag(Loc, diag::err_typecheck_assign_constified)
+              << ExprRange << /*IsMemberExpr*/ true;
+          DiagnosticEmitted = true;
         }
       }
     }
@@ -13368,6 +13380,12 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
 
   // Can't determine a more specific message, so display the generic error.
   S.Diag(Loc, diag::err_typecheck_assign_const) << ExprRange << ConstUnknown;
+
+  // If we're inside a contract statement, note that in case it's helpful. Maybe
+  // the variable was constified?
+  if (S.isConstificationContext() &&
+      !S.getCurrentContractKeywordLoc().isInvalid())
+    S.Diag(S.getCurrentContractKeywordLoc(), diag::note_contract_context);
 }
 
 enum OriginalExprKind {

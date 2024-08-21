@@ -75,6 +75,41 @@ public:
 };
 
 namespace {
+template <class T> struct ValueRAII {
+  ValueRAII(T &XDest, T const &Value, bool Enter = true) : Dest(&XDest) {
+    if (Enter)
+      push(Value);
+  }
+
+  ~ValueRAII() { pop(); }
+
+  ValueRAII(ValueRAII const &) = delete;
+  ValueRAII &operator=(ValueRAII const &) = delete;
+
+  void push(T const &Value) {
+    assert(!Entered);
+    OldValue = *Dest;
+    *Dest = Value;
+    Entered = true;
+  }
+
+  void pop() {
+    if (Entered)
+      *Dest = OldValue;
+    Entered = false;
+  }
+
+private:
+  bool Entered = false;
+  T *Dest;
+  T OldValue;
+};
+
+template <class T> ValueRAII(T &, T const &) -> ValueRAII<T>;
+
+} // namespace
+
+namespace {
 
 /// Substitute the 'auto' specifier or deduced template specialization type
 /// specifier within a type for a given replacement type.
@@ -113,7 +148,7 @@ public:
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
   assert(currentEvaluationContext().isContractAssertionContext() &&
          "Wrong context for statement");
-  //assert(getCurScope()->isContractAssertScope() && "Incorrect scope for contract assert");
+
   if (Cond->isTypeDependent())
     return Cond;
 
@@ -359,8 +394,6 @@ private:
   const FunctionDecl *FD;
 
 public:
-  bool DidDiagnose = false;
-
   ContractStmt *CurrentContract = nullptr;
   ContractSpecifierDecl *CSD = nullptr;
 
@@ -371,69 +404,90 @@ public:
   }
 
   bool TraverseContractStmt(ContractStmt *CS) {
-    bool SetCurrent = CurrentContract == nullptr;
-    if (SetCurrent)
-      CurrentContract = CS;
+    ValueRAII<ContractStmt *> SetCurrent(CurrentContract, CS,
+                                         CurrentContract == nullptr);
     if (CS->getCond())
       TraverseStmt(CS->getCond());
-    if (SetCurrent)
-      CurrentContract = nullptr;
     return true;
   }
 
-  bool isRelevantParmVar(const ParmVarDecl *PVD) const {
-    if (PVD->getFunctionScopeIndex() < FD->getNumParams())
-      return FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD;
-    return false;
+  enum DiagSelector {
+    DS_None = -1,
+    DS_Array = 0,
+    DS_Function = 1,
+    DS_NotConst = 2
+  };
+
+  DiagSelector classifyDiagnosableParmVar(const ParmVarDecl *PVD,
+                                          const DeclRefExpr *Usage) const {
+    // We only care about parameter's for the function with the contracts we're
+    // evaluating. Ensure this parameter belongs to that function.
+    if (![&] {
+          if (PVD->getFunctionScopeIndex() < FD->getNumParams())
+            return FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD;
+          return false;
+        }())
+      return DS_None;
+
+    // We'll diagnose this when it's non-dependent
+    if (PVD->getType()->isDependentType())
+      return DS_None;
+
+    // Skip diagnosing this parameter if we've already done it.
+    if (DiagnosedDecls.count(PVD))
+      return DS_None;
+
+    // [dcl.contract.func] p2900r8 --
+    //   If a  postcondition  odr-uses ([basic.def.odr]) a non-reference
+    //   parameter...
+    if (PVD->getType()->isReferenceType() || Usage->isNonOdrUse())
+      return DS_None;
+
+    QualType PVDType = PVD->getOriginalType();
+
+    // that parameter shall not
+    // have an array type...
+    if (PVDType->isArrayType() || PVDType->isArrayParameterType())
+      return DS_Array;
+    assert(!PVD->getOriginalType()->isArrayType());
+
+    // or function type...
+    if (PVDType->isFunctionPointerType())
+      return DS_Function;
+
+    // ...and that parameter shall be declared const
+    if (!PVDType.isConstQualified())
+      return DS_NotConst;
+
+    return DS_None;
   }
 
   bool VisitDeclRefExpr(DeclRefExpr *E) {
     assert(CurrentContract && "No current contract to use in diagnostics?");
 
-    enum DiagSelector {
-      DS_None = -1,
-      DS_Array = 0,
-      DS_Function = 1,
-      DS_NotConst = 2
-    };
     // [dcl.contract.func] p2900r8 --
     //   If a  postcondition  odr-uses ([basic.def.odr]) a non-reference
     //   parameter, ... that parameter shall be declared const and shall not
     //   have array or function type. [ Note: This requirement applies even to
     //   declarations that do not specify the postcondition-specifier.]
-    [&]() {
-      auto *PVD = dyn_cast_or_null<ParmVarDecl>(E->getDecl());
-      if (!PVD || DiagnosedDecls.count(PVD) || !isRelevantParmVar(PVD) || PVD->getType()->isDependentType())
-        return;
+    auto *PVD = dyn_cast_or_null<ParmVarDecl>(E->getDecl());
+    if (!PVD || PVD->getType()->isDependentType() || DiagnosedDecls.count(PVD))
+      return true;
 
-      QualType PVDType = PVD->getOriginalType();
-      if (PVDType->isReferenceType())
-        return;
+    if (DiagSelector DiagSelect = classifyDiagnosableParmVar(PVD, E);
+        DiagSelect != DS_None) {
+      DiagnosedDecls.insert(PVD);
+      CSD->setInvalidDecl(true);
 
-      DiagSelector DiagSelect = [&]() {
-        if (PVDType->isArrayType() || PVDType->isArrayParameterType())
-          return DS_Array;
-        assert(!PVD->getOriginalType()->isArrayType());
-        if (PVDType->isFunctionPointerType())
-          return DS_Function;
-        if (!PVDType.isConstQualified())
-          return DS_NotConst;
-        return DS_None;
-      }();
-
-      if (DiagSelect != DS_None) {
-        CSD->setInvalidDecl(true);
-        DiagnosedDecls.insert(PVD);
-        DidDiagnose = true;
-        Actions.Diag(E->getLocation(),
-                     diag::err_contract_postcondition_parameter_type_invalid)
-            << PVD->getIdentifier() << DiagSelect
-            << CurrentContract->getSourceRange();
-
-        Actions.Diag(PVD->getTypeSpecStartLoc(), diag::note_parameter_type)
-            << (DiagSelect == DS_NotConst ? PVD->getType() : PVD->getOriginalType()) << PVD->getSourceRange();
-      }
-    }();
+      Actions.Diag(E->getLocation(),
+                   diag::err_contract_postcondition_parameter_type_invalid)
+          << PVD->getIdentifier() << DiagSelect
+          << CurrentContract->getSourceRange();
+      Actions.Diag(PVD->getTypeSpecStartLoc(), diag::note_parameter_type)
+          << (DiagSelect == DS_NotConst ? PVD->getType()
+                                        : PVD->getOriginalType())
+          << PVD->getSourceRange();
+    }
 
     return true;
   }
@@ -459,10 +513,7 @@ static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
 void Sema::CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition, bool IsInstantiation) {
   assert(FD && FD->hasContracts());
 
-
   diagnoseParamTypes(*this, FD, FD->getContracts());
-
-
 }
 
 void Sema::InstantiateContractSpecifier(
@@ -600,6 +651,7 @@ struct RebuildFunctionContracts
   RebuildFunctionContracts(Sema &S, bool Rebuild = false)
       : TreeTransform<RebuildFunctionContracts>(S), IsAlwaysRebuild(Rebuild) {}
 };
+
 } // namespace
 
 /// Rebuild the contract specifier written on one declaration in the context of
@@ -645,8 +697,6 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   if (CSD->isInvalidDecl())
     Def->isInvalidDecl();
   return CSD;
-
-
 }
 
 ///
@@ -798,9 +848,12 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     else
       Record.SaveScope->setIsContractScope(true);
   }
+
+  S.CurrentContractEntry = &Record;
 }
 
 Sema::ContractScopeRAII::~ContractScopeRAII() {
+  assert(S.CurrentContractEntry == &Record && "Contract scope mismatch");
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
   S.ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
   S.CXXThisTypeOverride = Record.PreviousCXXThisType;
