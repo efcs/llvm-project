@@ -3690,7 +3690,6 @@ void ContractSpecifierDecl::setOwningFunction(DeclContext *FD) {
   setDeclContext(FD);
   for (auto *RND : result_names())
     RND->setDeclContext(FD);
-
 }
 
 bool ContractSpecifierDecl::hasInventedPlaceholdersTypes() const {

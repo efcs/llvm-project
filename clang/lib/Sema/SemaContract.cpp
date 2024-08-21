@@ -121,7 +121,7 @@ public:
   RebuildAutoResultName(Sema &SemaRef, QualType Replacement)
       : TreeTransform<RebuildAutoResultName>(SemaRef),
         Replacement(Replacement) {}
-
+#if 1
   QualType TransformAutoType(TypeLocBuilder &TLB, AutoTypeLoc TL) {
     // If we're building the type pattern to deduce against, don't wrap the
     // substituted type in an AutoType. Certain template deduction rules
@@ -141,6 +141,7 @@ public:
     NewTL.copy(TL);
     return Result;
   }
+#endif
 };
 
 } // namespace
@@ -167,13 +168,12 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    Expr *Cond, DeclStmt *RND,
                                    ArrayRef<const Attr *> Attrs) {
-
   return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs);
 }
 
 StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, ResultNameDecl *RND,
-                                     ParsedAttributes &CXX11Contracts) {
+                                     ParsedAttributes &ContractAttrs) {
 
   DeclStmt *RNDStmt = nullptr;
   if (RND) {
@@ -189,7 +189,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   StmtResult Res =
       BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt,
                         SemaContractHelper::buildAttributesWithDummyNode(
-                            *this, CXX11Contracts, KeywordLoc));
+                            *this, ContractAttrs, KeywordLoc));
 
   if (Res.isInvalid())
     return StmtError();
@@ -220,6 +220,10 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
     IsInvalid = true;
   }
 
+  // If needed, invent a fake placeholder type to represent the result name.
+  // This is needed when we encounter a deduced return type on a non-template
+  // function. We'll replace this once we've completed the function definition
+  // (which must be attached to this declaration).
   bool HasInventedPlaceholderTypes =
       RetType->isUndeducedAutoType() && !RetType->isDependentType();
   if (HasInventedPlaceholderTypes)
@@ -275,14 +279,30 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
 
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                            FunctionDecl *NewDecl) {
+  // If the new declaration doesn't contain any contracts, that's fine, they can
+  // be omitted.
+  if (!NewDecl->hasContracts())
+    return false;
 
+  assert(!NewDecl->getContracts()->isInvalidDecl());
+  if (OrigDecl->hasContracts() && OrigDecl->getContracts()->isInvalidDecl()) {
+    NewDecl->getContracts()->setInvalidDecl(true);
+    NewDecl->setInvalidDecl(true);
+    return true;
+  }
   ContractSpecifierDecl *OrigContractSpec = OrigDecl->getContracts();
   ContractSpecifierDecl *NewContractSpec = NewDecl->getContracts();
   ArrayRef<const ContractStmt *> OrigContracts, NewContracts;
   if (OrigContractSpec)
     OrigContracts = OrigContractSpec->contracts();
-  if (NewContractSpec)
-    NewContracts = NewContractSpec->contracts();
+
+  NewContracts = NewContractSpec->contracts();
+
+  if (OrigContractSpec && OrigContractSpec->isInvalidDecl()) {
+    NewContractSpec->setInvalidDecl(true);
+    NewDecl->setInvalidDecl(true);
+    return true;
+  }
 
   enum DifferenceKind {
     DK_None = -1,
@@ -445,8 +465,7 @@ public:
 
     QualType PVDType = PVD->getOriginalType();
 
-    // that parameter shall not
-    // have an array type...
+    // that parameter shall not have an array type...
     if (PVDType->isArrayType() || PVDType->isArrayParameterType())
       return DS_Array;
     assert(!PVD->getOriginalType()->isArrayType());
@@ -609,9 +628,6 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
   }
   assert(FD->hasContracts());
 
-  // Diagnose parameters which are either array types, function types, or non-const value types.
-  // If this is a template, delay the diagnosis until instantiation.
-
   ContractSpecifierDecl *CSD = FD->getContracts();
 
   if (!D->isTemplateInstantiation()) {
@@ -623,7 +639,8 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
   // When the declared return type of a non-templated function contains a
   // placeholder type, a postcondition-specifier with a result-name-introducer
   // shall be present only on a definition.
-  if (CSD->hasInventedPlaceholdersTypes() && !FD->isTemplateInstantiation()) {
+  if (CSD->hasInventedPlaceholdersTypes() && !FD->isTemplateInstantiation() &&
+      !FD->isTemplated()) {
     if (!IsDefinition && !FD->isThisDeclarationADefinition()) {
       Diag(CSD->getCanonicalResultName()->getLocation(),
            diag::err_auto_result_name_on_non_def_decl)
@@ -691,7 +708,7 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   }
 
   auto *CSD = BuildContractSpecifierDecl(
-      NewContracts, Def, Def->getContracts()->getLocation(), IsInvalid);
+      NewContracts, Def, First->getContracts()->getLocation(), IsInvalid);
   Def->setContracts(CSD);
 
   if (CSD->isInvalidDecl())
@@ -704,6 +721,10 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
   ContractSpecifierDecl *CSD = FD->getContracts();
   assert(CSD && CSD->hasInventedPlaceholdersTypes() &&
          "Cannot rebuild contracts without placeholders");
+  if (FD->isInvalidDecl()) {
+    CSD->setInvalidDecl(true);
+    return DeclResult(/*IsInvalid*/ true);
+  }
 
   RebuildFunctionContracts Rebuilder(*this, true);
 
@@ -732,7 +753,7 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
     if (Replacement.isNull()) {
       if (CheckFunctionReturnType(RND->getLocation())) {
         FD->setInvalidDecl(true);
-        return (Decl *)nullptr;
+        return DeclResult(/*IsInvalid*/ true);
       }
     }
     assert(!Replacement.isNull());
@@ -801,6 +822,7 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
       return;
     }
     auto *NewCSD = Res.getAs<ContractSpecifierDecl>();
+    assert(NewCSD);
     NewCSD->setOwningFunction(Def);
     Def->setContracts(NewCSD);
     if (NewCSD->isInvalidDecl())

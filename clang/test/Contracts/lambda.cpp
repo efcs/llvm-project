@@ -5,12 +5,12 @@ namespace test_one {
 constexpr void f() {
   constexpr int z = 42;
   constexpr int zz = 101;
-  constexpr auto y = [=, yyy=z](int x)
+  constexpr auto y = [=, yyy=z, z=z](int x)
     -> int
             pre(x == 1)
             post(r : r == 2) // expected-error {{contract failed during execution of constexpr function}}
             pre(z == 42 && yyy == 42)
-            { return 1; }; 
+            { ((void)z); ((void)yyy); return 1; };
   static_assert(y(1)); // expected-error {{static assertion expression is not an integral constant expression}}
   // expected-note@-1 {{in call to 'y.operator()(1)'}}
 }
@@ -23,3 +23,21 @@ namespace test_two {
     (void)[&]() pre(x) {((void)x); };
   }
 }
+
+namespace ConstificationDoesntApplyToLambdaLocal {
+
+void foo(int x) {
+  contract_assert([](int y) {
+    int z = 42;
+    ++y; // OK,
+    ++z; // OK, it's a local
+    return true;
+  }(42));
+  contract_assert([&](int y) {
+    ((void)x);
+    ++x; // not ok
+    return true;
+  }(42));
+}
+
+} // namespace ConstificationDoesntApplyToLambdaLocal

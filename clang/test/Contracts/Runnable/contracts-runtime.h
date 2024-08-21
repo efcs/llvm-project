@@ -45,7 +45,7 @@ struct _BuiltinContractStruct<2> {
 template <>
 struct _BuiltinContractStruct<3> {
   enum { VERSION = 3 };
-  unsigned version; // the version of the struct
+  unsigned long version; // the version of the struct
   const char* file;
   const char* function;
   unsigned lineno = 0;

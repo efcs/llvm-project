@@ -2,6 +2,7 @@
 #define CONTRACTS_CONTRACTS_H
 
 #include "source-location.h"
+#include <stdio.h>
 
 namespace std::contracts {
   class contract_violation;
@@ -11,17 +12,17 @@ __attribute__((weak)) void handle_contract_violation(const std::contracts::contr
 
 namespace std::contracts {
 
-enum class assertion_kind : unsigned char {
+enum class assertion_kind : unsigned {
   pre = 1,
   post = 2,
   assert = 3
 };
-enum class evaluation_semantic : unsigned char {
+enum class evaluation_semantic : unsigned {
   __unspecified = 0,
   enforce = 1,
   observe = 2
 };
-enum class detection_mode : unsigned char {
+enum class detection_mode : unsigned {
   predicate_false = 1,
   evaluation_exception = 2
 };
@@ -49,7 +50,8 @@ private:
 };
 
 
-inline void __default_contract_violation_handler(const contract_violation&) noexcept {
+inline void __default_contract_violation_handler(const contract_violation& violation) noexcept {
+  ::fprintf(stderr, "Contract violation: %s\n", violation.comment());
   __builtin_abort();
 }
 

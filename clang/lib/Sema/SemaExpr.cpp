@@ -14289,7 +14289,7 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
         }
       }
     } else if (!isa<FunctionDecl, NonTypeTemplateParmDecl, BindingDecl,
-                    MSGuidDecl, UnnamedGlobalConstantDecl>(dcl))
+                    MSGuidDecl, UnnamedGlobalConstantDecl, ResultNameDecl>(dcl))
       llvm_unreachable("Unknown/unexpected decl type");
   }
 
@@ -18391,7 +18391,6 @@ static DeclContext *getParentOfCapturingContextOrNull(DeclContext *DC,
 static bool isVariableCapturable(CapturingScopeInfo *CSI, ValueDecl *Var,
                                  SourceLocation Loc, const bool Diagnose,
                                  Sema &S) {
-
   assert((isa<VarDecl, BindingDecl>(Var)) &&
          "Only variables and structured bindings can be captured");
 
@@ -18784,6 +18783,7 @@ bool Sema::tryCaptureVariable(
     ValueDecl *Var, SourceLocation ExprLoc, TryCaptureKind Kind,
     SourceLocation EllipsisLoc, bool BuildAndDiagnose, QualType &CaptureType,
     QualType &DeclRefType, const unsigned *const FunctionScopeIndexToStopAt) {
+
   // An init-capture is notionally from the context surrounding its
   // declaration, but its parent DC is the lambda class.
   DeclContext *VarDC = Var->getDeclContext();
