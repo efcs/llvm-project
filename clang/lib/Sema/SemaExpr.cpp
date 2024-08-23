@@ -3210,54 +3210,6 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
                                                         SourceLocation loc,
                                                         ValueDecl *var);
 
-/// [basic.contract.general]
-/// Within the predicate of a contract assertion, id-expressions referring to variables
-/// with automatic storage duration are const ([expr.prim.id.unqual])
-static ContractConstification getContractConstification(Sema &S,
-                                                        const ValueDecl *VD) {
-  assert(VD);
-  if (!S.isConstificationContext())
-    return CC_None;
-
-  // if the unqualified-id appears in the predicate of a contract assertion
-  //  ([basic.contract]) and the entity is
-  // ...
-
-  // — the result object of (possibly deduced, see [dcl.spec.auto]) type T of a
-  // function
-  //  call and the unqualified-id is the result name ([dcl.contract.res]) in a
-  //  postcondition assertion,
-  if (isa<ResultNameDecl>(VD))
-    return CC_ApplyConst;
-
-  // — a structured binding of type T whose corresponding variable has automatic
-  // storage
-  //  duration, or
-  if (auto *Bound = dyn_cast<BindingDecl>(VD)) {
-    if (auto *Var = Bound->getHoldingVar();
-        Var &&
-        (Var->isLocalVarDeclOrParm() || Var->getStorageClass() == SC_Auto))
-      return CC_ApplyConst;
-    return CC_None;
-  }
-
-  // — a variable with automatic storage duration ...
-  if (auto Var = dyn_cast<VarDecl>(VD);
-      (Var &&
-       (Var->isLocalVarDeclOrParm() || Var->getStorageClass() == SC_Auto))) {
-    // ... of object type T, or
-    if (Var->getType()->isObjectType())
-      return CC_ApplyConst;
-
-    // of type 'reference to T'
-    if (Var->getType()->isReferenceType() &&
-        Var->getType().getNonReferenceType()->isObjectType())
-      return CC_ApplyConst;
-  }
-
-  return CC_None;
-}
-
 /// Complete semantic analysis for a reference to the given declaration.
 ExprResult Sema::BuildDeclarationNameExpr(
     const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
@@ -3409,7 +3361,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // FIXME: Does the addition of const really only apply in
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
-    if (!isUnevaluatedContext()) {
+    if (!isUnevaluatedContext() && !isContractAssertionContext()) {
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull()) {
         type = CapturedType;
@@ -3511,8 +3463,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     break;
   }
 
-  const ContractConstification Constification =
-      getContractConstification(*this, VD);
+  const ContractConstification Constification = getContractConstification(VD);
   bool ApplyConstification = !TypeWasSetByLambdaCapture &&
                              Constification == CC_ApplyConst &&
                              !type.isConstQualified();
@@ -3526,6 +3477,9 @@ ExprResult Sema::BuildDeclarationNameExpr(
 
   if (ApplyConstification)
     E->setIsConstified(true);
+
+  if (Constification == CC_ApplyConst)
+    E->setIsInContractContext(true);
 
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
@@ -13198,7 +13152,7 @@ static bool IsReadonlyMessage(Expr *E, Sema &S) {
 /// Is the given expression (which must be 'const') a reference to a
 /// variable which was originally non-const, but which has become
 /// 'const' due to being captured within a block?
-enum NonConstCaptureKind { NCCK_None, NCCK_Block, NCCK_Lambda };
+enum NonConstCaptureKind { NCCK_None, NCCK_Block, NCCK_Lambda, NCCK_Contract };
 static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   assert(E->isLValue() && E->getType().isConstQualified());
   E = E->IgnoreParens();
@@ -13213,6 +13167,9 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   if (!var) return NCCK_None;
   if (var->getType().isConstQualified()) return NCCK_None;
   assert(var->hasLocalStorage() && "capture added 'const' to non-local?");
+
+  if (DRE && DRE->isInContractContext())
+    return NCCK_Contract;
 
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
@@ -13486,6 +13443,8 @@ static bool CheckForModifiableLvalue(Expr *E, SourceLocation Loc, Sema &S) {
     if (NonConstCaptureKind NCCK = isReferenceToNonConstCapture(S, E)) {
       if (NCCK == NCCK_Block)
         DiagID = diag::err_block_decl_ref_not_modifiable_lvalue;
+      else if (NCCK == NCCK_Contract)
+        DiagID = diag::err_lambda_decl_ref_not_modifiable_lvalue_contract;
       else
         DiagID = diag::err_lambda_decl_ref_not_modifiable_lvalue;
       break;
@@ -17269,6 +17228,56 @@ TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
   return TransformToPE(*this).TransformType(TInfo);
 }
 
+namespace {
+#define CASE(X)                                                                \
+  case Sema::ExpressionEvaluationContext::X:                                   \
+    return #X
+static const char *ToString(Sema::ExpressionEvaluationContext V) {
+  switch (V) {
+    CASE(Unevaluated);
+    CASE(UnevaluatedList);
+    CASE(DiscardedStatement);
+    CASE(UnevaluatedAbstract);
+    CASE(ConstantEvaluated);
+    CASE(ImmediateFunctionContext);
+    CASE(PotentiallyEvaluated);
+    CASE(PotentiallyEvaluatedIfUsed);
+  }
+}
+#undef CASE
+
+static const char *
+ToString(Sema::ExpressionEvaluationContextRecord::ExpressionKind V) {
+
+#define CASE(X)                                                                \
+  case Sema::ExpressionEvaluationContextRecord::ExpressionKind::X:             \
+    return #X
+  switch (V) {
+    CASE(EK_Decltype);
+    CASE(EK_TemplateArgument);
+    CASE(EK_AttrArgument);
+    CASE(EK_Other);
+  }
+#undef CASE
+}
+
+[[maybe_unused]] std::string
+ToString(Sema::ExpressionEvaluationContextRecord &Record, unsigned Depth) {
+  std::stringstream ss;
+  ss << "\n---------\n";
+  ss << "Context Record (# " << Depth << "): \n";
+  ss << "  Context: " << ToString(Record.Context) << "\n";
+  ss << "  Kind: " << ToString(Record.ExprContext) << "\n";
+  ss << "  InContract: " << (Record.InContractAssertion ? "true" : "false")
+     << "\n";
+  if (Record.ManglingContextDecl)
+    ss << "  HasManglingContextDecl: true\n";
+  ss << "---------\n";
+  return ss.str();
+}
+
+} // end namespace
+
 void
 Sema::PushExpressionEvaluationContext(
     ExpressionEvaluationContext NewContext, Decl *LambdaContextDecl,
@@ -17293,7 +17302,21 @@ Sema::PushExpressionEvaluationContext(
   ExprEvalContexts.back().InImmediateEscalatingFunctionContext =
       Prev.InImmediateEscalatingFunctionContext;
 
-  assert(!ExprEvalContexts.back().InContractAssertion);
+  // In order to handle things like
+  //    int x = 42;
+  //    contract_assert(Trait<decltype((x))>::value);
+  // Where `decltype((x))` should be `const int&`, we need to propagate the
+  // InContractAssertion state to the child contexts.
+  //
+  // NOTE: This seems like a bad way to do this. Are we really sure that nothing
+  // will push an expression evaluation context that isn't a template or
+  // unevaluated context? (We don't want to propagate this flag to lambdas).
+#if 0
+  if (Prev.isContractAssertionContext()) {
+     if (isUnevaluatedContext() || ExprContext == ExpressionEvaluationContextRecord::EK_TemplateArgument)
+        ExprEvalContexts.back().InContractAssertion = true;
+  }
+#endif
 
   Cleanup.reset();
   if (!MaybeODRUseExprs.empty())
@@ -18616,7 +18639,12 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     // to do the former, while EDG does the latter. Core issue 1249 will
     // clarify, but for now we follow GCC because it's a more permissive and
     // easily defensible position.
-    CaptureType = S.Context.getLValueReferenceType(DeclRefType);
+    QualType DRET = DeclRefType.getNonReferenceType();
+    ContractConstification CC = S.getContractConstification(Var);
+    if (CC == CC_ApplyConst)
+      DRET.addConst();
+
+    CaptureType = S.Context.getLValueReferenceType(DRET);
   } else {
     // C++11 [expr.prim.lambda]p14:
     //   For each entity captured by copy, an unnamed non-static
@@ -18661,9 +18689,9 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
   }
 
   // Compute the type of a reference to this captured variable.
-  if (ByRef)
+  if (ByRef) {
     DeclRefType = CaptureType.getNonReferenceType();
-  else {
+  } else {
     // C++ [expr.prim.lambda]p5:
     //   The closure type for a lambda-expression has a public inline
     //   function call operator [...]. This function call operator is

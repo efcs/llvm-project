@@ -1498,8 +1498,14 @@ public:
   }
 
   void setIsConstified(bool Value) { DeclRefExprBits.IsConstified = Value; }
-
   bool isConstified() const { return DeclRefExprBits.IsConstified; }
+
+  void setIsInContractContext(bool Value) {
+    DeclRefExprBits.IsInContractContext = Value;
+  }
+  bool isInContractContext() const {
+    return DeclRefExprBits.IsInContractContext;
+  }
 
   static bool classof(const Stmt *T) {
     return T->getStmtClass() == DeclRefExprClass;

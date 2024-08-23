@@ -107,3 +107,19 @@ struct ST {
 template struct ST<int>; // expected-note {{in instantiation of member function 'NonStaticMembers::ST<int>::g' requested here}}
 
 }
+
+namespace DeclTypeHasConst {
+  template <class T, class U>
+  struct AssertSame;
+
+  template <class T>
+  struct AssertSame<T, T> {
+    enum { value = 1 };
+  };
+
+void f(int p) {
+  contract_assert(AssertSame<decltype(p), int>::value);
+  contract_assert(AssertSame<decltype((p)), const int&>::value);
+
+}
+}

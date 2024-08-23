@@ -835,7 +835,10 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
                                            bool OverrideThis)
     : S(S), Record{Loc,
+                   S.CurContext,
                    S.CXXThisTypeOverride,
+
+                   (unsigned)S.FunctionScopes.size(),
                    false,
                    S.ExprEvalContexts.back().InContractAssertion,
                    S.getCurScope(),
@@ -883,4 +886,87 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
     Record.SaveScope->setIsContractScope(false);
 
   S.CurrentContractEntry = Record.Previous;
+}
+
+/// [basic.contract.general]
+/// Within the predicate of a contract assertion, id-expressions referring to
+/// variables with automatic storage duration are const ([expr.prim.id.unqual])
+ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
+  auto &S = *this;
+  assert(VD);
+  if (!S.CurrentContractEntry)
+    return CC_None;
+
+  assert(S.CurrentContractEntry);
+  auto &CCE = *S.CurrentContractEntry;
+
+  auto IsInConstifiedContext = [&](auto *VD) {
+    if (isContractAssertionContext())
+      return true;
+    if (isa<VarDecl>(VD))
+      VD = cast<VarDecl>(VD)->getCanonicalDecl();
+
+    // FIXME(EricWF): This seems really really expensive?
+    // Make sure the ValueDecl has a DeclContext that is the same as or a parent
+    // of the most recent contract entry
+    auto *StartContext = VD->getDeclContext();
+    bool IsBelow = false;
+    bool First = true;
+    do {
+      if (StartContext == CCE.ContextAtPush) {
+        if (First) {
+          IsBelow = false;
+        } else {
+          IsBelow = true;
+        }
+        break;
+      }
+      First = false;
+      StartContext = StartContext->getParent();
+    } while (StartContext && !StartContext->isFileContext());
+    return !IsBelow;
+  };
+  if (!IsInConstifiedContext(VD))
+    return CC_None;
+
+  // if the unqualified-id appears in the predicate of a contract assertion
+  //  ([basic.contract]) and the entity is
+  // ...
+
+  // — the result object of (possibly deduced, see [dcl.spec.auto]) type T of a
+  // function
+  //  call and the unqualified-id is the result name ([dcl.contract.res]) in a
+  //  postcondition assertion,
+  if (isa<ResultNameDecl>(VD))
+    return CC_ApplyConst;
+
+  // — a structured binding of type T whose corresponding variable has automatic
+  // storage
+  //  duration, or
+  if (auto *Bound = dyn_cast<BindingDecl>(VD)) {
+    if (!Bound->getHoldingVar())
+      return CC_None;
+    auto Var = Bound->getHoldingVar();
+    if (Var->isLocalVarDeclOrParm() &&
+        (Var->getStorageDuration() == SD_Automatic ||
+         Var->getKind() == Decl::ParmVar))
+      return CC_ApplyConst;
+  }
+
+  // — a variable with automatic storage duration ...
+  if (auto Var = dyn_cast<VarDecl>(VD);
+      Var && Var->isLocalVarDeclOrParm() &&
+      (Var->getStorageDuration() == SD_Automatic ||
+       Var->getKind() == Decl::ParmVar)) {
+    // ... of object type T, or
+    if (Var->getType()->isObjectType())
+      return CC_ApplyConst;
+
+    // of type 'reference to T'
+    if (Var->getType()->isReferenceType() &&
+        Var->getType().getNonReferenceType()->isObjectType())
+      return CC_ApplyConst;
+  }
+
+  return CC_None;
 }

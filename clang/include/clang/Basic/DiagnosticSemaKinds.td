@@ -12039,6 +12039,9 @@ def note_cxx_this_const_in_contract_introduced_here : Note<
 def err_keyword_not_allowed_in_contract : Error<
     "'%0' cannot be used inside a contract">;
 
+
+def err_lambda_decl_ref_not_modifiable_lvalue_contract : Error<
+  "cannot assign to a variable captured by reference which was captured as const because it is inside a contract">;
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<

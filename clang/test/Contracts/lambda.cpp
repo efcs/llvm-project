@@ -35,9 +35,121 @@ void foo(int x) {
   }(42));
   contract_assert([&](int y) {
     ((void)x);
-    ++x; // not ok
+    ++x; // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
     return true;
   }(42));
 }
 
 } // namespace ConstificationDoesntApplyToLambdaLocal
+
+
+int f(bool b) {
+  contract_assert([&] { int z = 101; [&]() { return z; }(); return b; }());
+}
+template <class T, class U>
+struct AssertSame;
+
+template <class T>
+struct AssertSame<T, T> {
+  AssertSame();
+    ~AssertSame();
+};
+
+template <class T>
+struct AssertConstRef;
+
+template <class T>
+struct AssertConstRef<const T&> {
+  AssertConstRef();
+  ~AssertConstRef();
+};
+
+
+template <class T>
+struct AssertNonConstRef;
+
+template <class T>
+struct AssertNonConstRef<T&> {
+  AssertNonConstRef();
+  ~AssertNonConstRef();
+  static_assert(!__is_const(T), "");
+};
+
+
+namespace DeclTypeHasConst {
+
+
+int global = 42;
+
+void f(int p) {
+  static int z = 42;
+  struct A {
+    int a = 42;
+    const int b = 101;
+    int c = -1;
+
+  } v;
+  auto &[a, b, c] = v;
+  contract_assert(&a == &v.a);
+
+  AssertSame<decltype((v)),  A&>{};
+  contract_assert([&]() {
+    AssertSame<decltype((v)), const A&>{};
+    return true;
+  }());
+}
+} // namespace DeclTypeHasConst
+
+namespace Other {
+void f(int x) {
+  int a; contract_assert([&] {
+    ++a; // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+    using T = decltype((a));
+    AssertConstRef<T>{};
+    return true;
+  }()
+);
+}
+
+} // namespace Other
+
+
+namespace CaptureByRef {
+void foo(bool b) {
+  contract_assert([&]() {  return b; }());
+
+}
+} // end namespace CaptureByRef
+
+namespace CaptureByVal {
+template <class T>
+constexpr bool is_const(T &&) {
+  return __is_const(T);
+}
+void foo(bool b) {
+  contract_assert([=]() { return b; }());
+  contract_assert([=]() mutable {
+    static_assert(!is_const(b));
+    return b;
+  }());
+}
+} // CaptureByVal
+
+namespace NestedCapture {
+void f(bool b) {
+  contract_assert([&]() {
+    return [&]() {
+      return b;
+    }();
+  }());
+
+  [&]() {
+    contract_assert([&]() {
+      return b;
+    }());
+  }();
+}
+}
+namespace CrashTest {
+void bar(bool b) { [&]() { contract_assert(b); }(); }
+} // namespace CrashTest

@@ -453,6 +453,9 @@ protected:
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsConstified : 1;
 
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsInContractContext : 1;
+
     /// The location of the declaration name itself.
     SourceLocation Loc;
   };

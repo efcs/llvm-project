@@ -6526,9 +6526,7 @@ public:
 
     // True iff we're in a context that requires applying constification
     // adjustments to some declarations.
-    bool isConstificationContext() const {
-      return InContractAssertion && !isUnevaluated();
-    }
+    bool isConstificationContext() const { return InContractAssertion; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6567,19 +6565,25 @@ public:
   }
 
   struct ContractScopeRecord {
-
     SourceLocation KeywordLoc;
+    DeclContext *ContextAtPush;
     QualType PreviousCXXThisType;
+    unsigned FunctionIndexAtPush;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
     Scope *SaveScope = nullptr;
     ContractScopeRecord *Previous = nullptr;
 
   public:
-    ContractScopeRecord(SourceLocation KeywordLoc, QualType PreviousCXXThisType,
-                        bool AddedConstToCXXThis, bool WasInContractContext,
-                        Scope *SaveScope, ContractScopeRecord *Previous)
-        : KeywordLoc(KeywordLoc), PreviousCXXThisType(PreviousCXXThisType),
+    ContractScopeRecord(SourceLocation KeywordLoc, DeclContext *FunctionAtPush,
+                        QualType PreviousCXXThisType,
+
+                        unsigned FunctionIndexAtPush, bool AddedConstToCXXThis,
+                        bool WasInContractContext, Scope *SaveScope,
+                        ContractScopeRecord *Previous)
+        : KeywordLoc(KeywordLoc), ContextAtPush(FunctionAtPush),
+          PreviousCXXThisType(PreviousCXXThisType),
+          FunctionIndexAtPush(FunctionIndexAtPush),
           AddedConstToCXXThis(AddedConstToCXXThis),
           WasInContractContext(WasInContractContext), SaveScope(SaveScope),
           Previous(Previous) {}
@@ -6609,6 +6613,8 @@ public:
     assert(CurrentContractEntry && "No current contract?");
     return CurrentContractEntry->KeywordLoc;
   }
+
+  ContractConstification getContractConstification(const ValueDecl *VD);
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored

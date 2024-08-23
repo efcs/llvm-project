@@ -442,6 +442,9 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx, ValueDecl *D,
   DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = false;
   DeclRefExprBits.NonOdrUseReason = NOUR;
   DeclRefExprBits.IsImmediateEscalating = false;
+  DeclRefExprBits.IsInContractContext = false;
+  DeclRefExprBits.IsConstified = false;
+
   DeclRefExprBits.Loc = L;
   setDependence(computeDependence(this, Ctx));
 }
@@ -483,6 +486,7 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
   DeclRefExprBits.IsImmediateEscalating = false;
   DeclRefExprBits.HadMultipleCandidates = 0;
   DeclRefExprBits.IsConstified = false;
+  DeclRefExprBits.IsInContractContext = false;
   setDependence(computeDependence(this, Ctx));
 }
 
