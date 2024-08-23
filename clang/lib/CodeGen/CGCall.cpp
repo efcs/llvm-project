@@ -315,7 +315,8 @@ CodeGenTypes::arrangeCXXMethodDeclaration(const CXXMethodDecl *MD) {
 
   if (MD->isImplicitObjectMemberFunction()) {
     // The abstract case is perfectly fine.
-    const CXXRecordDecl *ThisType = TheCXXABI.getThisArgumentTypeForMethod(MD);
+    const CXXRecordDecl *ThisType =
+        getCXXABI().getThisArgumentTypeForMethod(MD);
     return arrangeCXXMethodType(ThisType, prototype.getTypePtr(), MD);
   }
 
@@ -338,7 +339,7 @@ CodeGenTypes::arrangeCXXStructorDeclaration(GlobalDecl GD) {
   SmallVector<CanQualType, 16> argTypes;
   SmallVector<FunctionProtoType::ExtParameterInfo, 16> paramInfos;
 
-  const CXXRecordDecl *ThisType = TheCXXABI.getThisArgumentTypeForMethod(GD);
+  const CXXRecordDecl *ThisType = getCXXABI().getThisArgumentTypeForMethod(GD);
   argTypes.push_back(DeriveThisType(ThisType, MD));
 
   bool PassParams = true;
@@ -357,7 +358,7 @@ CodeGenTypes::arrangeCXXStructorDeclaration(GlobalDecl GD) {
     appendParameterTypes(*this, argTypes, paramInfos, FTP);
 
   CGCXXABI::AddedStructorArgCounts AddedArgs =
-      TheCXXABI.buildStructorSignature(GD, argTypes);
+      getCXXABI().buildStructorSignature(GD, argTypes);
   if (!paramInfos.empty()) {
     // Note: prefix implies after the first param.
     if (AddedArgs.Prefix)
@@ -373,11 +374,10 @@ CodeGenTypes::arrangeCXXStructorDeclaration(GlobalDecl GD) {
                                       : RequiredArgs::All);
 
   FunctionType::ExtInfo extInfo = FTP->getExtInfo();
-  CanQualType resultType = TheCXXABI.HasThisReturn(GD)
-                               ? argTypes.front()
-                               : TheCXXABI.hasMostDerivedReturn(GD)
-                                     ? CGM.getContext().VoidPtrTy
-                                     : Context.VoidTy;
+  CanQualType resultType = getCXXABI().HasThisReturn(GD) ? argTypes.front()
+                           : getCXXABI().hasMostDerivedReturn(GD)
+                               ? CGM.getContext().VoidPtrTy
+                               : Context.VoidTy;
   return arrangeLLVMFunctionInfo(resultType, FnInfoOpts::IsInstanceMethod,
                                  argTypes, extInfo, paramInfos, required);
 }
@@ -438,11 +438,10 @@ CodeGenTypes::arrangeCXXConstructorCall(const CallArgList &args,
                               : RequiredArgs::All;
 
   GlobalDecl GD(D, CtorKind);
-  CanQualType ResultType = TheCXXABI.HasThisReturn(GD)
-                               ? ArgTypes.front()
-                               : TheCXXABI.hasMostDerivedReturn(GD)
-                                     ? CGM.getContext().VoidPtrTy
-                                     : Context.VoidTy;
+  CanQualType ResultType = getCXXABI().HasThisReturn(GD) ? ArgTypes.front()
+                           : getCXXABI().hasMostDerivedReturn(GD)
+                               ? CGM.getContext().VoidPtrTy
+                               : Context.VoidTy;
 
   FunctionType::ExtInfo Info = FPT->getExtInfo();
   llvm::SmallVector<FunctionProtoType::ExtParameterInfo, 16> ParamInfos;
@@ -807,7 +806,7 @@ const CGFunctionInfo &CodeGenTypes::arrangeLLVMFunctionInfo(
   } else if (info.getCC() == CC_Swift || info.getCC() == CC_SwiftAsync) {
     swiftcall::computeABIInfo(CGM, *FI);
   } else {
-    getABIInfo().computeInfo(*FI);
+    CGM.getABIInfo().computeInfo(*FI);
   }
 
   // Loop over all of the computed argument and return value info.  If any of
@@ -2423,6 +2422,8 @@ void CodeGenModule::ConstructAttributeList(StringRef Name,
       FuncAttrs.addAttribute(llvm::Attribute::NoCfCheck);
     if (TargetDecl->hasAttr<LeafAttr>())
       FuncAttrs.addAttribute(llvm::Attribute::NoCallback);
+    if (TargetDecl->hasAttr<BPFFastCallAttr>())
+      FuncAttrs.addAttribute("bpf_fastcall");
 
     HasOptnone = TargetDecl->hasAttr<OptimizeNoneAttr>();
     if (auto *AllocSize = TargetDecl->getAttr<AllocSizeAttr>()) {
@@ -6060,6 +6061,6 @@ RValue CodeGenFunction::EmitVAArg(VAArgExpr *VE, Address &VAListAddr,
                                     : EmitVAListRef(VE->getSubExpr());
   QualType Ty = VE->getType();
   if (VE->isMicrosoftABI())
-    return CGM.getTypes().getABIInfo().EmitMSVAArg(*this, VAListAddr, Ty, Slot);
-  return CGM.getTypes().getABIInfo().EmitVAArg(*this, VAListAddr, Ty, Slot);
+    return CGM.getABIInfo().EmitMSVAArg(*this, VAListAddr, Ty, Slot);
+  return CGM.getABIInfo().EmitVAArg(*this, VAListAddr, Ty, Slot);
 }
