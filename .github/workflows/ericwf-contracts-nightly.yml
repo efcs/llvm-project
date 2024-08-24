@@ -1,0 +1,65 @@
+name: EricWF Contracts Nightly Release flow
+
+permissions:
+  contents: write
+  actions: read
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - 'eric-contracts'
+      - "eric-test-contracts"
+
+
+concurrency:
+  # Skip intermediate builds: always.
+  # Cancel intermediate builds: only if it is a pull request build.
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ startsWith(github.ref, 'refs/pull/') }}
+
+jobs:
+  check_clang:
+    name: "Do it"
+    if: github.repository_owner == 'EricWF'
+    runs-on: aah
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.ref }}
+          fetch-depth: 0
+      - name: "Setup"
+        run: |
+          mkdir build
+          mkdir install
+
+      - name: "Configure"
+        run: >
+          cmake -B build -S ./llvm/ 
+          -G Ninja 
+          -DCMAKE_BUILD_TYPE=RELWITHDEBINFO 
+          -DLLVM_ENABLE_PROJECTS="clang" 
+          "-DLLVM_ENABLE_RUNTIMES=libcxx;libcxxabi;libunwind" 
+          -DLLVM_ENABLE_ASSERTIONS=ON 
+          -DLLVM_USE_LINKER=mold
+          -DCMAKE_INSTALL_PREFIX=./install
+          -DCMAKE_C_COMPILER=clang
+          -DCMAKE_CXX_COMPILER=clang++
+          '-DLLVM_USE_SANITIZER=Address;Undefined'
+      - name: Build Clang & Libc++
+        run: |
+          cd build
+          ninja clang
+          ninja cxx
+      - name: Test Clang
+        run: |
+          cd build
+          ninja check-clang
+      - name: Check Libc++
+        run: |
+          cd build
+          ninja check-cxx
+      - name: Install
+        run: |
+          cd build
+          ninja install

@@ -508,7 +508,8 @@ static Cl::Kinds ClassifyDecl(ASTContext &Ctx, const Decl *D) {
   else
     islvalue =
         isa<VarDecl, FieldDecl, IndirectFieldDecl, BindingDecl, MSGuidDecl,
-            UnnamedGlobalConstantDecl, TemplateParamObjectDecl>(D) ||
+            UnnamedGlobalConstantDecl, TemplateParamObjectDecl, ResultNameDecl>(
+            D) ||
         (Ctx.getLangOpts().CPlusPlus &&
          (isa<FunctionDecl, MSPropertyDecl, FunctionTemplateDecl>(D)));
 

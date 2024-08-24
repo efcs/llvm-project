@@ -801,6 +801,14 @@ static bool checkSuspensionContext(Sema &S, SourceLocation Loc,
     return false;
   }
 
+  // P2900:
+  // An await-expression shall not appear in the predicate of a contract
+  // assertion ([basic.contract]).
+  if (S.isContractAssertionContext()) {
+    S.Diag(Loc, diag::err_keyword_not_allowed_in_contract) << Keyword;
+    return false;
+  }
+
   return true;
 }
 

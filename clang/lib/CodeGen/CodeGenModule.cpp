@@ -341,10 +341,11 @@ CodeGenModule::CodeGenModule(ASTContext &C,
     : Context(C), LangOpts(C.getLangOpts()), FS(FS), HeaderSearchOpts(HSO),
       PreprocessorOpts(PPO), CodeGenOpts(CGO), TheModule(M), Diags(diags),
       Target(C.getTargetInfo()), ABI(createCXXABI(*this)),
-      VMContext(M.getContext()), Types(*this), VTables(*this),
+      VMContext(M.getContext()), VTables(*this),
       SanitizerMD(new SanitizerMetadata(*this)) {
 
   // Initialize the type cache.
+  Types.reset(new CodeGenTypes(*this));
   llvm::LLVMContext &LLVMContext = M.getContext();
   VoidTy = llvm::Type::getVoidTy(LLVMContext);
   Int8Ty = llvm::Type::getInt8Ty(LLVMContext);
@@ -403,7 +404,7 @@ CodeGenModule::CodeGenModule(ASTContext &C,
   if (LangOpts.Sanitize.has(SanitizerKind::Thread) ||
       (!CodeGenOpts.RelaxedAliasing && CodeGenOpts.OptimizationLevel > 0))
     TBAA.reset(new CodeGenTBAA(Context, getTypes(), TheModule, CodeGenOpts,
-                               getLangOpts(), getCXXABI().getMangleContext()));
+                               getLangOpts()));
 
   // If debug info or coverage generation is enabled, create the CGDebugInfo
   // object.
@@ -1134,6 +1135,11 @@ void CodeGenModule::Release() {
                               CodeGenOpts.SanitizeCfiCanonicalJumpTables);
   }
 
+  if (CodeGenOpts.SanitizeCfiICallNormalizeIntegers) {
+    getModule().addModuleFlag(llvm::Module::Override, "cfi-normalize-integers",
+                              1);
+  }
+
   if (LangOpts.Sanitize.has(SanitizerKind::KCFI)) {
     getModule().addModuleFlag(llvm::Module::Override, "kcfi", 1);
     // KCFI assumes patchable-function-prefix is the same for all indirectly
@@ -1220,8 +1226,14 @@ void CodeGenModule::Release() {
           (LangOpts.PointerAuthInitFiniAddressDiscrimination
            << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_INITFINIADDRDISC) |
           (LangOpts.PointerAuthELFGOT
-           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_GOT);
-      static_assert(AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_GOT ==
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_GOT) |
+          (LangOpts.PointerAuthIndirectGotos
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_GOTOS) |
+          (LangOpts.PointerAuthTypeInfoVTPtrDiscrimination
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_TYPEINFOVPTRDISCR) |
+          (LangOpts.PointerAuthFunctionTypeDiscrimination
+           << AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_FPTRTYPEDISCR);
+      static_assert(AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_FPTRTYPEDISCR ==
                         AARCH64_PAUTH_PLATFORM_LLVM_LINUX_VERSION_LAST,
                     "Update when new enum items are defined");
       if (PAuthABIVersion != 0) {
@@ -1454,12 +1466,12 @@ void CodeGenModule::EmitBackendOptionsMetadata(
 
 void CodeGenModule::UpdateCompletedType(const TagDecl *TD) {
   // Make sure that this type is translated.
-  Types.UpdateCompletedType(TD);
+  getTypes().UpdateCompletedType(TD);
 }
 
 void CodeGenModule::RefreshTypeCacheForClass(const CXXRecordDecl *RD) {
   // Make sure that this type is translated.
-  Types.RefreshTypeCacheForClass(RD);
+  getTypes().RefreshTypeCacheForClass(RD);
 }
 
 llvm::MDNode *CodeGenModule::getTBAATypeInfo(QualType QTy) {
@@ -3630,7 +3642,7 @@ ConstantAddress CodeGenModule::GetAddrOfMSGuidDecl(const MSGuidDecl *GD) {
 }
 
 ConstantAddress CodeGenModule::GetAddrOfUnnamedGlobalConstantDecl(
-    const UnnamedGlobalConstantDecl *GCD) {
+    const UnnamedGlobalConstantDecl *GCD, StringRef Name) {
   CharUnits Alignment = getContext().getTypeAlignInChars(GCD->getType());
 
   llvm::GlobalVariable **Entry = nullptr;
@@ -3647,10 +3659,9 @@ ConstantAddress CodeGenModule::GetAddrOfUnnamedGlobalConstantDecl(
   Init = Emitter.emitForInitializer(V, GCD->getType().getAddressSpace(),
                                     GCD->getType());
 
-  auto *GV = new llvm::GlobalVariable(getModule(), Init->getType(),
-                                      /*isConstant=*/true,
-                                      llvm::GlobalValue::PrivateLinkage, Init,
-                                      ".constant");
+  auto *GV = new llvm::GlobalVariable(
+      getModule(), Init->getType(),
+      /*isConstant=*/true, llvm::GlobalValue::PrivateLinkage, Init, Name);
   GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
   GV->setAlignment(Alignment.getAsAlign());
 
@@ -5392,6 +5403,10 @@ void CodeGenModule::maybeSetTrivialComdat(const Decl &D,
   if (!shouldBeInCOMDAT(*this, D))
     return;
   GO.setComdat(TheModule.getOrInsertComdat(GO.getName()));
+}
+
+const ABIInfo &CodeGenModule::getABIInfo() {
+  return getTargetCodeGenInfo().getABIInfo();
 }
 
 /// Pass IsTentative as true if you want to create a tentative definition.
@@ -7801,8 +7816,6 @@ void CodeGenModule::moveLazyEmissionStates(CodeGenModule *NewBuilder) {
   NewBuilder->Manglings = std::move(Manglings);
 
   NewBuilder->WeakRefReferences = std::move(WeakRefReferences);
-
-  NewBuilder->TBAA = std::move(TBAA);
 
   NewBuilder->ABI->MangleCtx = std::move(ABI->MangleCtx);
 }

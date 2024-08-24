@@ -604,9 +604,6 @@ def warn_drv_unsupported_gpopt : Warning<
   "ignoring '-mgpopt' option as it cannot be used with %select{|the implicit"
   " usage of }0-mabicalls">,
   InGroup<UnsupportedGPOpt>;
-def warn_drv_unsupported_sdata : Warning<
-  "ignoring '-msmall-data-limit=' with -mcmodel=large for -fpic or RV64">,
-  InGroup<OptionIgnored>;
 def warn_drv_unsupported_longcalls : Warning<
   "ignoring '-mlong-calls' option as it is not currently supported with "
   "%select{|the implicit usage of }0-mabicalls">,
@@ -829,4 +826,15 @@ def err_drv_triple_version_invalid : Error<
 
 def warn_missing_include_dirs : Warning<
   "no such include directory: '%0'">, InGroup<MissingIncludeDirs>, DefaultIgnore;
+
+
+def err_drv_contract_group_name_invalid : Error<
+  "contract group name %select{"
+     "\"%1\" cannot start with '%2'"
+    "|\"%1\" cannot contain '%2'"
+    "|\"%1\" cannot end with '%2'"
+    "|\"%1\" cannot contain empty subgroup \"%2\""
+    "|cannot be empty"
+    "|\"%2\" is an invalid value"
+    "}0">;
 }

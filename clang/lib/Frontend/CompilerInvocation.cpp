@@ -3562,6 +3562,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
     for (StringRef Sanitizer : serializeSanitizerKinds(Opts.Sanitize))
       GenerateArg(Consumer, OPT_fsanitize_EQ, Sanitizer);
 
+
+    for (StringRef ContractGroup :
+         Opts.ContractOpts.serializeContractGroupArgs())
+      GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
     return;
   }
 
@@ -3838,6 +3842,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
 
   if (!Opts.RandstructSeed.empty())
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
+
+  for (StringRef ContractGroup :
+       Opts.ContractOpts.serializeContractGroupArgs())
+    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
 }
 
 bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
@@ -4267,6 +4275,20 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
       Diags.Report(diag::err_drv_invalid_value) << A->getAsString(Args) << Val;
   }
 
+  if (auto *A =
+          Args.getLastArg(OPT_fsanitize_undefined_ignore_overflow_pattern_EQ)) {
+    for (int i = 0, n = A->getNumValues(); i != n; ++i) {
+      Opts.OverflowPatternExclusionMask |=
+          llvm::StringSwitch<unsigned>(A->getValue(i))
+              .Case("none", LangOptionsBase::None)
+              .Case("all", LangOptionsBase::All)
+              .Case("add-overflow-test", LangOptionsBase::AddOverflowTest)
+              .Case("negated-unsigned-const", LangOptionsBase::NegUnsignedConst)
+              .Case("post-decr-while", LangOptionsBase::PostDecrInWhile)
+              .Default(0);
+    }
+  }
+
   // Parse -fsanitize= arguments.
   parseSanitizerKinds("-fsanitize=", Args.getAllArgValues(OPT_fsanitize_EQ),
                       Diags, Opts.Sanitize);
@@ -4469,6 +4491,17 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
     } else
       Diags.Report(diag::err_drv_hlsl_unsupported_target) << T.str();
   }
+
+  auto EmitContractDiag = [&](ContractGroupDiagnostic CGD, StringRef GroupName,
+                              StringRef InvalidChar = "") {
+    Diags.Report(diag::err_drv_contract_group_name_invalid)
+        << (int)CGD << GroupName << InvalidChar;
+  };
+
+  std::vector<std::string> ContractGroupValues =
+      Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
+  Opts.ContractOpts.parseContractGroups(ContractGroupValues,
+                                           EmitContractDiag);
 
   return Diags.getNumErrors() == NumErrorsBefore;
 }

@@ -35,6 +35,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/Frontend/FrontendDiagnostic.h"
+#include "clang/Basic/SourceManager.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/Frontend/OpenMP/OMPIRBuilder.h"
 #include "llvm/IR/DataLayout.h"
@@ -48,6 +49,7 @@
 #include "llvm/Support/xxhash.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
+#include "clang/Lex/Lexer.h"
 #include <optional>
 
 using namespace clang;
@@ -491,6 +493,8 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     }
   }
 
+  EmitIfUsed(*this, GetSharedContractViolationEnforceBlock(false));
+  EmitIfUsed(*this, GetSharedContractViolationTrapBlock(false));
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
   EmitIfUsed(*this, TerminateHandler);
@@ -845,6 +849,13 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   if (SanOpts.has(SanitizerKind::ShadowCallStack))
     Fn->addFnAttr(llvm::Attribute::ShadowCallStack);
 
+  if (SanOpts.has(SanitizerKind::Realtime))
+    if (FD && FD->getASTContext().hasAnyFunctionEffects())
+      for (const FunctionEffectWithCondition &Fe : FD->getFunctionEffects()) {
+        if (Fe.Effect.kind() == FunctionEffect::Kind::NonBlocking)
+          Fn->addFnAttr(llvm::Attribute::SanitizeRealtime);
+      }
+
   // Apply fuzzing attribute to the function.
   if (SanOpts.hasOneOf(SanitizerKind::Fuzzer | SanitizerKind::FuzzerNoLink))
     Fn->addFnAttr(llvm::Attribute::OptForFuzzing);
@@ -1013,7 +1024,8 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   }
 
   if (FD && (getLangOpts().OpenCL ||
-             (getLangOpts().HIP && getLangOpts().CUDAIsDevice))) {
+             ((getLangOpts().HIP || getLangOpts().OffloadViaLLVM) &&
+              getLangOpts().CUDAIsDevice))) {
     // Add metadata for a kernel function.
     EmitKernelMetadata(FD, Fn);
   }
@@ -1227,9 +1239,13 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
   if (getLangOpts().OpenMP && CurCodeDecl)
     CGM.getOpenMPRuntime().emitFunctionProlog(*this, CurCodeDecl);
 
-  // Handle emitting HLSL entry functions.
-  if (D && D->hasAttr<HLSLShaderAttr>())
-    CGM.getHLSLRuntime().emitEntryFunction(FD, Fn);
+  if (FD && getLangOpts().HLSL) {
+    // Handle emitting HLSL entry functions.
+    if (FD->hasAttr<HLSLShaderAttr>()) {
+      CGM.getHLSLRuntime().emitEntryFunction(FD, Fn);
+    }
+    CGM.getHLSLRuntime().setHLSLFunctionAttributes(FD, Fn);
+  }
 
   EmitFunctionProlog(*CurFnInfo, CurFn, Args);
 
@@ -1512,6 +1528,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
+  // FIXME(EricWF): I don't think this should go here.
+  for (ContractStmt *S : FD->preconditions())
+    EmitStmt(S);
+
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
     llvm::append_range(FnArgs, FD->parameters());
@@ -1586,6 +1606,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
+  // FIXME(EricWF): I don't think this should go here.
+  // Also we'll need to figure out how to reference the return value
+  // Post Contracts are emitted in ReturnValueCheck
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());

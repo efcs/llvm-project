@@ -509,7 +509,7 @@ NarrowingKind StandardConversionSequence::getNarrowingKind(
     constexpr auto CanRepresentAll = [](bool FromSigned, unsigned FromWidth,
                                         bool ToSigned, unsigned ToWidth) {
       return (FromWidth < ToWidth + (FromSigned == ToSigned)) &&
-             (FromSigned <= ToSigned);
+             !(FromSigned && !ToSigned);
     };
 
     if (CanRepresentAll(FromSigned, FromWidth, ToSigned, ToWidth))
@@ -542,7 +542,7 @@ NarrowingKind StandardConversionSequence::getNarrowingKind(
       // If the bit-field width was dependent, it might end up being small
       // enough to fit in the target type (unless the target type is unsigned
       // and the source type is signed, in which case it will never fit)
-      if (DependentBitField && (FromSigned <= ToSigned))
+      if (DependentBitField && !(FromSigned && !ToSigned))
         return NK_Dependent_Narrowing;
 
       // Otherwise, such a conversion is always narrowing
@@ -5900,6 +5900,16 @@ ExprResult Sema::PerformImplicitObjectArgumentInitialization(
             << From->getSourceRange();
         Diag(Method->getLocation(), diag::note_previous_decl)
           << Method->getDeclName();
+
+        // FIXME(EricWF): We might be here because we've made the 'this' type
+        // const because we're  in a contract statement. But I don't know how do
+        // reliably check that here.
+        if (CurrentContractEntry && CurrentContractEntry->AddedConstToCXXThis) {
+          // If we're in a contract assertion context, we can't modify the
+          // 'this' type. So we'll just return an error here.
+          Diag(CurrentContractEntry->KeywordLoc,
+               diag::note_cxx_this_const_in_contract_introduced_here);
+        }
         return ExprError();
       }
       break;

@@ -15,6 +15,7 @@
 #define LLVM_CLANG_BASIC_LANGOPTIONS_H
 
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/ObjCRuntime.h"
@@ -367,6 +368,21 @@ public:
     PerThread,
   };
 
+  /// Exclude certain code patterns from being instrumented by arithmetic
+  /// overflow sanitizers
+  enum OverflowPatternExclusionKind {
+    /// Don't exclude any overflow patterns from sanitizers
+    None = 1 << 0,
+    /// Exclude all overflow patterns (below)
+    All = 1 << 1,
+    /// if (a + b < a)
+    AddOverflowTest = 1 << 2,
+    /// -1UL
+    NegUnsignedConst = 1 << 3,
+    /// while (count--)
+    PostDecrInWhile = 1 << 4,
+  };
+
   enum class DefaultVisiblityExportMapping {
     None,
     /// map only explicit default visibilities to exported
@@ -440,6 +456,8 @@ public:
     /// No range rule is enabled.
     CX_None
   };
+
+  using ContractEvaluationSemantic = clang::ContractEvaluationSemantic;
 
   // Define simple language options (with no accessors).
 #define LANGOPT(Name, Bits, Default, Description) unsigned Name : Bits;
@@ -555,6 +573,19 @@ public:
   /// The default stream kind used for HIP kernel launching.
   GPUDefaultStreamKind GPUDefaultStream;
 
+  /// C++ contracts evaluation mode
+  ContractEvaluationSemantic ContractEvalSemantic;
+
+  /// A list of options pretaining to c++ contracts and clang attributes about
+  /// them.
+  ContractOptions ContractOpts;
+
+  /// Which overflow patterns should be excluded from sanitizer instrumentation
+  unsigned OverflowPatternExclusionMask = 0;
+
+  std::vector<std::string> OverflowPatternExclusionValues;
+
+
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;
 
@@ -628,6 +659,14 @@ public:
 
   bool isCompatibleWithMSVC(MSVCMajorVersion MajorVersion) const {
     return MSCompatibilityVersion >= MajorVersion * 100000U;
+  }
+
+  bool isOverflowPatternExcluded(OverflowPatternExclusionKind Kind) const {
+    if (OverflowPatternExclusionMask & OverflowPatternExclusionKind::None)
+      return false;
+    if (OverflowPatternExclusionMask & OverflowPatternExclusionKind::All)
+      return true;
+    return OverflowPatternExclusionMask & Kind;
   }
 
   /// Reset all of the options that are not considered when building a

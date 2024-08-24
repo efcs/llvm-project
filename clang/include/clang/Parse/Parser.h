@@ -169,6 +169,12 @@ class Parser : public CodeCompletionHandler {
   mutable IdentifierInfo *Ident_import;
   mutable IdentifierInfo *Ident_module;
 
+  // C++2c(?) contextual keywords.
+  mutable IdentifierInfo *Ident_pre;
+  mutable IdentifierInfo *Ident___pre;
+  mutable IdentifierInfo *Ident_post;
+  mutable IdentifierInfo *Ident___post;
+
   // C++ type trait keywords that can be reverted to identifiers and still be
   // used as type traits.
   llvm::SmallDenseMap<IdentifierInfo *, tok::TokenKind> RevertibleTypeTraits;
@@ -221,7 +227,6 @@ class Parser : public CodeCompletionHandler {
   std::unique_ptr<PragmaHandler> MaxTokensHerePragmaHandler;
   std::unique_ptr<PragmaHandler> MaxTokensTotalPragmaHandler;
   std::unique_ptr<PragmaHandler> RISCVPragmaHandler;
-  std::unique_ptr<PragmaHandler> MCFuncPragmaHandler;
 
   std::unique_ptr<CommentHandler> CommentSemaHandler;
 
@@ -1481,6 +1486,9 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    // The set of tokens that make up the contracts on the method.
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2108,6 +2116,50 @@ private:
 
   ExprResult ParseRequiresExpression();
   void ParseTrailingRequiresClause(Declarator &D);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Contracts
+public:
+  enum ContractEnterScopeKind {
+    CES_None = 0,
+    CES_Prototype = 0x1,
+    CES_Parameters = 0x2,
+    CES_CXXThis = 0x4,
+    CES_Function = 0x8,
+    CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
+  };
+  std::optional<ContractKind> getContractKeyword(const Token &Token) const;
+  std::optional<ContractKind> getContractKeyword() const {
+    return getContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword() const {
+    return isFunctionContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).value_or(ContractKind::Assert) !=
+           ContractKind::Assert;
+  }
+
+  bool isAnyContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).has_value();
+  }
+
+private:
+  StmtResult ParseContractAssertStatement();
+
+  void ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+                                      bool EnterScope,
+                                      QualType TrailingReturnType = QualType());
+
+  StmtResult ParseFunctionContractSpecifierImpl(
+      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
+
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
+                                   ContractEnterScopeKind EnterScopeKinds);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
@@ -3022,7 +3074,7 @@ private:
           SemaCodeCompletion::AttributeCompletion::None,
       const IdentifierInfo *EnclosingScope = nullptr);
 
-  void MaybeParseHLSLAnnotations(Declarator &D,
+  bool MaybeParseHLSLAnnotations(Declarator &D,
                                  SourceLocation *EndLoc = nullptr,
                                  bool CouldBeBitField = false) {
     assert(getLangOpts().HLSL && "MaybeParseHLSLAnnotations is for HLSL only");
@@ -3030,7 +3082,9 @@ private:
       ParsedAttributes Attrs(AttrFactory);
       ParseHLSLAnnotations(Attrs, EndLoc, CouldBeBitField);
       D.takeAttributes(Attrs);
+      return true;
     }
+    return false;
   }
 
   void MaybeParseHLSLAnnotations(ParsedAttributes &Attrs,
@@ -3226,9 +3280,12 @@ private:
   void ParseFunctionDeclarator(Declarator &D, ParsedAttributes &FirstArgAttrs,
                                BalancedDelimiterTracker &Tracker,
                                bool IsAmbiguous, bool RequiresArg = false);
+public:
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst = false);
+
+private:
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,
                          SourceLocation &RefQualifierLoc);
   bool isFunctionDeclaratorIdentifierList();
@@ -3935,6 +3992,8 @@ private:
   bool isGNUAsmQualifier(const Token &TokAfterAsm) const;
   GNUAsmQualifiers::AQ getGNUAsmQualifier(const Token &Tok) const;
   bool parseGNUAsmQualifierListOpt(GNUAsmQualifiers &AQ);
+  ContractSpecifierDecl *ParseLexedFunctionContractsInScope(CachedTokens &Toks,
+                                                            QualType RetType);
 };
 
 }  // end namespace clang

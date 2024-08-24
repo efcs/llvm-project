@@ -72,6 +72,7 @@ namespace {
     void VisitVarDecl(VarDecl *D);
     void VisitLabelDecl(LabelDecl *D);
     void VisitParmVarDecl(ParmVarDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
     void VisitFileScopeAsmDecl(FileScopeAsmDecl *D);
     void VisitTopLevelStmtDecl(TopLevelStmtDecl *D);
     void VisitImportDecl(ImportDecl *D);
@@ -819,6 +820,16 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       TrailingRequiresClause->printPretty(Out, nullptr, SubPolicy, Indentation,
                                           "\n", &Context);
     }
+
+    const ContractSpecifierDecl *Contracts = D->getContracts();
+    if (Contracts) {
+      Out << " [[";
+      for (const auto *Contract : Contracts->contracts()) {
+        Contract->printPretty(Out, nullptr, SubPolicy, Indentation, "\n",
+                              &Context);
+      }
+      Out << "]]";
+    }
   } else {
     Ty.print(Out, Policy, Proto);
   }
@@ -868,7 +879,7 @@ void DeclPrinter::VisitFriendDecl(FriendDecl *D) {
     for (unsigned i = 0; i < NumTPLists; ++i)
       printTemplateParameters(D->getFriendTypeTemplateParameterList(i));
     Out << "friend ";
-    Out << " " << TSI->getType().getAsString(Policy);
+    Out << TSI->getType().getAsString(Policy);
   }
   else if (FunctionDecl *FD =
       dyn_cast<FunctionDecl>(D->getFriendDecl())) {
@@ -885,6 +896,9 @@ void DeclPrinter::VisitFriendDecl(FriendDecl *D) {
     Out << "friend ";
     VisitRedeclarableTemplateDecl(CTD);
   }
+
+  if (D->isPackExpansion())
+    Out << "...";
 }
 
 void DeclPrinter::VisitFieldDecl(FieldDecl *D) {
@@ -1907,5 +1921,20 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
     Out << " = ";
     NTTP->getDefaultArgument().getArgument().print(Policy, Out,
                                                    /*IncludeType=*/false);
+  }
+}
+
+void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
+  StringRef Name = "";
+  if (IdentifierInfo *II = RND->getIdentifier()) {
+    Name =
+        Policy.CleanUglifiedParameters ? II->deuglifiedName() : II->getName();
+  }
+  printDeclType(RND->getType(), Name, false);
+  Out << RND->getDeclName();
+  if (!RND->isCanonicalResultName()) {
+    Out << " = ";
+    RND->getCanonicalResultName()->printQualifiedName(Out);
+    Out << " " << RND << " ";
   }
 }

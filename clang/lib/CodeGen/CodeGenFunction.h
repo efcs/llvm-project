@@ -14,6 +14,7 @@
 #define LLVM_CLANG_LIB_CODEGEN_CODEGENFUNCTION_H
 
 #include "CGBuilder.h"
+#include "CGContracts.h"
 #include "CGDebugInfo.h"
 #include "CGLoopInfo.h"
 #include "CGValue.h"
@@ -100,6 +101,13 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
+struct CurrentContractInfo;
+struct CGContractData;
+struct CGContractDataDeleter {
+  static CGContractData *Create();
+
+  void operator()(CGContractData *) const;
+};
 
 /// The kind of evaluation to perform on values of a particular
 /// type.  Basically, is the code in CGExprScalar, CGExprComplex, or
@@ -416,6 +424,17 @@ public:
   /// If a return statement is being visited, this holds the return statment's
   /// result expression.
   const Expr *RetExpr = nullptr;
+
+  /// If a contract attribute is being visited, this holds the contract
+  std::unique_ptr<CGContractData, CGContractDataDeleter> ContractData{
+      CGContractDataDeleter::Create()};
+
+  CurrentContractInfo *CurContract();
+
+  // This is only used when exceptions are fully disabled. In this case,
+  // an enforced contract violation always terminates the program, so we
+  // can jump to a shared cleanup block without having to worry about continuing
+  // or cleanups;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -2559,6 +2578,8 @@ public:
   /// Emit a test that checks if the return value \p RV is nonnull.
   void EmitReturnValueCheck(llvm::Value *RV);
 
+  void EmitPostContracts(llvm::Value *RV);
+
   /// EmitStartEHSpec - Emit the start of the exception spec.
   void EmitStartEHSpec(const Decl *D);
 
@@ -3304,10 +3325,6 @@ public:
   FindFlexibleArrayMemberFieldAndOffset(ASTContext &Ctx, const RecordDecl *RD,
                                         const FieldDecl *FAMDecl,
                                         uint64_t &Offset);
-
-  /// Find the FieldDecl specified in a FAM's "counted_by" attribute. Returns
-  /// \p nullptr if either the attribute or the field doesn't exist.
-  const FieldDecl *FindCountedByField(const FieldDecl *FD);
 
   /// Build an expression accessing the "counted_by" field.
   llvm::Value *EmitLoadOfCountedByField(const Expr *Base,
@@ -4284,6 +4301,7 @@ public:
   LValue EmitUnaryOpLValue(const UnaryOperator *E);
   LValue EmitArraySubscriptExpr(const ArraySubscriptExpr *E,
                                 bool Accessed = false);
+  llvm::Value *EmitMatrixIndexExpr(const Expr *E);
   LValue EmitMatrixSubscriptExpr(const MatrixSubscriptExpr *E);
   LValue EmitArraySectionExpr(const ArraySectionExpr *E,
                               bool IsLowerBound = true);
@@ -4374,6 +4392,22 @@ public:
   LValue EmitPointerToDataMemberBinaryExpr(const BinaryOperator *E);
   LValue EmitObjCSelectorLValue(const ObjCSelectorExpr *E);
   void   EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
+
+  llvm::BasicBlock *GetSharedContractViolationTrapBlock(bool Create = true);
+  llvm::BasicBlock *GetSharedContractViolationEnforceBlock(bool Create = true);
+
+  void EmitContractStmt(const ContractStmt &S);
+
+private:
+  void EmitContractStmtAsTryBody(const ContractStmt &);
+  void EmitContractStmtAsCatchBody(const ContractStmt &S);
+  void EmitContractStmtAsFullStmt(const ContractStmt &S);
+
+public:
+  void EmitHandleContractViolationCall(llvm::Constant *Semantic,
+                                       llvm::Constant *DetectionMode,
+                                       llvm::Value *ViolationDataGV,
+                                       bool IsNoReturn);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission
@@ -4708,6 +4742,7 @@ public:
                                     ReturnValueSlot ReturnValue);
 
   llvm::Value *EmitRISCVCpuSupports(const CallExpr *E);
+  llvm::Value *EmitRISCVCpuSupports(ArrayRef<StringRef> FeaturesStrs);
   llvm::Value *EmitRISCVCpuInit();
 
   void AddAMDGPUFenceAddressSpaceMMRA(llvm::Instruction *Inst,

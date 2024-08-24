@@ -1605,6 +1605,20 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultName,
+                                 ArrayRef<const Attr *> Attrs) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
+  }
+
+  DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
+                                          bool IsInvalid) {
+    return getSema().ActOnFinishContractSpecifierSequence(Stmts, IsInvalid);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -8629,6 +8643,48 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
 }
 
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+  std::optional<Sema::CXXThisScopeRAII> OptThisScope;
+  if (S->getContractKind() != ContractKind::Assert) {
+    OptThisScope.emplace(getSema(),
+                         dyn_cast_if_present<CXXRecordDecl>(
+                             getSema().getFunctionLevelDeclContext()),
+                         Qualifiers());
+  }
+
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getKeywordLoc());
+
+  StmtResult NewResultName;
+  if (S->hasResultName()) {
+    NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
+    if (NewResultName.isInvalid())
+      return StmtError();
+  }
+
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
+    return StmtError();
+
+  Cond = CondRes.get().second;
+
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), Cond,
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
+}
+
 // Objective-C Statements.
 
 template<typename Derived>
@@ -11018,11 +11074,16 @@ TreeTransform<Derived>::TransformOMPAllocateClause(OMPAllocateClause *C) {
 template <typename Derived>
 OMPClause *
 TreeTransform<Derived>::TransformOMPNumTeamsClause(OMPNumTeamsClause *C) {
-  ExprResult E = getDerived().TransformExpr(C->getNumTeams().front());
-  if (E.isInvalid())
-    return nullptr;
+  llvm::SmallVector<Expr *, 3> Vars;
+  Vars.reserve(C->varlist_size());
+  for (auto *VE : C->varlist()) {
+    ExprResult EVar = getDerived().TransformExpr(cast<Expr>(VE));
+    if (EVar.isInvalid())
+      return nullptr;
+    Vars.push_back(EVar.get());
+  }
   return getDerived().RebuildOMPNumTeamsClause(
-      E.get(), C->getBeginLoc(), C->getLParenLoc(), C->getEndLoc());
+      Vars, C->getBeginLoc(), C->getLParenLoc(), C->getEndLoc());
 }
 
 template <typename Derived>

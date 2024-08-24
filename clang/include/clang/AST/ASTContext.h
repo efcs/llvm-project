@@ -34,6 +34,7 @@
 #include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/PointerUnion.h"
+#include "llvm/ADT/SetVector.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringMap.h"
 #include "llvm/ADT/StringRef.h"
@@ -1184,6 +1185,10 @@ public:
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
 
+  // Decl used to define the datastructure for the contract violation object
+  // used for C++ contracts
+  mutable Decl *BuiltinContractViolationRecordDecl = nullptr;
+
   // Implicitly-declared type 'struct _GUID'.
   mutable TagDecl *MSGuidTagDecl = nullptr;
 
@@ -1194,8 +1199,8 @@ public:
   llvm::DenseSet<const VarDecl *> CUDADeviceVarODRUsedByHost;
 
   /// Keep track of CUDA/HIP external kernels or device variables ODR-used by
-  /// host code.
-  llvm::DenseSet<const ValueDecl *> CUDAExternalDeviceDeclODRUsedByHost;
+  /// host code. SetVector is used to maintain the order.
+  llvm::SetVector<const ValueDecl *> CUDAExternalDeviceDeclODRUsedByHost;
 
   /// Keep track of CUDA/HIP implicit host device functions used on device side
   /// in device compilation.
@@ -2194,6 +2199,21 @@ public:
     assert(MSGuidTagDecl && "asked for GUID type but MS extensions disabled");
     return getTagDeclType(MSGuidTagDecl);
   }
+
+  QualType getBuiltinContractViolationRecordType() const {
+    return getRecordType(
+        cast<RecordDecl>(getBuiltinContractViolationRecordDecl()));
+  }
+
+  Decl *getBuiltinContractViolationRecordDecl() const;
+  UnnamedGlobalConstantDecl *
+  BuildViolationObject(const ContractStmt *CS,
+                       const FunctionDecl *CurDecl = nullptr);
+
+  /// Calculate the evaluation semantic for a specific contract.
+  ///
+  /// This takes into account the default evaluation semantic for all contracts,
+  /// as well as any attributes on the specific contract itself.
 
   /// Return whether a declaration to a builtin is allowed to be
   /// overloaded/redeclared.

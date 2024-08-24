@@ -1,4 +1,4 @@
-//===--- Parser.cpp - C Language Family Parser ----------------------------===//
+//===--- Parser.cpp - C Languaa Family Parser ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -516,6 +516,10 @@ void Parser::Initialize() {
   Ident_GNU_final = nullptr;
   Ident_import = nullptr;
   Ident_module = nullptr;
+  Ident_pre = nullptr;
+  Ident___pre = nullptr;
+  Ident_post = nullptr;
+  Ident___post = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 

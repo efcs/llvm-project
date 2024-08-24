@@ -2200,6 +2200,15 @@ def BTFTypeTag : TypeAttr {
   let LangOpts = [COnly];
 }
 
+def BPFFastCall : InheritableAttr,
+                  TargetSpecificAttr<TargetBPF> {
+  let Spellings = [Clang<"bpf_fastcall">];
+  let Subjects = SubjectList<[FunctionLike]>;
+  let Documentation = [BPFFastCallDocs];
+  let LangOpts = [COnly];
+  let SimpleHandler = 1;
+}
+
 def WebAssemblyExportName : InheritableAttr,
                             TargetSpecificAttr<TargetWebAssembly> {
   let Spellings = [Clang<"export_name">];
@@ -3302,6 +3311,47 @@ def Unavailable : InheritableAttr {
                  "IR_ARCFieldWithOwnership"], 1, /*fake*/ 1>];
   let Documentation = [Undocumented];
   let MeaningfulToClassTemplateDefinition = 1;
+}
+
+def ContractGroup : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_group">];
+  let Args = [ StringArgument<"Group"> ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+def ContractSemantic : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_semantic">];
+  let Args = [
+    EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
+        ["ignore", "observe", "enforce", "quick_enforce"],
+        ["Ignore", "Observe", "Enforce", "QuickEnforce"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>,
+    DefaultBoolArgument<"Override", 0, /*fake*/ 0>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+
+def ContractEmission : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_emission">];
+  let Args = [
+    EnumArgument<"Emission", "ContractEmissionStyle", /*is_string=*/true,
+        ["in_caller", "in_definition"],
+        ["InCaller", "InDefinition"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+
+def ContractMessage : StmtAttr {
+    let Spellings = [CXX11<"clang", "contract_message">];
+    let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
+    let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+    let Documentation = [Undocumented];
 }
 
 def DiagnoseIf : InheritableAttr {
@@ -4467,7 +4517,7 @@ def ReleaseHandle : InheritableParamAttr {
 
 def UnsafeBufferUsage : InheritableAttr {
   let Spellings = [Clang<"unsafe_buffer_usage">];
-  let Subjects = SubjectList<[Function]>;
+  let Subjects = SubjectList<[Function, Field]>;
   let Documentation = [UnsafeBufferUsageDocs];
 }
 
@@ -4529,7 +4579,7 @@ def HLSLSV_GroupIndex: HLSLAnnotationAttr {
 
 def HLSLResourceBinding: InheritableAttr {
   let Spellings = [HLSLAnnotation<"register">];
-  let Subjects = SubjectList<[HLSLBufferObj, ExternalGlobalVar]>;
+  let Subjects = SubjectList<[HLSLBufferObj, ExternalGlobalVar], ErrorDiag>;
   let LangOpts = [HLSL];
   let Args = [StringArgument<"Slot">, StringArgument<"Space", 1>];
   let Documentation = [HLSLResourceBindingDocs];
@@ -4599,15 +4649,21 @@ def HLSLResource : InheritableAttr {
           "CBuffer", "Sampler", "TBuffer", "RTAccelerationStructure",
           "FeedbackTexture2D", "FeedbackTexture2DArray"
         ],
-        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>,
-    DefaultBoolArgument<"isROV", /*default=*/0>
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/0>
   ];
+  let Documentation = [InternalOnly];
+}
+
+def HLSLROV : InheritableAttr {
+  let Spellings = [CXX11<"hlsl", "is_rov">];
+  let Subjects = SubjectList<[Struct]>;
+  let LangOpts = [HLSL]; 
   let Documentation = [InternalOnly];
 }
 
 def HLSLResourceClass : InheritableAttr {
   let Spellings = [CXX11<"hlsl", "resource_class">];
-  let Subjects = SubjectList<[Struct]>;
+  let Subjects = SubjectList<[Field]>;
   let LangOpts = [HLSL];
   let Args = [
 	EnumArgument<"ResourceClass", "llvm::hlsl::ResourceClass",

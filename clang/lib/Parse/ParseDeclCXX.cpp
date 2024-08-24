@@ -13,6 +13,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/PrettyDeclStackTrace.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
@@ -425,7 +426,10 @@ Decl *Parser::ParseLinkage(ParsingDeclSpec &DS, DeclaratorContext Context) {
       [[fallthrough]];
     default:
       ParsedAttributes DeclAttrs(AttrFactory);
-      MaybeParseCXX11Attributes(DeclAttrs);
+      ParsedAttributes DeclSpecAttrs(AttrFactory);
+      while (MaybeParseCXX11Attributes(DeclAttrs) ||
+             MaybeParseGNUAttributes(DeclSpecAttrs))
+        ;
       ParseExternalDeclaration(DeclAttrs, DeclSpecAttrs);
       continue;
     }
@@ -449,7 +453,7 @@ Decl *Parser::ParseLinkage(ParsingDeclSpec &DS, DeclaratorContext Context) {
 ///
 ///      export-function-declaration:
 ///         'export' function-declaration
-/// 
+///
 ///      export-declaration-group:
 ///         'export' '{' function-declaration-seq[opt] '}'
 ///
@@ -2004,9 +2008,16 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
 
   const PrintingPolicy &Policy = Actions.getASTContext().getPrintingPolicy();
   TagUseKind TUK;
-  if (isDefiningTypeSpecifierContext(DSC, getLangOpts().CPlusPlus) ==
-          AllowDefiningTypeSpec::No ||
-      (getLangOpts().OpenMP && OpenMPDirectiveParsing))
+
+  // C++26 [class.mem.general]p10: If a name-declaration matches the
+  // syntactic requirements of friend-type-declaration, it is a
+  // friend-type-declaration.
+  if (getLangOpts().CPlusPlus && DS.isFriendSpecifiedFirst() &&
+      Tok.isOneOf(tok::comma, tok::ellipsis))
+    TUK = TagUseKind::Friend;
+  else if (isDefiningTypeSpecifierContext(DSC, getLangOpts().CPlusPlus) ==
+               AllowDefiningTypeSpec::No ||
+           (getLangOpts().OpenMP && OpenMPDirectiveParsing))
     TUK = TagUseKind::Reference;
   else if (Tok.is(tok::l_brace) ||
            (DSC != DeclSpecContext::DSC_association &&
@@ -2047,6 +2058,23 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeBracket();
         if (!SkipUntil(tok::r_square, StopAtSemi))
           break;
+      } else if (isFunctionContractKeyword() &&
+                 (NextToken().is(tok::l_paren) ||
+                  (NextToken().is(tok::l_square) &&
+                   GetLookAheadToken(2).is(tok::l_square)))) {
+        // A contract may have a C++11 attribute between the keyword and the
+        // opening paren.
+        ConsumeToken();
+        if (Tok.is(tok::l_square)) {
+          ConsumeBracket();
+          if (!SkipUntil(tok::r_square, StopAtSemi))
+            break;
+        }
+        if (Tok.is(tok::l_paren)) {
+          ConsumeParen();
+          if (!SkipUntil(tok::r_paren, StopAtSemi))
+            break;
+        }
       } else if (Tok.is(tok::kw_alignas) && NextToken().is(tok::l_paren)) {
         ConsumeToken();
         ConsumeParen();
@@ -2238,9 +2266,28 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
                             diag::err_keyword_not_allowed,
                             /*DiagnoseEmptyAttrs=*/true);
 
+    // Consume '...' first so we error on the ',' after it if there is one.
+    SourceLocation EllipsisLoc;
+    TryConsumeToken(tok::ellipsis, EllipsisLoc);
+
+    // CWG 2917: In a template-declaration whose declaration is a
+    // friend-type-declaration, the friend-type-specifier-list shall
+    // consist of exactly one friend-type-specifier.
+    //
+    // Essentially, the following is obviously nonsense, so disallow it:
+    //
+    //   template <typename>
+    //   friend class S, int;
+    //
+    if (Tok.is(tok::comma)) {
+      Diag(Tok.getLocation(),
+           diag::err_friend_template_decl_multiple_specifiers);
+      SkipUntil(tok::semi, StopBeforeMatch);
+    }
+
     TagOrTempResult = Actions.ActOnTemplatedFriendTag(
         getCurScope(), DS.getFriendSpecLoc(), TagType, StartLoc, SS, Name,
-        NameLoc, attrs,
+        NameLoc, EllipsisLoc, attrs,
         MultiTemplateParamsArg(TemplateParams ? &(*TemplateParams)[0] : nullptr,
                                TemplateParams ? TemplateParams->size() : 0));
   } else {
@@ -2533,6 +2580,8 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
     }
   }
 
+  NeedLateParse |= !DeclaratorInfo.getLateParsedContracts().empty();
+
   if (NeedLateParse) {
     // Push this method onto the stack of late-parsed method
     // declarations.
@@ -2553,6 +2602,8 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
       LateMethod->ExceptionSpecTokens = FTI.ExceptionSpecTokens;
       FTI.ExceptionSpecTokens = nullptr;
     }
+
+    LateMethod->ContractTokens = std::move(DeclaratorInfo.LateParsedContracts);
   }
 }
 
@@ -2709,6 +2760,8 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
                                                               VS);
   }
 
+  ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
+
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {
     SourceLocation Loc;
@@ -2815,6 +2868,7 @@ void Parser::MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(
 ///       member-declaration:
 ///         decl-specifier-seq[opt] member-declarator-list[opt] ';'
 ///         function-definition ';'[opt]
+/// [C++26] friend-type-declaration
 ///         ::[opt] nested-name-specifier template[opt] unqualified-id ';'[TODO]
 ///         using-declaration                                            [TODO]
 /// [C++0x] static_assert-declaration
@@ -2846,6 +2900,18 @@ void Parser::MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(
 ///
 ///       constant-initializer:
 ///         '=' constant-expression
+///
+///       friend-type-declaration:
+///         'friend' friend-type-specifier-list ;
+///
+///       friend-type-specifier-list:
+///         friend-type-specifier ...[opt]
+///         friend-type-specifier-list , friend-type-specifier ...[opt]
+///
+///       friend-type-specifier:
+///         simple-type-specifier
+///         elaborated-type-specifier
+///         typename-specifier
 ///
 Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
     AccessSpecifier AS, ParsedAttributes &AccessAttrs,
@@ -3047,6 +3113,68 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
 
   if (DS.hasTagDefinition())
     Actions.ActOnDefinedDeclarationSpecifier(DS.getRepAsDecl());
+
+  // Handle C++26's variadic friend declarations. These don't even have
+  // declarators, so we get them out of the way early here.
+  if (DS.isFriendSpecifiedFirst() && Tok.isOneOf(tok::comma, tok::ellipsis)) {
+    Diag(Tok.getLocation(), getLangOpts().CPlusPlus26
+                                ? diag::warn_cxx23_variadic_friends
+                                : diag::ext_variadic_friends);
+
+    SourceLocation FriendLoc = DS.getFriendSpecLoc();
+    SmallVector<Decl *> Decls;
+
+    // Handles a single friend-type-specifier.
+    auto ParsedFriendDecl = [&](ParsingDeclSpec &DeclSpec) {
+      SourceLocation VariadicLoc;
+      TryConsumeToken(tok::ellipsis, VariadicLoc);
+
+      RecordDecl *AnonRecord = nullptr;
+      Decl *D = Actions.ParsedFreeStandingDeclSpec(
+          getCurScope(), AS, DeclSpec, DeclAttrs, TemplateParams, false,
+          AnonRecord, VariadicLoc);
+      DeclSpec.complete(D);
+      if (!D) {
+        SkipUntil(tok::semi, tok::r_brace);
+        return true;
+      }
+
+      Decls.push_back(D);
+      return false;
+    };
+
+    if (ParsedFriendDecl(DS))
+      return nullptr;
+
+    while (TryConsumeToken(tok::comma)) {
+      ParsingDeclSpec DeclSpec(*this, TemplateDiags);
+      const char *PrevSpec = nullptr;
+      unsigned DiagId = 0;
+      DeclSpec.SetFriendSpec(FriendLoc, PrevSpec, DiagId);
+      ParseDeclarationSpecifiers(DeclSpec, TemplateInfo, AS,
+                                 DeclSpecContext::DSC_class, nullptr);
+      if (ParsedFriendDecl(DeclSpec))
+        return nullptr;
+    }
+
+    ExpectAndConsume(tok::semi, diag::err_expected_semi_after_stmt,
+                     "friend declaration");
+
+    return Actions.BuildDeclaratorGroup(Decls);
+  }
+
+  // Befriending a concept is invalid and would already fail if
+  // we did nothing here, but this allows us to issue a more
+  // helpful diagnostic.
+  if (Tok.is(tok::kw_concept)) {
+    Diag(Tok.getLocation(),
+         DS.isFriendSpecified() || NextToken().is(tok::kw_friend)
+             ? diag::err_friend_concept
+             : diag::
+                   err_concept_decls_may_only_appear_in_global_namespace_scope);
+    SkipUntil(tok::semi, tok::r_brace, StopBeforeMatch);
+    return nullptr;
+  }
 
   ParsingDeclarator DeclaratorInfo(*this, DS, DeclAttrs,
                                    DeclaratorContext::Member);
@@ -4294,7 +4422,6 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
                                         Exceptions.empty());
   return Exceptions.empty() ? EST_DynamicNone : EST_Dynamic;
 }
-
 /// ParseTrailingReturnType - Parse a trailing return type on a new-style
 /// function declaration.
 TypeResult Parser::ParseTrailingReturnType(SourceRange &Range,
@@ -4417,7 +4544,8 @@ void Parser::PopParsingClass(Sema::ParsingClassState state) {
   ClassStack.pop();
   if (Victim->TopLevelClass) {
     // Deallocate all of the nested classes of this class,
-    // recursively: we don't need to keep any of this information.
+    // recursively: we don't need
+    // to keep any of this information.
     DeallocateParsedClasses(Victim);
     return;
   }

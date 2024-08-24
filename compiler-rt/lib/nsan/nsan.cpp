@@ -445,6 +445,32 @@ int32_t checkFT(const FT value, ShadowFT Shadow, CheckTypeT CheckType,
   const InternalFT check_value = value;
   const InternalFT check_shadow = Shadow;
 
+  // We only check for NaNs in the value, not the shadow.
+  if (flags().check_nan && isnan(check_value)) {
+    GET_CALLER_PC_BP;
+    BufferedStackTrace stack;
+    stack.Unwind(pc, bp, nullptr, false);
+    if (GetSuppressionForStack(&stack, CheckKind::Consistency)) {
+      // FIXME: optionally print.
+      return flags().resume_after_suppression ? kResumeFromValue
+                                              : kContinueWithShadow;
+    }
+    Decorator D;
+    Printf("%s", D.Warning());
+    Printf("WARNING: NumericalStabilitySanitizer: NaN detected\n");
+    Printf("%s", D.Default());
+    stack.Print();
+    if (flags().halt_on_error) {
+      if (common_flags()->abort_on_error)
+        Printf("ABORTING\n");
+      else
+        Printf("Exiting\n");
+      Die();
+    }
+    // Performing other tests for NaN values is meaningless when dealing with numbers.
+    return kResumeFromValue;
+  }
+
   // See this article for an interesting discussion of how to compare floats:
   // https://randomascii.wordpress.com/2012/02/25/comparing-floating-point-numbers-2012-edition/
   static constexpr const FT Eps = FTInfo<FT>::kEpsilon;
@@ -807,6 +833,7 @@ extern "C" SANITIZER_INTERFACE_ATTRIBUTE void __nsan_init() {
   if (nsan_initialized)
     return;
   nsan_init_is_running = true;
+  SanitizerToolName = "NumericalStabilitySanitizer";
 
   InitializeFlags();
   InitializeSuppressions();
@@ -814,11 +841,12 @@ extern "C" SANITIZER_INTERFACE_ATTRIBUTE void __nsan_init() {
 
   DisableCoreDumperIfNecessary();
 
-  if (!MmapFixedNoReserve(TypesAddr(), UnusedAddr() - TypesAddr()))
+  if (!MmapFixedNoReserve(TypesAddr(), AllocatorAddr() - TypesAddr()))
     Die();
 
   InitializeInterceptors();
   NsanTSDInit(NsanTSDDtor);
+  NsanAllocatorInit();
 
   NsanThread *main_thread = NsanThread::Create(nullptr, nullptr);
   SetCurrentThread(main_thread);

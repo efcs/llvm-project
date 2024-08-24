@@ -4734,6 +4734,7 @@ void ASTWriter::AddToken(const Token &Tok, RecordDataImpl &Record) {
     case tok::annot_pragma_unused:
     case tok::annot_pragma_openacc:
     case tok::annot_pragma_openacc_end:
+    case tok::annot_repl_input_end:
       break;
     default:
       llvm_unreachable("missing serialization code for annotation token");
@@ -5704,12 +5705,6 @@ void ASTWriter::WriteDeclAndTypes(ASTContext &Context) {
     if (D->isFromASTFile())
       continue;
 
-    // Skip writing implicit declarations not owning by the current module.
-    // See the implementation of PrepareWritingSpecialDecls for example.
-    if (isWritingStdCXXNamedModules() && !D->getOwningModule() &&
-        D->isImplicit())
-      continue;
-
     // In reduced BMI, skip unreached declarations.
     if (!wasDeclEmitted(D))
       continue;
@@ -6288,7 +6283,8 @@ bool ASTWriter::wasDeclEmitted(const Decl *D) const {
     return true;
 
   bool Emitted = DeclIDs.contains(D);
-  assert((Emitted || GeneratingReducedBMI) &&
+  assert((Emitted || (!D->getOwningModule() && isWritingStdCXXNamedModules()) ||
+          GeneratingReducedBMI) &&
          "The declaration within modules can only be omitted in reduced BMI.");
   return Emitted;
 }
@@ -6757,6 +6753,12 @@ void ASTWriter::TypeRead(TypeIdx Idx, QualType T) {
   // higher module file indexes.
   if (Idx.getModuleFileIndex() >= StoredIdx.getModuleFileIndex())
     StoredIdx = Idx;
+}
+
+void ASTWriter::PredefinedDeclBuilt(PredefinedDeclIDs ID, const Decl *D) {
+  assert(D->isCanonicalDecl() && "predefined decl is not canonical");
+  DeclIDs[D] = LocalDeclID(ID);
+  PredefinedDecls.insert(D);
 }
 
 void ASTWriter::SelectorRead(SelectorID ID, Selector S) {

@@ -14,6 +14,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/CXXInheritance.h"
 #include "clang/AST/ExprCXX.h"
+#include "clang/AST/MangleNumberingContext.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DeclSpec.h"
 #include "clang/Sema/Initialization.h"
@@ -790,6 +791,7 @@ QualType Sema::buildLambdaInitCaptureInitialization(
   TypeLocBuilder TLB;
   AutoTypeLoc TL = TLB.push<AutoTypeLoc>(DeductType);
   TL.setNameLoc(Loc);
+
   if (ByRef) {
     DeductType = BuildReferenceType(DeductType, true, Loc, Id);
     assert(!DeductType.isNull() && "can't build reference to auto");
@@ -1393,7 +1395,6 @@ void Sema::ActOnLambdaClosureParameters(
 void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
                                         Declarator &ParamInfo,
                                         const DeclSpec &DS) {
-
   LambdaScopeInfo *LSI = getCurrentLambdaScopeUnsafe(*this);
   LSI->CallOperator->setConstexprKind(DS.getConstexprSpecifier());
 
@@ -1414,6 +1415,7 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
 
   CXXRecordDecl *Class = LSI->Lambda;
   CXXMethodDecl *Method = LSI->CallOperator;
+  Method->setContracts(ParamInfo.Contracts);
 
   TypeSourceInfo *MethodTyInfo = getLambdaType(
       *this, Intro, ParamInfo, getCurScope(), TypeLoc, ExplicitResultType);

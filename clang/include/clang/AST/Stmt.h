@@ -74,6 +74,7 @@ enum class CXXNewInitializationStyle;
 enum class PredefinedIdentKind;
 enum class SourceLocIdentKind;
 enum class StringLiteralKind;
+enum class ContractKind;
 
 //===----------------------------------------------------------------------===//
 // AST classes for statements.
@@ -447,6 +448,13 @@ protected:
     unsigned NonOdrUseReason : 2;
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsImmediateEscalating : 1;
+    // True if the expression had constification applied due to a contract
+    // scope (and it wouldn't have otherwise been const).
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsConstified : 1;
+
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsInContractContext : 1;
 
     /// The location of the declaration name itself.
     SourceLocation Loc;
@@ -650,6 +658,11 @@ protected:
     LLVM_PREFERRED_TYPE(bool)
     unsigned HasFPFeatures : 1;
 
+    /// Whether or not this BinaryOperator should be excluded from integer
+    /// overflow sanitization.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned ExcludedOverflowPattern : 1;
+
     SourceLocation OpLoc;
   };
 
@@ -847,6 +860,26 @@ protected:
     unsigned : NumExprBits;
 
     SourceLocation RParenLoc;
+  };
+
+  class ContractAssertBitfields {
+    friend class ASTStmtReader;
+    friend class ASTStmtWriter;
+    friend class ContractStmt;
+
+    LLVM_PREFERRED_TYPE(StmtBitfields)
+    unsigned : NumStmtBits;
+
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned HasResultName : 1;
+
+    LLVM_PREFERRED_TYPE(ContractKind)
+    unsigned ContractKind : 2;
+
+    enum { NumContractAssertBits = 3 };
+
+    LLVM_PREFERRED_TYPE(unsigned)
+    unsigned NumAttrs : 32 - NumStmtBits - NumContractAssertBits;
   };
 
   class CXXNewExprBitfields {
@@ -1265,6 +1298,9 @@ protected:
 
     // C++ Coroutines expressions
     CoawaitExprBitfields CoawaitBits;
+
+    // C++ contracts
+    ContractAssertBitfields ContractAssertBits;
 
     // Obj-C Expressions
     ObjCIndirectCopyRestoreExprBitfields ObjCIndirectCopyRestoreExprBits;

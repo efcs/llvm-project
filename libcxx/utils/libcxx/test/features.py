@@ -172,6 +172,14 @@ DEFAULT_FEATURES = [
         when=lambda cfg: hasCompileFlag(cfg, "-fdelayed-template-parsing"),
     ),
     Feature(
+        name="fcontracts",
+        when=lambda cfg: hasCompileFlag(cfg, "-fcontracts"),
+    ),
+    Feature(
+        name="contract-groups",
+        when=lambda cfg: hasCompileFlag(cfg, "-fcontract-group-evaluation-semantic=std=enforce"),
+    ),
+    Feature(
         name="has-fobjc-arc",
         when=lambda cfg: hasCompileFlag(cfg, "-xobjective-c++ -fobjc-arc")
         and sys.platform.lower().strip() == "darwin",
@@ -378,6 +386,7 @@ macros = {
     "_LIBCPP_HAS_NO_FILESYSTEM": "no-filesystem",
     "_LIBCPP_HAS_NO_RANDOM_DEVICE": "no-random-device",
     "_LIBCPP_HAS_NO_LOCALIZATION": "no-localization",
+    "_LIBCPP_HAS_NO_TERMINAL": "no-terminal",
     "_LIBCPP_HAS_NO_WIDE_CHARACTERS": "no-wide-characters",
     "_LIBCPP_HAS_NO_TIME_ZONE_DATABASE": "no-tzdb",
     "_LIBCPP_HAS_NO_UNICODE": "libcpp-has-no-unicode",

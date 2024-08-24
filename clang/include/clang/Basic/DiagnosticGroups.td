@@ -1547,6 +1547,9 @@ def DXILValidation : DiagGroup<"dxil-validation">;
 // Warning for HLSL API availability
 def HLSLAvailability : DiagGroup<"hlsl-availability">;
 
+// Warnings for legacy binding behavior
+def LegacyConstantRegisterBinding : DiagGroup<"legacy-constant-register-binding">;
+
 // Warnings and notes related to const_var_decl_type attribute checks
 def ReadOnlyPlacementChecks : DiagGroup<"read-only-types">;
 
@@ -1570,3 +1573,11 @@ def ExtractAPIMisuse : DiagGroup<"extractapi-misuse">;
 // Warnings about using the non-standard extension having an explicit specialization
 // with a storage class specifier.
 def ExplicitSpecializationStorageClass : DiagGroup<"explicit-specialization-storage-class">;
+
+// Warnings produced by failing "observe" contract violations
+
+def ContractViolation : DiagGroup<"contract-violation">;
+
+def ContractWarning : DiagGroup<"contracts", [ContractViolation]>;
+
+def EricWFFixme : DiagGroup<"ericwf-fixme">;

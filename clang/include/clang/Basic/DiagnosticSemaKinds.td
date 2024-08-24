@@ -1741,6 +1741,10 @@ def ext_friend_tag_redecl_outside_namespace : ExtWarn<
   "enclosing namespace is a Microsoft extension; add a nested name specifier">,
   InGroup<MicrosoftUnqualifiedFriend>;
 def err_pure_friend : Error<"friend declaration cannot have a pure-specifier">;
+def err_friend_template_decl_multiple_specifiers: Error<
+  "a friend declaration that befriends a template must contain exactly one type-specifier">;
+def friend_template_decl_malformed_pack_expansion : Error<
+  "friend declaration expands pack %0 that is declared it its own template parameter list">;
 
 def err_invalid_base_in_interface : Error<
   "interface type cannot inherit from "
@@ -3012,6 +3016,8 @@ def err_concept_no_parameters : Error<
   "specialization of concepts is not allowed">;
 def err_concept_extra_headers : Error<
   "extraneous template parameter list in concept definition">;
+def err_recursive_concept : Error<
+  "a concept definition cannot refer to itself">;
 def err_concept_no_associated_constraints : Error<
   "concept cannot have associated constraints">;
 def err_non_constant_constraint_expression : Error<
@@ -3082,6 +3088,7 @@ def note_ambiguous_atomic_constraints_similar_expression : Note<
 def err_unsupported_placeholder_constraint : Error<
   "constrained placeholder types other than simple 'auto' on non-type template "
   "parameters not supported yet">;
+
 
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
@@ -5426,7 +5433,8 @@ def err_template_spec_extra_headers : Error<
   "extraneous template parameter list in template specialization or "
   "out-of-line template definition">;
 def ext_template_spec_extra_headers : ExtWarn<
-  "extraneous template parameter list in template specialization">;
+  "extraneous template parameter list in template specialization">,
+   InGroup<DiagGroup<"extraneous-template-head">>, DefaultError;
 def note_explicit_template_spec_does_not_need_header : Note<
   "'template<>' header not required for explicitly-specialized class %0 "
   "declared here">;
@@ -5660,6 +5668,8 @@ def err_explicit_instantiation_internal_linkage : Error<
 def err_explicit_instantiation_not_known : Error<
   "explicit instantiation of %0 does not refer to a function template, "
   "variable template, member function, member class, or static data member">;
+def err_explicit_instantiation_no_candidate : Error<
+    "no viable candidate for explicit instantiation of %0">;
 def note_explicit_instantiation_here : Note<
   "explicit instantiation refers here">;
 def err_explicit_instantiation_data_member_not_instantiated : Error<
@@ -7489,6 +7499,9 @@ def note_typecheck_assign_const : Note<
   "member function %q1 is declared const here|"
   "%select{|nested }1data member %2 declared const here}0">;
 
+def err_typecheck_assign_constified : Error<
+    "cannot assign to %select{variable %1|non-static data member}0 because it is considered 'const' inside of a contract">;
+
 def warn_unsigned_always_true_comparison : Warning<
   "result of comparison of %select{%3|unsigned expression}0 %2 "
   "%select{unsigned expression|%3}0 is always %4">,
@@ -8968,6 +8981,8 @@ def err_atomic_op_has_invalid_synch_scope : Error<
 def warn_atomic_implicit_seq_cst : Warning<
   "implicit use of sequentially-consistent atomic may incur stronger memory barriers than necessary">,
   InGroup<DiagGroup<"atomic-implicit-seq-cst">>, DefaultIgnore;
+def err_atomic_unsupported : Error<
+  "atomic types are not supported in '%0'">;
 
 def err_overflow_builtin_must_be_int : Error<
   "operand argument to %select{overflow builtin|checked integer operation}0 "
@@ -9354,9 +9369,6 @@ let CategoryName = "Inline Assembly Issue" in {
     "invalid input size for constraint '%0'">;
   def err_asm_invalid_output_size : Error<
     "invalid output size for constraint '%0'">;
-  def err_invalid_asm_cast_lvalue : Error<
-    "invalid use of a cast in a inline asm context requiring an lvalue: "
-    "remove the cast or build with -fheinous-gnu-extensions">;
   def err_invalid_asm_value_for_constraint
       : Error <"value '%0' out of range for constraint '%1'">;
   def err_asm_non_addr_value_in_memory_constraint : Error <
@@ -9370,9 +9382,8 @@ let CategoryName = "Inline Assembly Issue" in {
   def warn_asm_label_on_auto_decl : Warning<
     "ignored asm label '%0' on automatic variable">;
   def warn_invalid_asm_cast_lvalue : Warning<
-    "invalid use of a cast in an inline asm context requiring an lvalue: "
-    "accepted due to -fheinous-gnu-extensions, but clang may remove support "
-    "for this in the future">;
+    "invalid use of a cast in an inline asm context requiring an lvalue">,
+    InGroup<DiagGroup<"invalid-gnu-asm-cast">>, DefaultError;
   def warn_asm_mismatched_size_modifier : Warning<
     "value size does not match register size specified by the constraint "
     "and modifier">,
@@ -9747,7 +9758,7 @@ def err_defaulted_special_member_quals : Error<
   "have 'const'%select{, 'constexpr'|}1 or 'volatile' qualifiers">;
 def err_defaulted_special_member_explicit_object_mismatch : Error<
   "the type of the explicit object parameter of an explicitly-defaulted "
-  "%select{copy|move}0 assignment operator should match the type of the class %1">;
+  "%select{copy|move}0 assignment operator should be reference to %1">;
 def err_defaulted_special_member_volatile_param : Error<
   "the parameter for an explicitly-defaulted %sub{select_special_member_kind}0 "
   "may not be volatile">;
@@ -10057,8 +10068,9 @@ def warn_null_ret : Warning<
   InGroup<NonNull>;
 
 def err_lifetimebound_no_object_param : Error<
-  "'lifetimebound' attribute cannot be applied; %select{static |non-}0member "
-  "function has no implicit object parameter">;
+  "'lifetimebound' attribute cannot be applied; "
+  "%select{non-|static |explicit object }0"
+  "member function has no implicit object parameter">;
 def err_lifetimebound_ctor_dtor : Error<
   "'lifetimebound' attribute cannot be applied to a "
   "%select{constructor|destructor}0">;
@@ -10594,7 +10606,10 @@ def warn_duplicate_attribute : Warning<
   "attribute %0 is already applied with different arguments">,
   InGroup<IgnoredAttributes>;
 def err_disallowed_duplicate_attribute : Error<
-  "attribute %0 cannot appear more than once on a declaration">;
+  "attribute %0 cannot appear more than once on a %select{declaration|contract specifier}1">;
+
+def err_disallow_incompatible_attribute : Error<
+    "attribute %1 cannot appear on a %select{declaration|contract specifier}0 with attribute %2">;
 
 def warn_sync_fetch_and_nand_semantics_change : Warning<
   "the semantics of this intrinsic changed with GCC "
@@ -11155,6 +11170,8 @@ def err_omp_loop_diff_cxx : Error<
   "upper and lower loop bounds">;
 def err_omp_loop_cannot_use_stmt : Error<
   "'%0' statement cannot be used in OpenMP for loop">;
+def err_omp_loop_bad_collapse_var : Error<
+  "cannot use variable %1 in collapsed imperfectly-nested loop %select{init|condition|increment}0 statement">;
 def err_omp_simd_region_cannot_use_stmt : Error<
   "'%0' statement cannot be used in OpenMP simd region">;
 def warn_omp_loop_64_bit_var : Warning<
@@ -11906,6 +11923,122 @@ def err_coroutine_return_type : Error<
 >;
 } // end of coroutines issue category
 
+def select_contract_kind : TextSubstitution<
+  "%select{pre|post|contract_assert}0">;
+
+let CategoryName = "Contract Issue" in {
+def err_ericwf_unimplemented : Error<
+  "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
+>;
+def warn_ericwf_unimplemented : Warning<
+  "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
+>, InGroup<EricWFFixme>;
+
+def err_ericwf_fixme : Error<
+  "woops... FIXME(EricWF): %0"
+>;
+def warn_ericwf_fixme : Warning<
+  "woops... FIXME(EricWF): %0"
+>, InGroup<EricWFFixme>;
+
+def err_result_name_shadows_param : Error<
+  "declaration of result name %0 shadows parameter">;
+def err_void_result_name : Error<
+  "result name %0 cannot be used with a void return type">;
+def err_deduced_auto_result_name_without_body : Error<
+  "result name on function with deduced return type requires a body">;
+def err_result_name_not_allowed : Error<
+  "result name %0 not allowed outside of post condition specifier">;
+
+// Diagnose clang::contract_group attribute strings
+def err_contract_group_attribute_invalid_group : Error<
+  "clang::contract_group group %select{"
+     "\"%1\" cannot start with '%2'"
+    "|\"%1\" cannot contain '%2'"
+    "|\"%1\" cannot end with '%2'"
+    "|\"%1\" cannot contain empty subgroup \"%2\""
+    "|cannot be empty"
+    "|<cannot-happen-here>"
+    "}0">;
+
+
+
+def err_contract_violation : Error<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">;
+def warn_contract_violation : Warning<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">,
+    InGroup<ContractViolation>;
+
+def err_contract_requirement_failed : Error<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">;
+def warn_contract_requirement_failed : Warning<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">,
+  InGroup<ContractViolation>;
+
+def err_constexpr_contract_failure : Error<
+  "contract failed during execution of constexpr function">;
+def warn_constexpr_contract_failure : Warning<
+    "contract failed during execution of constexpr function">,
+    InGroup<ContractViolation>;
+
+def err_initialization_of_constant_initialized_variable_failed : Error<
+    "initialization of constant-initialized variable failed">;
+def note_initialization_changed_contract_semantic : Note<
+    "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
+
+// Redeclaration of contract attributes
+def err_function_different_contract_seq : Error<
+  "%select{function|method}0 %select{redeclaration|out-of-line definition}0 differs in contract specifier sequence">;
+def note_contract_spec_seq_arity_mismatch : Note<
+  "previously declared %select{with additional|with fewer|without}0 contracts here%select{ (%1 vs %2)| (%1 vs %2)|}0">;
+def note_previous_contract_spec_seq : Note<
+  "previously declared %select{without|with %1}0 contracts here">;
+
+def note_mismatched_contract : Note<
+  "in contract specified here">;
+def note_previous_contracts : Note<
+  "contract previously specified %select{"
+  "<ERROR>"
+  "|<ERROR>"
+  "|as '%sub{select_contract_kind}1'"
+  "|%select{without|with}2 result name"
+  "|with a non-equivalent condition}0">;
+
+def err_contract_attr_bool_arg_not_constant : Error<
+  "argument to %0 attribute must be a boolean constant expression">;
+
+def warn_contract_always_evaluates_to : Warning<
+  "contract condition always evaluates to %select{false|true}0">,
+  InGroup<ContractViolation>;
+
+def err_contract_postcondition_parameter_type_invalid : Error<
+    "parameter %0 referenced in contract postcondition %select{cannot have an array type|cannot have a function type|must be declared const}1">;
+def note_parameter_with_name : Note<
+  "parameter %0 is declared here">;
+def note_parameter_with_name_and_type : Note<
+  "parameter %0 declared with type %1 here">;
+
+def err_lambda_implicit_capture_in_contracts_only : Error<
+         "implicit capture of local entity %0 is not allowed when used exclusively in contract assertions">;
+
+def note_lambda_implicit_capture_in_contracts_only : Note<
+  "use explicit capture list to capture %0">;
+
+def err_auto_result_name_on_non_def_decl : Error<
+   "postcondition with result name %0 cannot appear on a function declaration with deduced return type unless it is a definition">;
+   // "result name '%0' cannot appear in postcondition for a non-template function declaration with a deduced return type">;
+def note_function_return_type : Note<
+    "function return type declared here">;
+
+def note_contract_context : Note<
+  "within contract context introduced here">;
+def note_cxx_this_const_in_contract_introduced_here : Note<
+  "'this' is 'const' within contract introduced here">;
+def err_keyword_not_allowed_in_contract : Error<
+    "'%0' cannot be used inside a contract">;
+
+
+def err_lambda_decl_ref_not_modifiable_lvalue_contract : Error<
+  "cannot assign to a variable captured by reference which was captured as const because it is inside a contract">;
+} // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;
@@ -12338,7 +12471,13 @@ def err_hlsl_missing_semantic_annotation : Error<
 def err_hlsl_init_priority_unsupported : Error<
   "initializer priorities are not supported in HLSL">;
 
-def err_hlsl_unsupported_register_type : Error<"invalid resource class specifier '%0' used; expected 'b', 's', 't', or 'u'">;
+def warn_hlsl_user_defined_type_missing_member: Warning<"binding type '%select{t|u|b|s|c}0' only applies to types containing %select{SRV resources|UAV resources|constant buffer resources|sampler state|numeric types}0">, InGroup<LegacyConstantRegisterBinding>;
+def err_hlsl_binding_type_mismatch: Error<"binding type '%select{t|u|b|s|c}0' only applies to %select{SRV resources|UAV resources|constant buffer resources|sampler state|numeric variables in the global scope}0">;
+def err_hlsl_binding_type_invalid: Error<"binding type '%0' is invalid">;
+def err_hlsl_duplicate_register_annotation: Error<"binding type '%select{t|u|b|s|c|i}0' cannot be applied more than once">;
+def warn_hlsl_register_type_c_packoffset: Warning<"binding type 'c' ignored in buffer declaration. Did you mean 'packoffset'?">, InGroup<LegacyConstantRegisterBinding>, DefaultError;
+def warn_hlsl_deprecated_register_type_b: Warning<"binding type 'b' only applies to constant buffers. The 'bool constant' binding type is no longer supported">, InGroup<LegacyConstantRegisterBinding>, DefaultError;
+def warn_hlsl_deprecated_register_type_i: Warning<"binding type 'i' ignored. The 'integer constant' binding type is no longer supported">, InGroup<LegacyConstantRegisterBinding>, DefaultError;
 def err_hlsl_unsupported_register_number : Error<"register number should be an integer">;
 def err_hlsl_expected_space : Error<"invalid space specifier '%0' used; expected 'space' followed by an integer, like space1">;
 def warn_hlsl_packoffset_mix : Warning<"cannot mix packoffset elements with nonpackoffset elements in a cbuffer">,
@@ -12381,7 +12520,8 @@ def warn_unsafe_buffer_variable : Warning<
   InGroup<UnsafeBufferUsage>, DefaultIgnore;
 def warn_unsafe_buffer_operation : Warning<
   "%select{unsafe pointer operation|unsafe pointer arithmetic|"
-  "unsafe buffer access|function introduces unsafe buffer manipulation|unsafe invocation of span::data}0">,
+  "unsafe buffer access|function introduces unsafe buffer manipulation|unsafe invocation of span::data|"
+  "field %1 prone to unsafe buffer manipulation}0">,
   InGroup<UnsafeBufferUsage>, DefaultIgnore;
 def note_unsafe_buffer_operation : Note<
   "used%select{| in pointer arithmetic| in buffer access}0 here">;

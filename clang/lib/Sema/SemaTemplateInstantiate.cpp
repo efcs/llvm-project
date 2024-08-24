@@ -256,7 +256,8 @@ HandleClassTemplateSpec(const ClassTemplateSpecializationDecl *ClassTemplSpec,
 Response HandleFunction(Sema &SemaRef, const FunctionDecl *Function,
                         MultiLevelTemplateArgumentList &Result,
                         const FunctionDecl *Pattern, bool RelativeToPrimary,
-                        bool ForConstraintInstantiation) {
+                        bool ForConstraintInstantiation,
+                        bool ForDefaultArgumentSubstitution) {
   // Add template arguments from a function template specialization.
   if (!RelativeToPrimary &&
       Function->getTemplateSpecializationKindForInstantiation() ==
@@ -286,7 +287,8 @@ Response HandleFunction(Sema &SemaRef, const FunctionDecl *Function,
     // If this function was instantiated from a specialized member that is
     // a function template, we're done.
     assert(Function->getPrimaryTemplate() && "No function template?");
-    if (Function->getPrimaryTemplate()->isMemberSpecialization())
+    if (!ForDefaultArgumentSubstitution &&
+        Function->getPrimaryTemplate()->isMemberSpecialization())
       return Response::Done();
 
     // If this function is a generic lambda specialization, we are done.
@@ -468,7 +470,7 @@ MultiLevelTemplateArgumentList Sema::getTemplateInstantiationArgs(
     const NamedDecl *ND, const DeclContext *DC, bool Final,
     std::optional<ArrayRef<TemplateArgument>> Innermost, bool RelativeToPrimary,
     const FunctionDecl *Pattern, bool ForConstraintInstantiation,
-    bool SkipForSpecialization) {
+    bool SkipForSpecialization, bool ForDefaultArgumentSubstitution) {
   assert((ND || DC) && "Can't find arguments for a decl if one isn't provided");
   // Accumulate the set of template argument lists in this structure.
   MultiLevelTemplateArgumentList Result;
@@ -510,7 +512,8 @@ MultiLevelTemplateArgumentList Sema::getTemplateInstantiationArgs(
                                   SkipForSpecialization);
     } else if (const auto *Function = dyn_cast<FunctionDecl>(CurDecl)) {
       R = HandleFunction(*this, Function, Result, Pattern, RelativeToPrimary,
-                         ForConstraintInstantiation);
+                         ForConstraintInstantiation,
+                         ForDefaultArgumentSubstitution);
     } else if (const auto *Rec = dyn_cast<CXXRecordDecl>(CurDecl)) {
       R = HandleRecordDecl(*this, Rec, Result, Context,
                            ForConstraintInstantiation);
@@ -1497,6 +1500,13 @@ namespace {
                                 SmallVectorImpl<QualType> &Exceptions,
                                 bool &Changed);
 
+    ResultNameDecl *TransformResultNameDecl(ResultNameDecl *RND);
+
+    /// Rebuild the result name declaration and register the declaration
+    /// as an instantiated local.
+    ResultNameDecl *RebuildResultName(ResultNameDecl *Old,
+                                      const FunctionDecl *NewFD);
+
     /// Rebuild the exception declaration and register the declaration
     /// as an instantiated local.
     VarDecl *RebuildExceptionDecl(VarDecl *ExceptionDecl,
@@ -1580,6 +1590,7 @@ namespace {
       }
       return Type;
     }
+
     // Override the default version to handle a rewrite-template-arg-pack case
     // for building a deduction guide.
     bool TransformTemplateArgument(const TemplateArgumentLoc &Input,
@@ -3227,7 +3238,6 @@ bool Sema::SubstDefaultArgument(
     //   default argument expression appears.
     ContextRAII SavedContext(*this, FD);
     std::unique_ptr<LocalInstantiationScope> LIS;
-    MultiLevelTemplateArgumentList NewTemplateArgs = TemplateArgs;
 
     if (ForCallExpr) {
       // When instantiating a default argument due to use in a call expression,
@@ -3240,19 +3250,10 @@ bool Sema::SubstDefaultArgument(
           /*ForDefinition*/ false);
       if (addInstantiatedParametersToScope(FD, PatternFD, *LIS, TemplateArgs))
         return true;
-      const FunctionTemplateDecl *PrimaryTemplate = FD->getPrimaryTemplate();
-      if (PrimaryTemplate && PrimaryTemplate->isOutOfLine()) {
-        TemplateArgumentList *CurrentTemplateArgumentList =
-            TemplateArgumentList::CreateCopy(getASTContext(),
-                                             TemplateArgs.getInnermost());
-        NewTemplateArgs = getTemplateInstantiationArgs(
-            FD, FD->getDeclContext(), /*Final=*/false,
-            CurrentTemplateArgumentList->asArray(), /*RelativeToPrimary=*/true);
-      }
     }
 
     runWithSufficientStackSpace(Loc, [&] {
-      Result = SubstInitializer(PatternExpr, NewTemplateArgs,
+      Result = SubstInitializer(PatternExpr, TemplateArgs,
                                 /*DirectInit*/ false);
     });
   }
@@ -4342,6 +4343,7 @@ static const Decl *getCanonicalParmVarDecl(const Decl *D) {
         return FD->getCanonicalDecl()->getParamDecl(i);
     }
   }
+
   return D;
 }
 

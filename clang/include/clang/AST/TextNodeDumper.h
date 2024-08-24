@@ -410,6 +410,9 @@ public:
   void VisitOpenACCConstructStmt(const OpenACCConstructStmt *S);
   void VisitOpenACCLoopConstruct(const OpenACCLoopConstruct *S);
   void VisitEmbedExpr(const EmbedExpr *S);
+  void VisitResultNameDecl(const ResultNameDecl *D);
+  void VisitContractStmt(const ContractStmt *S);
+  void VisitAtomicExpr(const AtomicExpr *AE);
 };
 
 } // namespace clang

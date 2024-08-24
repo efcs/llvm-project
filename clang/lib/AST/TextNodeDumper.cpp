@@ -2285,6 +2285,17 @@ void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
   dumpType(D->getType());
 }
 
+void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
+  dumpName(D);
+  dumpType(D->getType());
+  if (!D->isCanonicalResultName()) {
+    OS << " canonical ";
+    dumpPointer(D->getCanonicalResultName());
+  } else {
+    dumpPointer(D);
+  }
+}
+
 void TextNodeDumper::VisitCapturedDecl(const CapturedDecl *D) {
   if (D->isNothrow())
     OS << " nothrow";
@@ -2697,6 +2708,8 @@ void TextNodeDumper::VisitAccessSpecDecl(const AccessSpecDecl *D) {
 void TextNodeDumper::VisitFriendDecl(const FriendDecl *D) {
   if (TypeSourceInfo *T = D->getFriendType())
     dumpType(T->getType());
+  if (D->isPackExpansion())
+    OS << "...";
 }
 
 void TextNodeDumper::VisitObjCIvarDecl(const ObjCIvarDecl *D) {
@@ -2891,4 +2904,40 @@ void TextNodeDumper::VisitOpenACCLoopConstruct(const OpenACCLoopConstruct *S) {
 void TextNodeDumper::VisitEmbedExpr(const EmbedExpr *S) {
   AddChild("begin", [=] { OS << S->getStartingElementPos(); });
   AddChild("number of elements", [=] { OS << S->getDataElementCount(); });
+}
+
+
+void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  switch (S->getContractKind()) {
+  case ContractKind::Post:
+    OS << " post";
+    break;
+  case ContractKind::Pre:
+    OS << " pre";
+    break;
+  case ContractKind::Assert:
+    OS << " contract_assert";
+    break;
+  }
+  if (Context) {
+    switch (S->getSemantic(*Context)) {
+    case ContractEvaluationSemantic::Ignore:
+      OS << " ignore";
+      break;
+    case ContractEvaluationSemantic::Enforce:
+      OS << " enforce";
+      break;
+    case ContractEvaluationSemantic::QuickEnforce:
+      OS << " quick_enforce";
+      break;
+    case ContractEvaluationSemantic::Observe:
+      OS << " observe";
+      break;
+    }
+  }
+}
+
+void TextNodeDumper::VisitAtomicExpr(const AtomicExpr *AE) {
+  OS << ' ' << AE->getOpAsString();
 }

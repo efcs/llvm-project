@@ -109,6 +109,8 @@ namespace clang {
     void VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D);
     void VisitTemplateDecl(TemplateDecl *D);
     void VisitConceptDecl(ConceptDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
+    void VisitContractSpecifierDecl(ContractSpecifierDecl *D);
     void VisitImplicitConceptSpecializationDecl(
         ImplicitConceptSpecializationDecl *D);
     void VisitRequiresExprBodyDecl(RequiresExprBodyDecl *D);
@@ -614,7 +616,10 @@ void ASTDeclWriter::VisitEnumConstantDecl(EnumConstantDecl *D) {
 void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   VisitValueDecl(D);
   Record.AddSourceLocation(D->getInnerLocStart());
-  Record.push_back(D->hasExtInfo());
+  BitsPacker DeclDeclBits;
+  DeclDeclBits.addBit(D->hasExtInfo());
+  Record.push_back(DeclDeclBits);
+
   if (D->hasExtInfo()) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
@@ -734,6 +739,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   FunctionDeclBits.addBit(D->isLateTemplateParsed());
   FunctionDeclBits.addBit(D->FriendConstraintRefersToEnclosingTemplate());
   FunctionDeclBits.addBit(D->usesSEHTry());
+  FunctionDeclBits.addBit(D->hasContracts());
   Record.push_back(FunctionDeclBits);
 
   Record.AddSourceLocation(D->getEndLoc());
@@ -764,7 +770,23 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
+
+  if (D->hasContracts())
+    Record.AddDeclRef(D->getContracts());
+
   Code = serialization::DECL_FUNCTION;
+}
+
+void ASTDeclWriter::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  assert(!CSD->hasInventedPlaceholdersTypes() &&
+         "Cannot have invented placeholders on a serializable declaration");
+
+  VisitDecl(CSD);
+  Record.push_back(CSD->NumContracts);
+  for (auto *C : CSD->contracts())
+    Record.AddStmt(C);
+
+  Code = serialization::DECL_CONTRACT_SPECIFIER;
 }
 
 static void addExplicitSpecifier(ExplicitSpecifier ES,
@@ -1660,6 +1682,7 @@ void ASTDeclWriter::VisitFriendDecl(FriendDecl *D) {
   Record.AddDeclRef(D->getNextFriend());
   Record.push_back(D->UnsupportedFriend);
   Record.AddSourceLocation(D->FriendLoc);
+  Record.AddSourceLocation(D->EllipsisLoc);
   Code = serialization::DECL_FRIEND;
 }
 
@@ -1688,6 +1711,15 @@ void ASTDeclWriter::VisitConceptDecl(ConceptDecl *D) {
   VisitTemplateDecl(D);
   Record.AddStmt(D->getConstraintExpr());
   Code = serialization::DECL_CONCEPT;
+}
+
+void ASTDeclWriter::VisitResultNameDecl(ResultNameDecl *D) {
+  VisitNamedDecl(D);
+  Record.push_back(D->isCanonicalResultName());
+  if (!D->isCanonicalResultName()) {
+    Record.AddDeclRef(D->getCanonicalResultName());
+  }
+  Code = serialization::DECL_RESULT_NAME;
 }
 
 void ASTDeclWriter::VisitImplicitConceptSpecializationDecl(

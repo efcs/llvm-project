@@ -442,6 +442,9 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx, ValueDecl *D,
   DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = false;
   DeclRefExprBits.NonOdrUseReason = NOUR;
   DeclRefExprBits.IsImmediateEscalating = false;
+  DeclRefExprBits.IsInContractContext = false;
+  DeclRefExprBits.IsConstified = false;
+
   DeclRefExprBits.Loc = L;
   setDependence(computeDependence(this, Ctx));
 }
@@ -482,6 +485,8 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
   }
   DeclRefExprBits.IsImmediateEscalating = false;
   DeclRefExprBits.HadMultipleCandidates = 0;
+  DeclRefExprBits.IsConstified = false;
+  DeclRefExprBits.IsInContractContext = false;
   setDependence(computeDependence(this, Ctx));
 }
 
@@ -4759,6 +4764,53 @@ ParenListExpr *ParenListExpr::CreateEmpty(const ASTContext &Ctx,
   return new (Mem) ParenListExpr(EmptyShell(), NumExprs);
 }
 
+/// Certain overflow-dependent code patterns can have their integer overflow
+/// sanitization disabled. Check for the common pattern `if (a + b < a)` and
+/// return the resulting BinaryOperator responsible for the addition so we can
+/// elide overflow checks during codegen.
+static std::optional<BinaryOperator *>
+getOverflowPatternBinOp(const BinaryOperator *E) {
+  Expr *Addition, *ComparedTo;
+  if (E->getOpcode() == BO_LT) {
+    Addition = E->getLHS();
+    ComparedTo = E->getRHS();
+  } else if (E->getOpcode() == BO_GT) {
+    Addition = E->getRHS();
+    ComparedTo = E->getLHS();
+  } else {
+    return {};
+  }
+
+  const Expr *AddLHS = nullptr, *AddRHS = nullptr;
+  BinaryOperator *BO = dyn_cast<BinaryOperator>(Addition);
+
+  if (BO && BO->getOpcode() == clang::BO_Add) {
+    // now store addends for lookup on other side of '>'
+    AddLHS = BO->getLHS();
+    AddRHS = BO->getRHS();
+  }
+
+  if (!AddLHS || !AddRHS)
+    return {};
+
+  const Decl *LHSDecl, *RHSDecl, *OtherDecl;
+
+  LHSDecl = AddLHS->IgnoreParenImpCasts()->getReferencedDeclOfCallee();
+  RHSDecl = AddRHS->IgnoreParenImpCasts()->getReferencedDeclOfCallee();
+  OtherDecl = ComparedTo->IgnoreParenImpCasts()->getReferencedDeclOfCallee();
+
+  if (!OtherDecl)
+    return {};
+
+  if (!LHSDecl && !RHSDecl)
+    return {};
+
+  if ((LHSDecl && LHSDecl == OtherDecl && LHSDecl != RHSDecl) ||
+      (RHSDecl && RHSDecl == OtherDecl && RHSDecl != LHSDecl))
+    return BO;
+  return {};
+}
+
 BinaryOperator::BinaryOperator(const ASTContext &Ctx, Expr *lhs, Expr *rhs,
                                Opcode opc, QualType ResTy, ExprValueKind VK,
                                ExprObjectKind OK, SourceLocation opLoc,
@@ -4768,8 +4820,15 @@ BinaryOperator::BinaryOperator(const ASTContext &Ctx, Expr *lhs, Expr *rhs,
   assert(!isCompoundAssignmentOp() &&
          "Use CompoundAssignOperator for compound assignments");
   BinaryOperatorBits.OpLoc = opLoc;
+  BinaryOperatorBits.ExcludedOverflowPattern = false;
   SubExprs[LHS] = lhs;
   SubExprs[RHS] = rhs;
+  if (Ctx.getLangOpts().isOverflowPatternExcluded(
+          LangOptions::OverflowPatternExclusionKind::AddOverflowTest)) {
+    std::optional<BinaryOperator *> Result = getOverflowPatternBinOp(this);
+    if (Result.has_value())
+      Result.value()->BinaryOperatorBits.ExcludedOverflowPattern = true;
+  }
   BinaryOperatorBits.HasFPFeatures = FPFeatures.requiresTrailingStorage();
   if (hasStoredFPFeatures())
     setStoredFPFeatures(FPFeatures);
@@ -4782,6 +4841,7 @@ BinaryOperator::BinaryOperator(const ASTContext &Ctx, Expr *lhs, Expr *rhs,
                                FPOptionsOverride FPFeatures, bool dead2)
     : Expr(CompoundAssignOperatorClass, ResTy, VK, OK) {
   BinaryOperatorBits.Opc = opc;
+  BinaryOperatorBits.ExcludedOverflowPattern = false;
   assert(isCompoundAssignmentOp() &&
          "Use CompoundAssignOperator for compound assignments");
   BinaryOperatorBits.OpLoc = opLoc;

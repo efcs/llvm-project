@@ -40,6 +40,9 @@
 #ifndef MODULES_KEYWORD
 #define MODULES_KEYWORD(X) KEYWORD(X,KEYMODULES)
 #endif
+#ifndef CONTRACTS_KEYWORD
+#define CONTRACTS_KEYWORD(X) KEYWORD(X,KEYCONTRACTS)
+#endif
 #ifndef TYPE_TRAIT
 #define TYPE_TRAIT(N,I,K) KEYWORD(I,K)
 #endif
@@ -286,6 +289,7 @@ PUNCTUATOR(caretcaret,            "^^")
 //                which are heavily based on AltiVec
 //   KEYBORLAND - This is a keyword if Borland extensions are enabled
 //   KEYCOROUTINES - This is a keyword if support for C++ coroutines is enabled
+//   KEYCONTRACTS - This is a keyword if support for C++ contracts is enabled
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
 //   HALFSUPPORT - This is a keyword if 'half' is a built-in type
 //   WCHARSUPPORT - This is a keyword if 'wchar_t' is a built-in type
@@ -427,6 +431,10 @@ CXX20_KEYWORD(constinit             , 0)
 CXX20_KEYWORD(concept               , 0)
 CXX20_KEYWORD(requires              , 0)
 
+// C++ contracts keywords
+CONTRACTS_KEYWORD(contract_assert)
+ALIAS("__contract_assert"        , contract_assert      , KEYCXX11)
+
 // Not a CXX20_KEYWORD because it is disabled by -fno-char8_t.
 KEYWORD(char8_t                     , CHAR8SUPPORT)
 
@@ -460,6 +468,7 @@ KEYWORD(__builtin_FUNCSIG           , KEYMS)
 KEYWORD(__builtin_LINE              , KEYALL)
 KEYWORD(__builtin_COLUMN            , KEYALL)
 KEYWORD(__builtin_source_location   , KEYCXX)
+
 
 // __builtin_types_compatible_p is a GNU C extension that we handle like a C++
 // type trait.
@@ -502,6 +511,7 @@ TYPE_TRAIT_1(__has_trivial_move_assign, HasTrivialMoveAssign, KEYCXX)
 TYPE_TRAIT_1(__has_trivial_move_constructor, HasTrivialMoveConstructor, KEYCXX)
 
 // GNU and MS Type Traits
+TYPE_TRAIT_1(__builtin_is_implicit_lifetime, IsImplicitLifetime, KEYCXX)
 TYPE_TRAIT_2(__builtin_is_virtual_base_of, IsVirtualBaseOf, KEYCXX)
 TYPE_TRAIT_1(__has_nothrow_assign, HasNothrowAssign, KEYCXX)
 TYPE_TRAIT_1(__has_nothrow_copy, HasNothrowCopy, KEYCXX)
