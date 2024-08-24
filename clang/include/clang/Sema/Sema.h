@@ -6616,6 +6616,13 @@ public:
 
   ContractConstification getContractConstification(const ValueDecl *VD);
 
+  /// Return true if the usage of the given declaration (assumed to be in the
+  /// current context) is inside a contract AND the declaration of the variable
+  /// is outside of the contract. (i.e. the usage crosses crosses a contract
+  /// boundary). This affects wether constification is applied and wether the
+  /// variable is allowed to be captured by a lambda.
+  bool isUsageInsideContract(const ValueDecl *VD);
+
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
   /// assignment.

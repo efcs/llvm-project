@@ -3361,7 +3361,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // FIXME: Does the addition of const really only apply in
     // potentially-evaluated contexts? Since the variable isn't actually
     // captured in an unevaluated context, it seems that the answer is no.
-    if (!isUnevaluatedContext() && !isContractAssertionContext()) {
+    if (!isUnevaluatedContext()) {
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull()) {
         type = CapturedType;
@@ -17228,57 +17228,6 @@ TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
   return TransformToPE(*this).TransformType(TInfo);
 }
 
-namespace {
-#if 0
-#define CASE(X)                                                                \
-  case Sema::ExpressionEvaluationContext::X:                                   \
-    return #X
-static const char *ToString(Sema::ExpressionEvaluationContext V) {
-  switch (V) {
-    CASE(Unevaluated);
-    CASE(UnevaluatedList);
-    CASE(DiscardedStatement);
-    CASE(UnevaluatedAbstract);
-    CASE(ConstantEvaluated);
-    CASE(ImmediateFunctionContext);
-    CASE(PotentiallyEvaluated);
-    CASE(PotentiallyEvaluatedIfUsed);
-  }
-}
-#undef CASE
-
-static const char *
-ToString(Sema::ExpressionEvaluationContextRecord::ExpressionKind V) {
-
-#define CASE(X)                                                                \
-  case Sema::ExpressionEvaluationContextRecord::ExpressionKind::X:             \
-    return #X
-  switch (V) {
-    CASE(EK_Decltype);
-    CASE(EK_TemplateArgument);
-    CASE(EK_AttrArgument);
-    CASE(EK_Other);
-  }
-#undef CASE
-}
-
-[[maybe_unused]] std::string
-ToString(Sema::ExpressionEvaluationContextRecord &Record, unsigned Depth) {
-  std::stringstream ss;
-  ss << "\n---------\n";
-  ss << "Context Record (# " << Depth << "): \n";
-  ss << "  Context: " << ToString(Record.Context) << "\n";
-  ss << "  Kind: " << ToString(Record.ExprContext) << "\n";
-  ss << "  InContract: " << (Record.InContractAssertion ? "true" : "false")
-     << "\n";
-  if (Record.ManglingContextDecl)
-    ss << "  HasManglingContextDecl: true\n";
-  ss << "---------\n";
-  return ss.str();
-}
-#endif
-} // end namespace
-
 void
 Sema::PushExpressionEvaluationContext(
     ExpressionEvaluationContext NewContext, Decl *LambdaContextDecl,
@@ -17302,22 +17251,6 @@ Sema::PushExpressionEvaluationContext(
 
   ExprEvalContexts.back().InImmediateEscalatingFunctionContext =
       Prev.InImmediateEscalatingFunctionContext;
-
-  // In order to handle things like
-  //    int x = 42;
-  //    contract_assert(Trait<decltype((x))>::value);
-  // Where `decltype((x))` should be `const int&`, we need to propagate the
-  // InContractAssertion state to the child contexts.
-  //
-  // NOTE: This seems like a bad way to do this. Are we really sure that nothing
-  // will push an expression evaluation context that isn't a template or
-  // unevaluated context? (We don't want to propagate this flag to lambdas).
-#if 0
-  if (Prev.isContractAssertionContext()) {
-     if (isUnevaluatedContext() || ExprContext == ExpressionEvaluationContextRecord::EK_TemplateArgument)
-        ExprEvalContexts.back().InContractAssertion = true;
-  }
-#endif
 
   Cleanup.reset();
   if (!MaybeODRUseExprs.empty())
@@ -18658,8 +18591,9 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     //   corresponding data member is also a reference to a
     //   function. - end note ]
     if (const ReferenceType *RefType = CaptureType->getAs<ReferenceType>()){
-      if (!RefType->getPointeeType()->isFunctionType())
+      if (!RefType->getPointeeType()->isFunctionType()) {
         CaptureType = RefType->getPointeeType();
+      }
     }
 
     // Forbid the lambda copy-capture of autoreleasing variables.

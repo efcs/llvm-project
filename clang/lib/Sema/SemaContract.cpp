@@ -896,6 +896,37 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
   S.CurrentContractEntry = Record.Previous;
 }
 
+bool Sema::isUsageInsideContract(const ValueDecl *VD) {
+  if (!CurrentContractEntry)
+    return false;
+
+  auto &CCE = *CurrentContractEntry;
+
+  if (isContractAssertionContext())
+    return true;
+
+  if (isa<VarDecl>(VD))
+    VD = cast<VarDecl>(VD)->getCanonicalDecl();
+
+  const DeclContext *DC = VD->getDeclContext();
+  if (!DC->isFunctionOrMethod())
+    return false;
+
+  // FIXME(EricWF): This seems really really expensive?
+  // Make sure the ValueDecl has a DeclContext that is the same as or a parent
+  // of the most recent contract entry
+  auto *StartContext = CCE.ContextAtPush;
+
+  while (StartContext) {
+    if (StartContext->isFileContext())
+      break;
+    if (StartContext->Equals(VD->getDeclContext()))
+      return true;
+    StartContext = StartContext->getParent();
+  }
+  return false;
+}
+
 /// [basic.contract.general]
 /// Within the predicate of a contract assertion, id-expressions referring to
 /// variables with automatic storage duration are const ([expr.prim.id.unqual])
@@ -934,6 +965,8 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
     }
     return false;
   };
+  assert(IsInConstifiedContext(VD) == isUsageInsideContract(VD));
+
   if (!IsInConstifiedContext(VD))
     return CC_None;
 

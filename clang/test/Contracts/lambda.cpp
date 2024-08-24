@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics -verify %s -fcontracts ||  %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics  %s -fcontracts
 
 
 namespace test_one {
@@ -35,6 +35,7 @@ void foo(int x) {
   }(42));
   contract_assert([&](int y) {
     ((void)x);
+    ++y;
     ++x; // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
     return true;
   }(42));
@@ -153,3 +154,47 @@ void f(bool b) {
 namespace CrashTest {
 void bar(bool b) { [&]() { contract_assert(b); }(); }
 } // namespace CrashTest
+
+namespace DoubleDeep {
+
+  void foo(int a);
+  void foo(int a) {
+    [&](int y) {
+      ++y;
+      [&] (int x) {
+        ++y;
+        ++x;
+        contract_assert([&](int v) {
+          ++y; // expected-error {{inside a contract}}
+          ++x; // expected-error {{inside a contract}}
+          ++a; // expected-error {{inside a contract}}
+          ++v; // OK
+
+          return [&](int w) {
+            ++a; // expected-error {{inside a contract}}
+            ++x; // expected-error {{inside a contract}}
+            ++v; // OK
+            ++w; // OK
+            return true;
+          }(42);
+        }(12));
+      }(y);
+    }(a);
+  }
+} // namespace DoubleDeep
+
+namespace MemberRef {
+struct A {
+  int x;
+  void f();
+};
+
+void A::f() {
+  contract_assert([&] {
+    [&]() {
+      ++x;
+    }();
+    return true;
+  }());
+}
+} // namespace MemberRef

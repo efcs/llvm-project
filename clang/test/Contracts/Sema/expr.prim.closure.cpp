@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++2a -fcontracts  -fsyntax-only -fcolor-diagnostics -Wno-c++23-extensions -verify  %s
+        // RUN: %clang_cc1 -std=c++2a -fcontracts  -fsyntax-only -fcolor-diagnostics -Wno-c++23-extensions -verify  %s
 // XFAIL: *
 
 static int i = 0;

@@ -1126,7 +1126,8 @@ static QualType adjustCVQualifiersForCXXThisWithinContract(QualType ThisTy,
 
 static QualType adjustCVQualifiersForCXXThisWithinLambda(
     ArrayRef<FunctionScopeInfo *> FunctionScopes, QualType ThisTy,
-    DeclContext *CurSemaContext, ASTContext &ASTCtx) {
+    DeclContext *CurSemaContext, Sema &SemaRef) {
+  ASTContext &ASTCtx = SemaRef.Context;
 
   QualType ClassType = ThisTy->getPointeeType();
   LambdaScopeInfo *CurLSI = nullptr;
@@ -1257,12 +1258,16 @@ QualType Sema::getCurrentThisType() {
     ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
   }
 
+  if (!ThisTy.isNull() &&
+      currentEvaluationContext().isConstificationContext()) {
+  }
+
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'
   // might need to be adjusted if the lambda or any of its enclosing lambda's
   // captures '*this' by copy.
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
-                                                    CurContext, Context);
+                                                    CurContext, *this);
   return ThisTy;
 }
 
@@ -1393,6 +1398,16 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
   }
   if (!BuildAndDiagnose) return false;
 
+  auto MinConstificationContext = [&]() -> std::optional<unsigned> {
+    auto *Ent = CurrentContractEntry;
+    while (Ent) {
+      if (!Ent->Previous)
+        return Ent->FunctionIndexAtPush;
+      Ent = Ent->Previous;
+    }
+    return std::nullopt;
+  }();
+
   // If we got here, then the closure at MaxFunctionScopesIndex on the
   // FunctionScopes stack, can capture the *enclosing object*, so capture it
   // (including implicit by-reference captures in any enclosing closures).
@@ -1407,6 +1422,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
          "Only a lambda can capture the enclosing object (referred to by "
          "*this) by copy");
   QualType ThisTy = getCurrentThisType();
+
   for (int idx = MaxFunctionScopesIndex; NumCapturingClosures;
        --idx, --NumCapturingClosures) {
     CapturingScopeInfo *CSI = cast<CapturingScopeInfo>(FunctionScopes[idx]);
@@ -1414,6 +1430,15 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     // The type of the corresponding data member (not a 'this' pointer if 'by
     // copy').
     QualType CaptureType = ByCopy ? ThisTy->getPointeeType() : ThisTy;
+
+    // Or if we're capturing this by reference and there's an interviening
+    // contract, we need to capture the constified version of the 'this' object.
+    if (!ByCopy && MinConstificationContext &&
+        static_cast<unsigned>(idx) >= *MinConstificationContext) {
+      assert(!ThisTy.isNull());
+      CaptureType =
+          Context.getPointerType(CaptureType->getPointeeType().withConst());
+    }
 
     bool isNested = NumCapturingClosures > 1;
     CSI->addThisCapture(isNested, Loc, CaptureType, ByCopy);
