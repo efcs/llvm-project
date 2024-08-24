@@ -867,6 +867,11 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     }
   }
 
+  if (!S.FunctionScopes.empty()) {
+    assert(S.FunctionScopes.back() && "No function scope?");
+    assert(!S.FunctionScopes.back()->InContract && "Already in contract?");
+    S.FunctionScopes.back()->InContract = true;
+  }
   if (Record.SaveScope) {
     if (Record.SaveScope->isControlScope())
       Record.SaveScope = nullptr;
@@ -884,6 +889,9 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
   S.CXXThisTypeOverride = Record.PreviousCXXThisType;
   if (Record.SaveScope)
     Record.SaveScope->setIsContractScope(false);
+
+  if (!S.FunctionScopes.empty())
+    S.FunctionScopes.back()->InContract = false;
 
   S.CurrentContractEntry = Record.Previous;
 }
@@ -906,25 +914,25 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
     if (isa<VarDecl>(VD))
       VD = cast<VarDecl>(VD)->getCanonicalDecl();
 
+    const DeclContext *DC = VD->getDeclContext();
+    if (!DC->isFunctionOrMethod())
+      return false;
+
     // FIXME(EricWF): This seems really really expensive?
     // Make sure the ValueDecl has a DeclContext that is the same as or a parent
     // of the most recent contract entry
-    auto *StartContext = VD->getDeclContext();
-    bool IsBelow = false;
-    bool First = true;
-    do {
-      if (StartContext == CCE.ContextAtPush) {
-        if (First) {
-          IsBelow = false;
-        } else {
-          IsBelow = true;
-        }
-        break;
-      }
-      First = false;
+    auto *StartContext = CCE.ContextAtPush;
+
+    while (StartContext) {
+      if (StartContext->Equals(VD->getDeclContext()))
+        return true;
       StartContext = StartContext->getParent();
-    } while (StartContext && !StartContext->isFileContext());
-    return !IsBelow;
+      if (StartContext) {
+        if (StartContext->isFileContext())
+          break;
+      }
+    }
+    return false;
   };
   if (!IsInConstifiedContext(VD))
     return CC_None;
@@ -951,6 +959,7 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
         (Var->getStorageDuration() == SD_Automatic ||
          Var->getKind() == Decl::ParmVar))
       return CC_ApplyConst;
+    return CC_None;
   }
 
   // — a variable with automatic storage duration ...

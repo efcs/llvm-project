@@ -178,6 +178,9 @@ public:
   /// Whether we found an immediate-escalating expression.
   bool FoundImmediateEscalatingExpression : 1;
 
+  /// Wether we're currently in a contract statement in this function scope.
+  bool InContract : 1;
+
   /// First coroutine statement in the current function.
   /// (ex co_return, co_await, co_yield)
   SourceLocation FirstCoroutineStmtLoc;
@@ -398,7 +401,7 @@ public:
         ObjCIsDesignatedInit(false), ObjCWarnForNoDesignatedInitChain(false),
         ObjCIsSecondaryInit(false), ObjCWarnForNoInitDelegation(false),
         NeedsCoroutineSuspends(true), FoundImmediateEscalatingExpression(false),
-        ErrorTrap(Diag) {}
+        InContract(false), ErrorTrap(Diag) {}
 
   virtual ~FunctionScopeInfo();
 

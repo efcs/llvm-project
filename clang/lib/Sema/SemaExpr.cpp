@@ -18610,7 +18610,7 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
                             const bool RefersToCapturedVariable,
                             const Sema::TryCaptureKind Kind,
                             SourceLocation EllipsisLoc, const bool IsTopScope,
-                            Sema &S, bool Invalid) {
+                            Sema &S, bool IsInContract, bool Invalid) {
   // Determine whether we are capturing by reference or by value.
   bool ByRef = false;
   if (IsTopScope && Kind != Sema::TryCapture_Implicit) {
@@ -18640,8 +18640,8 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     // clarify, but for now we follow GCC because it's a more permissive and
     // easily defensible position.
     QualType DRET = DeclRefType.getNonReferenceType();
-    ContractConstification CC = S.getContractConstification(Var);
-    if (CC == CC_ApplyConst)
+
+    if (IsInContract)
       DRET.addConst();
 
     CaptureType = S.Context.getLValueReferenceType(DRET);
@@ -18885,6 +18885,7 @@ bool Sema::tryCaptureVariable(
   bool Nested = false;
   bool Explicit = (Kind != TryCapture_Implicit);
   unsigned FunctionScopesIndex = MaxFunctionScopesIndex;
+
   do {
 
     LambdaScopeInfo *LSI = nullptr;
@@ -19103,7 +19104,10 @@ bool Sema::tryCaptureVariable(
       Invalid =
           !captureInLambda(LSI, Var, ExprLoc, BuildAndDiagnose, CaptureType,
                            DeclRefType, Nested, Kind, EllipsisLoc,
-                           /*IsTopScope*/ I == N - 1, *this, Invalid);
+                           /*IsTopScope*/ I == N - 1, *this,
+                           CurrentContractEntry &&
+                               CurrentContractEntry->FunctionIndexAtPush >= I,
+                           Invalid);
       Nested = true;
     }
 
