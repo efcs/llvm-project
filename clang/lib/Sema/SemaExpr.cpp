@@ -17229,6 +17229,7 @@ TypeSourceInfo *Sema::TransformToPotentiallyEvaluated(TypeSourceInfo *TInfo) {
 }
 
 namespace {
+#if 0
 #define CASE(X)                                                                \
   case Sema::ExpressionEvaluationContext::X:                                   \
     return #X
@@ -17275,7 +17276,7 @@ ToString(Sema::ExpressionEvaluationContextRecord &Record, unsigned Depth) {
   ss << "---------\n";
   return ss.str();
 }
-
+#endif
 } // end namespace
 
 void
