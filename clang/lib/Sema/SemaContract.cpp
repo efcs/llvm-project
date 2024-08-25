@@ -837,11 +837,9 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     : S(S), Record{Loc,
                    S.CurContext,
                    S.CXXThisTypeOverride,
-
                    (unsigned)S.FunctionScopes.size(),
                    false,
                    S.ExprEvalContexts.back().InContractAssertion,
-                   S.getCurScope(),
                    S.CurrentContractEntry} {
 
   // Setup the constification context when building declref expressions.
@@ -872,12 +870,7 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     assert(!S.FunctionScopes.back()->InContract && "Already in contract?");
     S.FunctionScopes.back()->InContract = true;
   }
-  if (Record.SaveScope) {
-    if (Record.SaveScope->isControlScope())
-      Record.SaveScope = nullptr;
-    else
-      Record.SaveScope->setIsContractScope(true);
-  }
+
 
   S.CurrentContractEntry = &Record;
 }
@@ -887,8 +880,7 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
   S.ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
   S.CXXThisTypeOverride = Record.PreviousCXXThisType;
-  if (Record.SaveScope)
-    Record.SaveScope->setIsContractScope(false);
+
 
   if (!S.FunctionScopes.empty())
     S.FunctionScopes.back()->InContract = false;
@@ -896,15 +888,20 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
   S.CurrentContractEntry = Record.Previous;
 }
 
-bool Sema::isUsageInsideContract(const ValueDecl *VD) {
+bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
+  // There's no contract scope anywhere above us.
   if (!CurrentContractEntry)
     return false;
 
-  auto &CCE = *CurrentContractEntry;
-
+  // Fast Path: We're in an immediate contract assertion expression evaluation context.
   if (isContractAssertionContext())
     return true;
 
+  // We're going to walk up from the DeclContext we captured when we entered the contract
+  // scope to try and find the declaration context of the specified decl. If we do,
+  // then the decl is used across a contract.
+
+  // FIXME(EricWF): Why is this here?
   if (isa<VarDecl>(VD))
     VD = cast<VarDecl>(VD)->getCanonicalDecl();
 
@@ -912,10 +909,10 @@ bool Sema::isUsageInsideContract(const ValueDecl *VD) {
   if (!DC->isFunctionOrMethod())
     return false;
 
-  // FIXME(EricWF): This seems really really expensive?
+  // FIXME(EricWF): This seems expensive?
   // Make sure the ValueDecl has a DeclContext that is the same as or a parent
   // of the most recent contract entry
-  auto *StartContext = CCE.ContextAtPush;
+  auto *StartContext = CurrentContractEntry->ContextAtPush;
 
   while (StartContext) {
     if (StartContext->isFileContext())
@@ -936,38 +933,10 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
   if (!S.CurrentContractEntry)
     return CC_None;
 
-  assert(S.CurrentContractEntry);
-  auto &CCE = *S.CurrentContractEntry;
-
-  auto IsInConstifiedContext = [&](auto *VD) {
-    if (isContractAssertionContext())
-      return true;
-    if (isa<VarDecl>(VD))
-      VD = cast<VarDecl>(VD)->getCanonicalDecl();
-
-    const DeclContext *DC = VD->getDeclContext();
-    if (!DC->isFunctionOrMethod())
-      return false;
-
-    // FIXME(EricWF): This seems really really expensive?
-    // Make sure the ValueDecl has a DeclContext that is the same as or a parent
-    // of the most recent contract entry
-    auto *StartContext = CCE.ContextAtPush;
-
-    while (StartContext) {
-      if (StartContext->Equals(VD->getDeclContext()))
-        return true;
-      StartContext = StartContext->getParent();
-      if (StartContext) {
-        if (StartContext->isFileContext())
-          break;
-      }
-    }
-    return false;
-  };
-  assert(IsInConstifiedContext(VD) == isUsageInsideContract(VD));
-
-  if (!IsInConstifiedContext(VD))
+  // Make sure that there's a contract scope interviening between the current
+  // context and the declaration of the variable. If there isn't, we don't need
+  // to constify the variable.
+  if (!isUsageAcrossContract(VD))
     return CC_None;
 
   // if the unqualified-id appears in the predicate of a contract assertion
@@ -1011,4 +980,49 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
   }
 
   return CC_None;
+}
+
+// Lifted from
+static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, bool AllowLambda = false) {
+  while (true) {
+    if (isa<BlockDecl>(DC) || isa<EnumDecl>(DC) || isa<CapturedDecl>(DC) ||
+        isa<RequiresExprBodyDecl>(DC)) {
+      DC = DC->getParent();
+    } else if (!AllowLambda && isa<CXXMethodDecl>(DC) &&
+        cast<CXXMethodDecl>(DC)->getOverloadedOperator() == OO_Call &&
+        cast<CXXRecordDecl>(DC->getParent())->isLambda()) {
+      DC = DC->getParent()->getParent();
+    } else break;
+  }
+  assert(DC);
+  return DC;
+}
+
+QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
+  if (!CurrentContractEntry)
+    return QT;
+
+  // 'this' is constified any time the `this` object that is captured by a lambda which exists fully
+  // within a contract.
+  //
+  // We need to ensure that we haven't entered a nested member function context, because in that case we
+  // don't want to constify the `this` object.
+  // For example:
+  // ```
+  // struct A {
+  //   void f() {
+  //     [&]() {
+  //        contract_assert([&] {
+  //           struct B { int x; void f() { ++x; } };
+  //            return true;
+  //          }());
+  //      }();
+  //   }};
+  // ```
+  const DeclContext *ContractContext = walkUpDeclContextToFunction(CurrentContractEntry->ContextAtPush);
+  const DeclContext *QTContext = walkUpDeclContextToFunction(CurContext );
+  if (!ContractContext->Equals(QTContext))
+    return QT;
+
+  return Context.getPointerType(QT->getPointeeType().withConst());
 }

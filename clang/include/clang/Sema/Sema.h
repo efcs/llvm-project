@@ -6568,24 +6568,26 @@ public:
     SourceLocation KeywordLoc;
     DeclContext *ContextAtPush;
     QualType PreviousCXXThisType;
+
+    /// The size of the FunctionScopes stack at the time of entering the contract
+    /// This is important for determining if constification applies to a given declaration
+    /// captured within a lambda expression.
     unsigned FunctionIndexAtPush;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
-    Scope *SaveScope = nullptr;
     ContractScopeRecord *Previous = nullptr;
 
   public:
-    ContractScopeRecord(SourceLocation KeywordLoc, DeclContext *FunctionAtPush,
+    ContractScopeRecord(SourceLocation KeywordLoc, DeclContext *PushContext,
                         QualType PreviousCXXThisType,
-
                         unsigned FunctionIndexAtPush, bool AddedConstToCXXThis,
-                        bool WasInContractContext, Scope *SaveScope,
+                        bool WasInContractContext,
                         ContractScopeRecord *Previous)
-        : KeywordLoc(KeywordLoc), ContextAtPush(FunctionAtPush),
+        : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
           PreviousCXXThisType(PreviousCXXThisType),
           FunctionIndexAtPush(FunctionIndexAtPush),
           AddedConstToCXXThis(AddedConstToCXXThis),
-          WasInContractContext(WasInContractContext), SaveScope(SaveScope),
+          WasInContractContext(WasInContractContext),
           Previous(Previous) {}
 
     ContractScopeRecord(ContractScopeRecord const &) = delete;
@@ -6614,14 +6616,16 @@ public:
     return CurrentContractEntry->KeywordLoc;
   }
 
+  // Return whether to constify the specified variable in the current context.
   ContractConstification getContractConstification(const ValueDecl *VD);
 
-  /// Return true if the usage of the given declaration (assumed to be in the
-  /// current context) is inside a contract AND the declaration of the variable
-  /// is outside of the contract. (i.e. the usage crosses crosses a contract
-  /// boundary). This affects wether constification is applied and wether the
-  /// variable is allowed to be captured by a lambda.
-  bool isUsageInsideContract(const ValueDecl *VD);
+  /// Return true if the usage of this variable in the current context would "cross" a contract boundary.
+  /// Meaning the variable is declared above the contract scope and used below it.
+  bool isUsageAcrossContract(const ValueDecl *VD);
+
+  /// Return the correctly constified 'this' type, accounting for any constification contexts
+  /// that may be in effect.
+  QualType adjustCXXThisTypeForContracts(QualType QT);
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored

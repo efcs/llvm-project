@@ -50,14 +50,17 @@ void test_attributes(int x) {
   contract_assert [[clang::contract_group("bar")]] (x != 0);
 }
 
-template <class T>
-void foo() pre(T{}) { // expected-error {{'NoBool' is not contextually convertible to 'bool'}}
+namespace TestConv {
+template<class T>
+void foo()
+pre(T{}) { // expected-error {{'NoBool' is not contextually convertible to 'bool'}}
   contract_assert(T{}); // expected-error {{'NoBool' is not contextually convertible to 'bool'}}
 }
 
 template void foo<int>();
 template void foo<ImpBC>();
 template void foo<NoBool>(); // expected-note {{requested here}}
+} // end namespace TestConv
 
 void test_converted_to_bool(int x)
   pre((void)true) // expected-error {{value of type 'void' is not contextually convertible to 'bool'}}

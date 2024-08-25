@@ -4477,6 +4477,11 @@ public:
   static bool classofKind(Kind K) { return K == Decl::ResultName; }
 };
 
+enum class ContractInstantiation {
+  Uninstantiated,
+  Instantiated,
+};
+
 /// Represents a series of contracts on a function declaration.
 /// For instance:
 ///
@@ -4490,6 +4495,8 @@ class ContractSpecifierDecl final
   friend class ASTDeclReader;
   friend class ASTDeclWriter;
 
+  bool IsUninstantiated = false;
+
   /// The number of contracts in this sequence.
   unsigned NumContracts;
 
@@ -4499,7 +4506,8 @@ class ContractSpecifierDecl final
 
   ContractSpecifierDecl(DeclContext *DC, SourceLocation Loc,
                         unsigned NumContracts)
-      : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(NumContracts) {
+      : Decl(Decl::ContractSpecifier, DC, Loc), IsUninstantiated(DC->isDependentContext()),
+         NumContracts(NumContracts) {
     std::uninitialized_fill_n(getTrailingObjects<ContractStmt *>(),
                               NumContracts, nullptr);
   }

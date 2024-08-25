@@ -192,9 +192,33 @@ struct A {
 void A::f() {
   contract_assert([&] {
     [&]() {
-      ++x;
+      ++x; // expected-error {{inside of a contract}}
     }();
     return true;
   }());
 }
 } // namespace MemberRef
+
+
+namespace CaptureThisByRef {
+  struct A {
+    int x;
+    void f() {
+      [&] {
+        AssertSame<decltype(this), A*>{};
+        contract_assert([&]() {
+          AssertSame<decltype((this)), const A*>{};
+          ++x; // expected-error {{inside of a contract}}
+
+          struct U {
+            int z = 42;
+            void f() {
+              ++z;
+            }
+          };
+          return true;
+        }());
+      }();
+    }
+  };
+}

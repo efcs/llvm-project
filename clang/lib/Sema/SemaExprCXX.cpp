@@ -1186,6 +1186,7 @@ static QualType adjustCVQualifiersForCXXThisWithinLambda(
         ClassType.addConst();
       return ASTCtx.getPointerType(ClassType);
     }
+
   }
 
   // 2) We've run out of ScopeInfos but check 1. if CurDC is a lambda (which
@@ -1258,9 +1259,8 @@ QualType Sema::getCurrentThisType() {
     ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
   }
 
-  if (!ThisTy.isNull() &&
-      currentEvaluationContext().isConstificationContext()) {
-  }
+  if (!ThisTy.isNull())
+    ThisTy = adjustCXXThisTypeForContracts(ThisTy);
 
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'
   // might need to be adjusted if the lambda or any of its enclosing lambda's
@@ -1434,7 +1434,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     // Or if we're capturing this by reference and there's an interviening
     // contract, we need to capture the constified version of the 'this' object.
     if (!ByCopy && MinConstificationContext &&
-        static_cast<unsigned>(idx) >= *MinConstificationContext) {
+        static_cast<unsigned>(idx) >= *MinConstificationContext ) {
       assert(!ThisTy.isNull());
       CaptureType =
           Context.getPointerType(CaptureType->getPointeeType().withConst());
@@ -8715,6 +8715,12 @@ static void CheckIfAnyEnclosingLambdasMustCaptureAnyPotentialCaptures(
         !IsFullExprInstantiationDependent)
       return;
 
+#if 0
+    if (auto *DRE = dyn_cast<DeclRefExpr>(VarExpr->IgnoreParenImpCasts()))
+      if (DRE->isInContractContext())
+        return;
+#endif
+      
     VarDecl *UnderlyingVar = Var->getPotentiallyDecomposedVarDecl();
     if (!UnderlyingVar)
       return;

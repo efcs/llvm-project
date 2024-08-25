@@ -13329,7 +13329,7 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           }
           S.Diag(MD->getLocation(), diag::note_typecheck_assign_const)
               << ConstMethod << MD << MD->getSourceRange();
-        } else if (S.isConstificationContext()) {
+        } else if (S.CurrentContractEntry) {
           S.Diag(Loc, diag::err_typecheck_assign_constified)
               << ExprRange << /*IsMemberExpr*/ true;
           DiagnosticEmitted = true;
