@@ -878,7 +878,8 @@ void Sema::addInitCapture(LambdaScopeInfo *LSI, VarDecl *Var, bool ByRef) {
   assert(Var->isInitCapture() && "init capture flag should be set");
   LSI->addCapture(Var, /*isBlock=*/false, ByRef,
                   /*isNested=*/false, Var->getLocation(), SourceLocation(),
-                  Var->getType(), /*Invalid=*/false);
+                  Var->getType(), /*AcrossContract=*/false,
+                  /*ContractLoc=*/SourceLocation(), /*Invalid=*/false);
 }
 
 // Unlike getCurLambda, getCurrentLambdaScopeUnsafe doesn't
@@ -2124,6 +2125,12 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
       bool IsImplicit = I >= LSI->NumExplicitCaptures;
       SourceLocation ImplicitCaptureLoc =
           IsImplicit ? CaptureDefaultLoc : SourceLocation();
+
+      if (IsImplicit && From.isVariableCapture() &&
+          From.isCapturedAcrossContract() &&
+          LSI->NonContractCaptureMap.count(From.getVariable()) != 0) {
+        continue;
+      }
 
       // Use source ranges of explicit captures for fixits where available.
       SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];

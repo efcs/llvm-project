@@ -121,7 +121,7 @@ public:
   RebuildAutoResultName(Sema &SemaRef, QualType Replacement)
       : TreeTransform<RebuildAutoResultName>(SemaRef),
         Replacement(Replacement) {}
-#if 1
+
   QualType TransformAutoType(TypeLocBuilder &TLB, AutoTypeLoc TL) {
     // If we're building the type pattern to deduce against, don't wrap the
     // substituted type in an AutoType. Certain template deduction rules
@@ -141,7 +141,6 @@ public:
     NewTL.copy(TL);
     return Result;
   }
-#endif
 };
 
 } // namespace
@@ -834,13 +833,15 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
                                            bool OverrideThis)
-    : S(S), Record{Loc,
-                   S.CurContext,
-                   S.CXXThisTypeOverride,
-                   (unsigned)S.FunctionScopes.size(),
-                   false,
-                   S.ExprEvalContexts.back().InContractAssertion,
-                   S.CurrentContractEntry} {
+    : S(S),
+      Record{Loc,
+             S.CurContext,
+             S.CXXThisTypeOverride,
+             static_cast<unsigned>(
+                 S.FunctionScopes.empty() ? 0ul : S.FunctionScopes.size() - 1),
+             false,
+             S.ExprEvalContexts.back().InContractAssertion,
+             S.CurrentContractEntry} {
 
   // Setup the constification context when building declref expressions.
   S.ExprEvalContexts.back().InContractAssertion = true;
@@ -994,7 +995,7 @@ static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, boo
       DC = DC->getParent()->getParent();
     } else break;
   }
-  assert(DC);
+  assert(DC && DC->isFunctionOrMethod() && "Not in a function context?");
   return DC;
 }
 

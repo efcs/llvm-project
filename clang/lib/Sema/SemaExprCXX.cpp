@@ -1401,8 +1401,12 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
   auto MinConstificationContext = [&]() -> std::optional<unsigned> {
     auto *Ent = CurrentContractEntry;
     while (Ent) {
-      if (!Ent->Previous)
-        return Ent->FunctionIndexAtPush;
+      if (!Ent->Previous) {
+        if (int(Ent->FunctionIndex) > MaxFunctionScopesIndex) {
+          return std::nullopt;
+        }
+        return Ent->FunctionIndex;
+      }
       Ent = Ent->Previous;
     }
     return std::nullopt;
@@ -1434,7 +1438,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     // Or if we're capturing this by reference and there's an interviening
     // contract, we need to capture the constified version of the 'this' object.
     if (!ByCopy && MinConstificationContext &&
-        static_cast<unsigned>(idx) >= *MinConstificationContext ) {
+        static_cast<unsigned>(idx) > *MinConstificationContext) {
       assert(!ThisTy.isNull());
       CaptureType =
           Context.getPointerType(CaptureType->getPointeeType().withConst());
@@ -8715,8 +8719,8 @@ static void CheckIfAnyEnclosingLambdasMustCaptureAnyPotentialCaptures(
         !IsFullExprInstantiationDependent)
       return;
 
-#if 0
-    if (auto *DRE = dyn_cast<DeclRefExpr>(VarExpr->IgnoreParenImpCasts()))
+#if 1
+    if (auto *DRE = dyn_cast<DeclRefExpr>(VarExpr))
       if (DRE->isInContractContext())
         return;
 #endif

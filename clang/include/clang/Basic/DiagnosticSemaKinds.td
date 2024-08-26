@@ -11937,6 +11937,9 @@ def warn_ericwf_unimplemented : Warning<
 def err_ericwf_fixme : Error<
   "woops... FIXME(EricWF): %0"
 >;
+def err_ericwf_generic : Error<"%0">;
+def note_ericwf_generic : Note<"%0">;
+
 def warn_ericwf_fixme : Warning<
   "woops... FIXME(EricWF): %0"
 >, InGroup<EricWFFixme>;

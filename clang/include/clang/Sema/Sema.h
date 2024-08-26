@@ -6569,10 +6569,9 @@ public:
     DeclContext *ContextAtPush;
     QualType PreviousCXXThisType;
 
-    /// The size of the FunctionScopes stack at the time of entering the contract
-    /// This is important for determining if constification applies to a given declaration
-    /// captured within a lambda expression.
-    unsigned FunctionIndexAtPush;
+    /// The _index_ of the current function scope when we entered the contract
+    /// (or -1 if there was none?)
+    unsigned FunctionIndex;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
     ContractScopeRecord *Previous = nullptr;
@@ -6585,10 +6584,9 @@ public:
                         ContractScopeRecord *Previous)
         : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
           PreviousCXXThisType(PreviousCXXThisType),
-          FunctionIndexAtPush(FunctionIndexAtPush),
+          FunctionIndex(FunctionIndexAtPush),
           AddedConstToCXXThis(AddedConstToCXXThis),
-          WasInContractContext(WasInContractContext),
-          Previous(Previous) {}
+          WasInContractContext(WasInContractContext), Previous(Previous) {}
 
     ContractScopeRecord(ContractScopeRecord const &) = delete;
     ContractScopeRecord &operator=(ContractScopeRecord const &) = delete;

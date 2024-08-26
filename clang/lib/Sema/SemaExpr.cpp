@@ -18327,6 +18327,7 @@ static bool isVariableAlreadyCapturedInScopeInfo(CapturingScopeInfo *CSI,
       DeclRefType.addConst();
     return true;
   }
+
   return false;
 }
 
@@ -18492,7 +18493,8 @@ static bool captureInBlock(BlockScopeInfo *BSI, ValueDecl *Var,
   // Actually capture the variable.
   if (BuildAndDiagnose)
     BSI->addCapture(Var, HasBlocksAttr, ByRef, Nested, Loc, SourceLocation(),
-                    CaptureType, Invalid);
+                    CaptureType, /*AcrossContract=*/false, SourceLocation(),
+                    Invalid);
 
   return !Invalid;
 }
@@ -18532,7 +18534,8 @@ static bool captureInCapturedRegion(
   // Actually capture the variable.
   if (BuildAndDiagnose)
     RSI->addCapture(Var, /*isBlock*/ false, ByRef, RefersToCapturedVariable,
-                    Loc, SourceLocation(), CaptureType, Invalid);
+                    Loc, SourceLocation(), CaptureType,
+                    /*AcrossContract=*/false, SourceLocation(), Invalid);
 
   return !Invalid;
 }
@@ -18544,7 +18547,10 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
                             const bool RefersToCapturedVariable,
                             const Sema::TryCaptureKind Kind,
                             SourceLocation EllipsisLoc, const bool IsTopScope,
-                            Sema &S, bool IsInContract, bool Invalid) {
+                            Sema &S, bool NeedsConstification,
+                            SourceLocation ConstificationLoc,
+                            bool IsInContractWithinThisLambda,
+                            SourceLocation InContractLoc, bool Invalid) {
   // Determine whether we are capturing by reference or by value.
   bool ByRef = false;
   if (IsTopScope && Kind != Sema::TryCapture_Implicit) {
@@ -18575,7 +18581,7 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     // easily defensible position.
     QualType DRET = DeclRefType.getNonReferenceType();
 
-    if (IsInContract)
+    if (NeedsConstification)
       DRET.addConst();
 
     CaptureType = S.Context.getLValueReferenceType(DRET);
@@ -18641,7 +18647,8 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
   // Add the capture.
   if (BuildAndDiagnose)
     LSI->addCapture(Var, /*isBlock=*/false, ByRef, RefersToCapturedVariable,
-                    Loc, EllipsisLoc, CaptureType, Invalid);
+                    Loc, EllipsisLoc, CaptureType, IsInContractWithinThisLambda,
+                    InContractLoc, Invalid);
 
   return !Invalid;
 }
@@ -19003,6 +19010,53 @@ bool Sema::tryCaptureVariable(
       DC = ParentDC;
   } while (!VarDC->Equals(DC));
 
+  const unsigned VarDeclScopeIndex = FunctionScopesIndex;
+
+  struct ContractScope {
+    unsigned Index;
+    SourceLocation Loc;
+  };
+
+  SmallVector<ContractScope, 4> ContractFunctionScopeIdxs;
+  auto *CurContract = CurrentContractEntry;
+  while (CurContract) {
+    ContractFunctionScopeIdxs.push_back(
+        {CurContract->FunctionIndex, CurContract->KeywordLoc});
+    CurContract = CurContract->Previous;
+  }
+  // Get rid of contracts in function scopes that we don't care about. Either
+  // because they're non-lexical, or because they fully enclose the variable
+  // declaration we care about.
+  llvm::erase_if(ContractFunctionScopeIdxs, [&](const ContractScope &ScopeLoc) {
+    if (ScopeLoc.Index > MaxFunctionScopesIndex)
+      return true;
+    if (ScopeLoc.Index < VarDeclScopeIndex)
+      return true;
+    return false;
+  });
+
+  SourceLocation InterveiningContractLoc;
+  auto HasInterveningContract = [&](unsigned CurScopeIndex) -> bool {
+    for (auto &IndexLoc : ContractFunctionScopeIdxs) {
+      if (IndexLoc.Index < CurScopeIndex) {
+        InterveiningContractLoc = IndexLoc.Loc;
+        return true;
+      }
+    }
+    return false;
+  };
+
+  SourceLocation ContractBelowLoc;
+  auto HasContractBelow = [&](unsigned CurScopeIndex) -> bool {
+    for (auto &IndexLoc : ContractFunctionScopeIdxs) {
+      if (IndexLoc.Index >= CurScopeIndex) {
+        ContractBelowLoc = IndexLoc.Loc;
+        return true;
+      }
+    }
+    return false;
+  };
+
   // Walk back down the scope stack, (e.g. from outer lambda to inner lambda)
   // computing the type of the capture at each step, checking type-specific
   // requirements, and adding captures if requested.
@@ -19036,13 +19090,13 @@ bool Sema::tryCaptureVariable(
       Nested = true;
     } else {
       LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
+
       Invalid =
           !captureInLambda(LSI, Var, ExprLoc, BuildAndDiagnose, CaptureType,
                            DeclRefType, Nested, Kind, EllipsisLoc,
                            /*IsTopScope*/ I == N - 1, *this,
-                           CurrentContractEntry &&
-                               CurrentContractEntry->FunctionIndexAtPush >= I,
-                           Invalid);
+                           HasInterveningContract(I), InterveiningContractLoc,
+                           HasContractBelow(I), ContractBelowLoc, Invalid);
       Nested = true;
     }
 

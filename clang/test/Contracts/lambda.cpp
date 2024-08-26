@@ -18,9 +18,10 @@ constexpr void f() {
 }
 
 namespace test_two {
+  void odr_use(const void*);
   void f(int x) {
-    (void)[&]() pre(x) { };
-    (void)[&]() pre(x) {((void)x); };
+    (void)[&]() pre(x) { }; // expected-error {{exclusively in contract}} expected-note {{explicit capture}} expected-note {{within contract}}
+    (void)[&]() pre(x) { odr_use(&x);};
   }
 }
 
@@ -144,15 +145,17 @@ void f(bool b) {
     }();
   }());
 
-  [&]() {
-    contract_assert([&]() {
-      return b;
+  [&]() { // expected-note {{explicit capture}}
+    contract_assert([&]() { // expected-note {{within contract}}
+      return b; // expected-error {{exclusively in contract}}
     }());
   }();
 }
 }
 namespace CrashTest {
-void bar(bool b) { [&]() { contract_assert(b); }(); }
+void bar(bool b) { [&]() {  // expected-note {{explicit capture}}
+  contract_assert(b); // expected-error {{exclusively in contract}} expected-note {{within contract}}
+}(); }
 } // namespace CrashTest
 
 namespace DoubleDeep {
@@ -161,18 +164,19 @@ namespace DoubleDeep {
   void foo(int a) {
     [&](int y) {
       ++y;
-      [&] (int x) {
+      [&] (int x) { // expected-note {{use explicit capture list to capture 'a'}}
         ++y;
         ++x;
-        contract_assert([&](int v) {
+        contract_assert([&](int v) { // expected-note {{contract context}}
           ++y; // expected-error {{inside a contract}}
           ++x; // expected-error {{inside a contract}}
-          ++a; // expected-error {{inside a contract}}
+          ++a; // expected-error {{inside a contract}} expected-error {{used exclusively in contract}}
           ++v; // OK
 
           return [&](int w) {
             ++a; // expected-error {{inside a contract}}
             ++x; // expected-error {{inside a contract}}
+            ++y; // expected-error {{inside a contract}}
             ++v; // OK
             ++w; // OK
             return true;

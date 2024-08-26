@@ -591,6 +591,8 @@ class Capture {
   /// The location of the ellipsis that expands a parameter pack.
   SourceLocation EllipsisLoc;
 
+  SourceLocation ContractLoc;
+
   /// The type as it was captured, which is the type of the non-static data
   /// member that would hold the capture.
   QualType CaptureType;
@@ -618,6 +620,12 @@ class Capture {
   LLVM_PREFERRED_TYPE(bool)
   unsigned NonODRUsed : 1;
 
+  /// Whether the capture is of a variable declared outside of a contract
+  /// context, but was captured formed by a region enclosed within that same
+  /// contract context.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned CapturedAcrossContract : 1;
+
   /// Whether the capture is invalid (a capture was required but the entity is
   /// non-capturable).
   LLVM_PREFERRED_TYPE(bool)
@@ -626,13 +634,15 @@ class Capture {
 public:
   Capture(ValueDecl *Var, bool Block, bool ByRef, bool IsNested,
           SourceLocation Loc, SourceLocation EllipsisLoc, QualType CaptureType,
-          bool Invalid)
+          bool AcrossContract, SourceLocation ContractLoc, bool Invalid)
       : CapturedVar(Var), Loc(Loc), EllipsisLoc(EllipsisLoc),
-        CaptureType(CaptureType), Kind(Block   ? Cap_Block
-                                       : ByRef ? Cap_ByRef
-                                               : Cap_ByCopy),
+        ContractLoc(ContractLoc), CaptureType(CaptureType),
+        Kind(Block   ? Cap_Block
+             : ByRef ? Cap_ByRef
+                     : Cap_ByCopy),
         Nested(IsNested), CapturesThis(false), ODRUsed(false),
-        NonODRUsed(false), Invalid(Invalid) {}
+        NonODRUsed(false), CapturedAcrossContract(AcrossContract),
+        Invalid(Invalid) {}
 
   enum IsThisCapture { ThisCapture };
   Capture(IsThisCapture, bool IsNested, SourceLocation Loc,
@@ -640,7 +650,7 @@ public:
       : Loc(Loc), CaptureType(CaptureType),
         Kind(ByCopy ? Cap_ByCopy : Cap_ByRef), Nested(IsNested),
         CapturesThis(true), ODRUsed(false), NonODRUsed(false),
-        Invalid(Invalid) {}
+        CapturedAcrossContract(false), Invalid(Invalid) {}
 
   enum IsVLACapture { VLACapture };
   Capture(IsVLACapture, const VariableArrayType *VLA, bool IsNested,
@@ -685,12 +695,19 @@ public:
     return CapturedVLA;
   }
 
+  bool isCapturedAcrossContract() const { return CapturedAcrossContract; }
+  bool setIsCapturedAcrossContract(bool value = true) {
+    return CapturedAcrossContract = value;
+  }
+
   /// Retrieve the location at which this variable was captured.
   SourceLocation getLocation() const { return Loc; }
 
   /// Retrieve the source location of the ellipsis, whose presence
   /// indicates that the capture is a pack expansion.
   SourceLocation getEllipsisLoc() const { return EllipsisLoc; }
+
+  SourceLocation getContractLoc() const { return ContractLoc; }
 
   /// Retrieve the capture type for this capture, which is effectively
   /// the type of the non-static data member in the lambda/block structure
@@ -716,6 +733,16 @@ public:
   /// CaptureMap - A map of captured variables to (index+1) into Captures.
   llvm::DenseMap<ValueDecl *, unsigned> CaptureMap;
 
+  /// NonContractCaptureMap - A map of captured variables to (index+1) into
+  /// Captures that are not captured across a contract.
+  llvm::DenseMap<ValueDecl *, unsigned> NonContractCaptureMap;
+
+  /// NonContractCaptureMap - A map of captured variables to (index+1) into
+  /// Captures that are not captured across a contract.
+  llvm::DenseMap<ValueDecl *, unsigned> ContractCaptureMap;
+
+  SmallVector<Capture, 4> ContractCaptures;
+
   /// CXXThisCaptureIndex - The (index+1) of the capture of 'this';
   /// zero if 'this' is not captured.
   unsigned CXXThisCaptureIndex = 0;
@@ -733,10 +760,20 @@ public:
 
   void addCapture(ValueDecl *Var, bool isBlock, bool isByref, bool isNested,
                   SourceLocation Loc, SourceLocation EllipsisLoc,
-                  QualType CaptureType, bool Invalid) {
-    Captures.push_back(Capture(Var, isBlock, isByref, isNested, Loc,
-                               EllipsisLoc, CaptureType, Invalid));
-    CaptureMap[Var] = Captures.size();
+                  QualType CaptureType, bool AcrossContract,
+                  SourceLocation ContractLoc, bool Invalid) {
+    Capture Cap(Var, isBlock, isByref, isNested, Loc, EllipsisLoc, CaptureType,
+                AcrossContract, ContractLoc, Invalid);
+
+    if (AcrossContract) {
+      if (ContractCaptureMap.count(Var) == 0) {
+        ContractCaptures.push_back(Cap);
+        ContractCaptureMap[Var] = ContractCaptures.size();
+      }
+    } else {
+      Captures.push_back(Cap);
+      CaptureMap[Var] = Captures.size();
+    }
   }
 
   void addVLATypeCapture(SourceLocation Loc, const VariableArrayType *VLAType,
@@ -758,7 +795,7 @@ public:
   }
 
   /// Determine whether the given variable has been captured.
-  bool isCaptured(ValueDecl *Var) const { return CaptureMap.count(Var); }
+  bool isCaptured(ValueDecl *Var) const { return CaptureMap.count(Var) != 0; }
 
   /// Determine whether the given variable-array type has been captured.
   bool isVLATypeCaptured(const VariableArrayType *VAT) const;
@@ -767,12 +804,17 @@ public:
   /// captured already.
   Capture &getCapture(ValueDecl *Var) {
     assert(isCaptured(Var) && "Variable has not been captured");
-    return Captures[CaptureMap[Var] - 1];
+    using Iter = llvm::DenseMap<ValueDecl *, unsigned>::iterator;
+
+    Iter Known = CaptureMap.find(Var);
+    assert(Known != CaptureMap.end() && "Variable has not been captured");
+    return Captures[Known->second - 1];
   }
 
   const Capture &getCapture(ValueDecl *Var) const {
-    llvm::DenseMap<ValueDecl *, unsigned>::const_iterator Known =
-        CaptureMap.find(Var);
+    using Iter = llvm::DenseMap<ValueDecl *, unsigned>::const_iterator;
+
+    Iter Known = CaptureMap.find(Var);
     assert(Known != CaptureMap.end() && "Variable has not been captured");
     return Captures[Known->second - 1];
   }

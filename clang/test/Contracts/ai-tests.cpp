@@ -34,7 +34,11 @@ int test_function(int (*func)()) // expected-note {{parameter of type 'int (*)()
 // Test 5: Lambda with implicit capture in precondition (should fail)
 void test_lambda_implicit_capture() {
     int i = 1;
-    auto f = [=] pre(i > 0) { }; // TODO-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+    auto f = [=] // expected-note {{use explicit capture list to capture 'i'}}
+        pre( // expected-note {{within contract context introduced here}}
+            i > 0 // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+        )
+      { };
 }
 
 // Test 6: Lambda with explicit capture in precondition (should pass)
@@ -46,8 +50,10 @@ void test_lambda_explicit_capture() {
 // Test 7: Lambda with implicit capture in contract_assert (should fail)
 void test_lambda_implicit_capture_assert() {
     int i = 1;
-    auto f = [=] {
-        contract_assert(i > 0); // TODO-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+    auto f = [=] { // expected-note {{use explicit capture list to capture 'i'}}
+        contract_assert(  // expected-note {{within contract context introduced here}}
+          i > 0 // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+          );
     };
 }
 
