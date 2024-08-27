@@ -69,4 +69,15 @@ inline void printSourceLocation(const char *file, const char *func,
 #define ERICWF_ASSERT(...) ((void)0)
 #endif
 
+namespace clang {
+class Stmt;
+class Decl;
+class DeclContext;
+class ASTContext;
+
+void showDecl(const Decl *D);
+void showDeclContext(const DeclContext *DC, const ASTContext *Ctx = nullptr);
+
+} // end namespace clang
+
 #endif // LLVM_CLANG_BASIC_ERICWFDEBUG_H

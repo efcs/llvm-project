@@ -2129,7 +2129,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
       if (IsImplicit && From.isVariableCapture() &&
           From.isCapturedAcrossContract() &&
           LSI->NonContractCaptureMap.count(From.getVariable()) != 0) {
-        continue;
+        assert(false);
       }
 
       // Use source ranges of explicit captures for fixits where available.

@@ -2287,6 +2287,7 @@ static void markEscapingByrefs(const FunctionScopeInfo &FSI, Sema &S) {
   if (const LambdaScopeInfo *LSI = dyn_cast<LambdaScopeInfo>(&FSI)) {
     llvm::DenseMap<const ValueDecl *, ContractCapturePair> CheckedCaptures;
     for (auto &KV : LSI->ContractCaptureMap) {
+      assert(false);
       if (LSI->CaptureMap.contains(KV.first))
         continue;
       const Capture &C = LSI->ContractCaptures[KV.second - 1];

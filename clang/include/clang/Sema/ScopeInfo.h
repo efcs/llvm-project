@@ -765,7 +765,7 @@ public:
     Capture Cap(Var, isBlock, isByref, isNested, Loc, EllipsisLoc, CaptureType,
                 AcrossContract, ContractLoc, Invalid);
 
-    if (AcrossContract) {
+    if (AcrossContract && false) {
       if (ContractCaptureMap.count(Var) == 0) {
         ContractCaptures.push_back(Cap);
         ContractCaptureMap[Var] = ContractCaptures.size();

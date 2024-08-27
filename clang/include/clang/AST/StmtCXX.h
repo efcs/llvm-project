@@ -699,17 +699,12 @@ public:
 };
 
 template <class T> const T *ContractStmt::getAttrAs() const {
-  const T *Result = nullptr;
   for (auto *A : getAttrs()) {
     if (const T *TA = dyn_cast<T>(A)) {
-      assert(Result == nullptr);
-      Result = TA;
-#ifdef NDEBUG
-      break;
-#endif
+      return TA;
     }
   }
-  return Result;
+  return nullptr;
 }
 
 }  // end namespace clang

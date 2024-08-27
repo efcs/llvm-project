@@ -2768,7 +2768,7 @@ public:
   bool CheckContractsOnRedeclaration(FunctionDecl *OrigDecl,
                                      FunctionDecl *NewDecl);
 
-
+  void CheckLambdaCapturesForContracts(FunctionDecl *FD);
   /// Perform semantic analysis for a contract specifier on the specified function.
   /// For function templates, these checks should be performed with the instantiation of
   /// the body, and not the declaration.

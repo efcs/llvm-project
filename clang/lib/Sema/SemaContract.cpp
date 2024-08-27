@@ -28,6 +28,7 @@
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/TypeOrdering.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Lex/Preprocessor.h"
 #include "clang/Sema/EnterExpressionEvaluationContext.h"
@@ -54,6 +55,7 @@
 
 using namespace clang;
 using namespace sema;
+using llvm::DenseMap;
 using llvm::DenseSet;
 
 class clang::SemaContractHelper {
@@ -516,7 +518,6 @@ private:
 
 } // namespace
 
-
 static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
                                ContractSpecifierDecl *CSD) {
 
@@ -599,7 +600,10 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
 
   FunctionDecl *FD;
+  bool WasTemplate = false;
   if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D)) {
+    WasTemplate = true;
+    ((void)WasTemplate);
     FD = FunTmpl->getTemplatedDecl();
   } else
     FD = D;
@@ -655,8 +659,7 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
 
 namespace {
 
-/// DiagnoseDeclRefVisitor - A terrible hack to re-bind (NOT rebuild) the
-/// ParmVarDecl references in a contract to the new ParmVarDecls.
+// There's got to be a better way to do this.
 struct RebuildFunctionContracts
     : public TreeTransform<RebuildFunctionContracts> {
 
@@ -671,7 +674,7 @@ struct RebuildFunctionContracts
 } // namespace
 
 /// Rebuild the contract specifier written on one declaration in the context of
-/// a the definition. This rebinds parameters and result names as needed.
+/// the definition. This rebinds parameters and result names as needed.
 ContractSpecifierDecl *
 Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
 
@@ -715,7 +718,6 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   return CSD;
 }
 
-///
 DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
   ContractSpecifierDecl *CSD = FD->getContracts();
   assert(CSD && CSD->hasInventedPlaceholdersTypes() &&
@@ -827,8 +829,8 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
     if (NewCSD->isInvalidDecl())
       Def->setInvalidDecl(true);
   }
-
-
+  if (!Def->isTemplateInstantiation())
+    CheckLambdaCapturesForContracts(Def);
 }
 
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
@@ -854,7 +856,7 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
   // ...
   //  const is combined with the cv-qualifier-seq used to generate the resulting
   //  type (see below
-  if (!S.CXXThisTypeOverride.isNull()) {
+  if (!S.CXXThisTypeOverride.isNull() && false) {
     assert(S.CXXThisTypeOverride->isPointerType());
     QualType ClassType = S.CXXThisTypeOverride->getPointeeType();
     if (not ClassType.isConstQualified()) {
@@ -871,7 +873,6 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     assert(!S.FunctionScopes.back()->InContract && "Already in contract?");
     S.FunctionScopes.back()->InContract = true;
   }
-
 
   S.CurrentContractEntry = &Record;
 }
@@ -983,7 +984,6 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
   return CC_None;
 }
 
-// Lifted from
 static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, bool AllowLambda = false) {
   while (true) {
     if (isa<BlockDecl>(DC) || isa<EnumDecl>(DC) || isa<CapturedDecl>(DC) ||
@@ -1026,4 +1026,365 @@ QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
     return QT;
 
   return Context.getPointerType(QT->getPointeeType().withConst());
+}
+
+namespace {
+
+struct ScopeEntry;
+
+struct CaptureInfo {
+  LambdaCapture Capture;
+  ScopeEntry *ThisScope = nullptr;
+  bool HasValidUsage = false;
+  DenseMap<ScopeEntry *, const Expr *> BadUsages;
+
+  explicit CaptureInfo(LambdaCapture Cap, ScopeEntry *InScope)
+      : Capture(Cap), ThisScope(InScope) {}
+
+  CaptureInfo(CaptureInfo const &) = delete;
+  CaptureInfo &operator=(CaptureInfo const &) = delete;
+
+  const ValueDecl *getCapturedVar() const {
+    assert(Capture.getCapturedVar());
+    return Capture.getCapturedVar();
+  }
+};
+
+struct AllocatorStorage {
+public:
+  AllocatorStorage() = default;
+  AllocatorStorage(AllocatorStorage const &) = delete;
+  AllocatorStorage &operator=(AllocatorStorage const &) = delete;
+
+  template <class T, class... Args> T *Create(Args &&...args) {
+    T *Ptr = new (Allocator) T(args...);
+    Destructors.push_back({Ptr, [](void *P) { static_cast<T *>(P)->~T(); }});
+    return Ptr;
+  }
+
+  ~AllocatorStorage() {
+    for (auto D : Destructors)
+      D.Dtor(D.Ptr);
+    Allocator.Reset();
+  }
+
+private:
+  struct Destructor {
+    void *Ptr;
+    void (*Dtor)(void *);
+  };
+
+  llvm::BumpPtrAllocator Allocator;
+  std::deque<Destructor> Destructors;
+};
+
+struct ScopeEntry;
+struct LambdaScope;
+class ContractScope;
+
+struct ScopeEntry {
+protected:
+  ScopeEntry(const ContractStmt *CS, ScopeEntry *Parent)
+      : ThisStmt(CS), Parent(Parent),
+        ScopeIndex(Parent == nullptr ? 0 : Parent->ScopeIndex + 1) {}
+  ScopeEntry(const LambdaExpr *LE, ScopeEntry *Parent)
+      : ThisStmt(LE), Parent(Parent),
+        ScopeIndex(Parent == nullptr ? 0 : Parent->ScopeIndex + 1) {}
+
+  ScopeEntry(ScopeEntry const &) = delete;
+  ScopeEntry &operator=(ScopeEntry const &) = delete;
+
+public:
+  const Stmt *const ThisStmt = nullptr;
+  ScopeEntry *const Parent = nullptr;
+
+  const unsigned ScopeIndex;
+
+  bool isContract() const { return isa<ContractStmt>(ThisStmt); }
+  bool isLambda() const { return isa<LambdaExpr>(ThisStmt); }
+  bool isTopLevel() const { return !Parent; }
+
+  SourceLocation getLocation() const {
+    if (auto *CS = dyn_cast<ContractStmt>(ThisStmt))
+      return CS->getBeginLoc();
+    if (auto *LE = dyn_cast<LambdaExpr>(ThisStmt))
+      return LE->getBeginLoc();
+    llvm_unreachable("Unhandled Stmt type");
+  }
+
+  SourceRange getSourceRange() const {
+    if (auto *CS = dyn_cast<ContractStmt>(ThisStmt))
+      return CS->getSourceRange();
+    if (auto *LE = dyn_cast<LambdaExpr>(ThisStmt))
+      return LE->getSourceRange();
+    llvm_unreachable("Unhandled Stmt type");
+  }
+
+  SmallVector<ScopeEntry *> getParents(ScopeEntry *StopAt = nullptr,
+                                       bool IncludeContracts = true) {
+    SmallVector<ScopeEntry *> Parents;
+    for (auto *E = this; E; E = E->Parent) {
+      if (IncludeContracts || !E->isContract())
+        Parents.push_back(E);
+      if (StopAt && StopAt == E)
+        break;
+    }
+    return SmallVector<ScopeEntry *>(Parents.rbegin(), Parents.rend());
+  }
+
+  template <class DestTy, class Pred>
+  DestTy *getParentImpl(Pred P, const ScopeEntry *StopAt) {
+    auto *Ent = Parent;
+    assert(!StopAt || StopAt != this);
+    while (Ent && !P(Ent)) {
+      if (Ent == StopAt)
+        return nullptr;
+      Ent = Ent->Parent;
+    }
+    return static_cast<DestTy *>(Ent);
+  }
+
+  ContractScope *getNextContractParent(const ScopeEntry *StopAt = nullptr) {
+    return getParentImpl<ContractScope>(
+        [&](ScopeEntry *E) { return E->isContract(); }, StopAt);
+  }
+
+  bool hasImmediateContractParent() const {
+    return Parent && Parent->isContract();
+  }
+
+  LambdaScope *getLambdaParent(const ScopeEntry *StopAt = nullptr) {
+    return getParentImpl<LambdaScope>(
+        [&](ScopeEntry *E) { return E->isLambda(); }, StopAt);
+  }
+
+  bool isParentContract() const { return Parent && Parent->isContract(); }
+
+  virtual ~ScopeEntry() = default;
+
+  static bool classof(const ScopeEntry *E) { return true; }
+};
+
+class ContractScope : public ScopeEntry {
+public:
+  ContractScope(ContractStmt *CS, ScopeEntry *Parent)
+      : ScopeEntry(CS, Parent) {}
+
+  const ContractStmt *getContract() const {
+    return cast<ContractStmt>(ThisStmt);
+  }
+  virtual ~ContractScope() = default;
+
+  static bool classof(const ScopeEntry *E) { return E && E->isContract(); }
+};
+
+struct LambdaScope : public ScopeEntry {
+  LambdaScope *LambdaParent = nullptr;
+  DenseMap<const ValueDecl *, CaptureInfo *> Captures;
+
+  const LambdaExpr *getLambda() const { return cast<LambdaExpr>(ThisStmt); }
+
+  LambdaScope(AllocatorStorage &Store, LambdaExpr *Expr, ScopeEntry *Parent)
+      : ScopeEntry(Expr, Parent) {
+    LambdaParent = this->getLambdaParent();
+    for (auto Capture : Expr->captures()) {
+      if (!Capture.capturesVariable())
+        continue;
+      ValueDecl *VD = Capture.getCapturedVar();
+      Captures[VD] = Store.Create<CaptureInfo>(Capture, this);
+      Captures[VD]->HasValidUsage = Capture.isExplicit();
+    }
+  }
+
+  bool hasCapture(const ValueDecl *VD) { return getCaptureInfo(VD) != nullptr; }
+
+  CaptureInfo *getCaptureInfo(const ValueDecl *VD) const {
+    if (auto Pos = Captures.find(VD); Pos != Captures.end())
+      return Pos->second;
+    return nullptr;
+  }
+
+  virtual ~LambdaScope() = default;
+
+  static bool classof(const ScopeEntry *E) { return E->isLambda(); }
+};
+
+/// A checker which white-lists certain expressions whose conversion
+/// to or from retainable type would otherwise be forbidden in ARC.
+struct LambdaCaptureChecker : RecursiveASTVisitor<LambdaCaptureChecker> {
+  typedef RecursiveASTVisitor<LambdaCaptureChecker> super;
+
+  AllocatorStorage Alloc;
+  std::vector<ScopeEntry *> Scopes;
+  std::vector<LambdaScope *> LambdaScopes;
+
+  DenseSet<const Decl *> DiagnosedDecls;
+  DenseMap<const ValueDecl *, ScopeEntry *> TopCaptureScope;
+
+private:
+  Sema &Actions;
+
+public:
+  LambdaCaptureChecker(Sema &S) : Actions(S) {}
+
+  void PushScope(ContractStmt *CS) {
+    Scopes.push_back(Alloc.Create<ContractScope>(
+        CS, Scopes.empty() ? nullptr : Scopes.back()));
+  }
+
+  void PushScope(LambdaExpr *LE) {
+    LambdaScope *LSE = Alloc.Create<LambdaScope>(
+        Alloc, LE, Scopes.empty() ? nullptr : Scopes.back());
+    Scopes.push_back(LSE);
+    LambdaScopes.push_back(LSE);
+  }
+
+  void PopScope() {
+    assert(!Scopes.empty());
+    if (Scopes.back()->isLambda())
+      LambdaScopes.pop_back();
+    Scopes.pop_back();
+  }
+
+  ScopeEntry *getCurrentScope() {
+    if (Scopes.empty())
+      return nullptr;
+    return Scopes.back();
+  }
+
+  LambdaScope *getCurrentLambda() const {
+    if (LambdaScopes.empty())
+      return nullptr;
+    return LambdaScopes.back();
+  }
+
+  bool TraverseContractStmt(ContractStmt *CS) {
+    PushScope(CS);
+    if (CS->getCond())
+      TraverseStmt(CS->getCond());
+    PopScope();
+    return true;
+  }
+
+  bool TraverseLambdaExpr(LambdaExpr *LE) {
+    PushScope(LE);
+    LambdaScope *ThisScope = LambdaScopes.back();
+    for (auto &[K, V] : ThisScope->Captures) {
+      if (auto &TopScope = TopCaptureScope[K]; TopScope == nullptr)
+        TopScope = ThisScope;
+    }
+
+    assert(LE->getCallOperator());
+    assert(LE->getCallOperator()->getBody() == LE->getBody());
+    for (auto *CS : LE->getCallOperator()->contracts())
+      TraverseContractStmt(CS);
+    TraverseStmt(LE->getBody());
+    for (auto &[VD, Cap] : ThisScope->Captures) {
+      if (Cap->HasValidUsage)
+        continue;
+      auto *ND = dyn_cast<NamedDecl>(VD);
+      assert(ND && "Should be a named decl?");
+      Actions.Diag(Cap->Capture.getLocation(),
+                   diag::err_lambda_implicit_capture_in_contracts_only)
+          << ND;
+      Actions.Diag(LE->getIntroducerRange().getBegin(),
+                   diag::note_lambda_implicit_capture_in_contracts_only)
+          << ND;
+      auto FindContractScope = [](ScopeEntry *E) -> ScopeEntry * {
+        do {
+          if (E->isContract())
+            return E;
+          E = E->Parent;
+        } while (E);
+        return nullptr;
+      };
+
+      if (ThisScope->LambdaParent && ThisScope->LambdaParent->hasCapture(VD) &&
+          ThisScope->LambdaParent->getCaptureInfo(VD)->Capture.isImplicit())
+        continue;
+
+      for (auto &[Scope, Usage] : Cap->BadUsages) {
+
+        Actions.Diag(Usage->getExprLoc(), diag::note_ericwf_generic)
+            << "usage of captured variable here";
+        ScopeEntry *Contract = FindContractScope(Scope);
+        if (!Contract)
+          llvm::errs() << "Failed to find contract for usage\n";
+        else
+          Actions.Diag(Contract->getLocation(), diag::note_contract_context);
+      }
+    }
+    PopScope();
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    // [dcl.contract.func] p2900r8 --
+    //   If a  postcondition  odr-uses ([basic.def.odr]) a non-reference
+    //   parameter, ... that parameter shall be declared const and shall not
+    //   have array or function type. [ Note: This requirement applies even to
+    //   declarations that do not specify the postcondition-specifier.]
+    if (LambdaScopes.empty())
+      return true;
+
+    auto *Val = dyn_cast_or_null<ValueDecl>(E->getDecl());
+    if (!Val || TopCaptureScope[Val] == nullptr)
+      return true;
+    if (LambdaScopes.empty() || !LambdaScopes.back()->hasCapture(Val))
+      return true;
+
+    bool IsReferenceInsideContract = false;
+    ScopeEntry *CurScope = getCurrentScope();
+    ScopeEntry *UsageScope = getCurrentScope();
+    while (CurScope) {
+      IsReferenceInsideContract |= CurScope->isContract();
+      if (auto *LSE = dyn_cast<LambdaScope>(CurScope)) {
+        auto *CapInfo = LSE->getCaptureInfo(Val);
+        if (!CapInfo)
+          break;
+
+        if (!IsReferenceInsideContract)
+          CapInfo->HasValidUsage = true;
+        else if (auto &Use = CapInfo->BadUsages[UsageScope]; !Use) {
+          Use = E;
+        }
+      }
+      CurScope = CurScope->Parent;
+    }
+
+    return true;
+  }
+};
+
+} // namespace
+
+void Sema::CheckLambdaCapturesForContracts(FunctionDecl *FD) {
+  // Check the contracts on the function declaration.
+
+  LambdaCaptureChecker Checker(*this);
+
+  DeclContext *FuncContext = FD->getDeclContext();
+  DeclContext *Parent = getLambdaAwareParentOfDeclContext(FuncContext);
+
+  // If we're not in a top level function context, we'll check this when we get
+  // to one.
+  if (Parent && Parent->isFunctionOrMethod())
+    return;
+  else if (Parent && !isa<TranslationUnitDecl>(Parent) &&
+           !isa<CXXRecordDecl>(Parent) && !isa<NamespaceDecl>(Parent))
+    showDeclContext(Parent);
+
+  if (Parent && isa<CXXRecordDecl>(Parent)) {
+    auto *D = dyn_cast<CXXRecordDecl>(Parent);
+    assert(!D->isLambda());
+  }
+
+  for (auto *CS : FD->contracts())
+    Checker.TraverseContractStmt(CS);
+
+  const FunctionDecl *Def = nullptr;
+  if (FD->hasBody(Def); Def && Def->getBody()) {
+    Checker.TraverseStmt(Def->getBody());
+  }
+  assert(Checker.Scopes.empty());
 }
