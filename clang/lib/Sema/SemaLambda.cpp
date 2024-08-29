@@ -1955,9 +1955,11 @@ ExprResult Sema::ActOnLambdaExpr(SourceLocation StartLoc, Stmt *Body) {
   LambdaScopeInfo LSI = *cast<LambdaScopeInfo>(FunctionScopes.back());
   ActOnFinishFunctionBody(LSI.CallOperator, Body);
   ExprResult Lambda = BuildLambdaExpr(StartLoc, Body->getEndLoc(), &LSI);
+
+  // Diagnose lambda captures that occur exclusively within contract statements
+  // within the lambda.
   if (Lambda.isUsable())
-    CheckLambdaCapturesForContracts2(
-        Lambda.getAs<LambdaExpr>()->getCallOperator());
+    CheckLambdaCapturesForContracts(Lambda.getAs<LambdaExpr>());
   return Lambda;
 }
 

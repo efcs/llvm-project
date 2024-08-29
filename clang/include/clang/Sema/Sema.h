@@ -2765,11 +2765,8 @@ public:
   // Return true if a diagnostic was issued, false otherwise.
   bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                        FunctionDecl *NewDecl);
-  bool CheckContractsOnRedeclaration(FunctionDecl *OrigDecl,
-                                     FunctionDecl *NewDecl);
 
-  void CheckLambdaCapturesForContracts(FunctionDecl *FD);
-  void CheckLambdaCapturesForContracts2(FunctionDecl *FD);
+  void CheckLambdaCapturesForContracts(LambdaExpr *LE);
 
   /// Perform semantic analysis for a contract specifier on the specified function.
   /// For function templates, these checks should be performed with the instantiation of
