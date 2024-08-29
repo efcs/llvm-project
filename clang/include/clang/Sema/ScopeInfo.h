@@ -919,6 +919,30 @@ public:
   }
 };
 
+/// Information about where the expressions that caused a variable to be captured in a lambda
+/// occurred. Specifically, if they occured across a contract.
+struct ContractCaptureInfo {
+  ContractCaptureInfo(SourceLocation ContractLocation, const Expr *E, SourceLocation RefLoc = SourceLocation())
+      : ContractLoc(ContractLocation), CapturingExpr(E), ReferenceLoc(RefLoc.isInvalid() ? E->getExprLoc() : RefLoc) {}
+
+  void setReferencedOutsideContract() {
+    CapturingExpr = nullptr;
+    ContractLoc = SourceLocation();
+    ReferenceLoc = SourceLocation();
+  }
+
+  bool isReferencedOutsideContract() const { return CapturingExpr == nullptr; }
+
+  const Expr *getCapturingExpr() const { return CapturingExpr; }
+  SourceLocation getReferenceLoc() const { return ReferenceLoc; }
+  SourceLocation getContractLoc() const { return ContractLoc; }
+
+private:
+  SourceLocation ContractLoc;
+  const Expr *CapturingExpr;
+  SourceLocation ReferenceLoc;
+};
+
 class LambdaScopeInfo final :
     public CapturingScopeInfo, public InventedTemplateParameterInfo {
 public:

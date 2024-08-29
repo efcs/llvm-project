@@ -164,7 +164,7 @@ namespace DoubleDeep {
   void foo(int a) {
     [&](int y) {
       ++y;
-      [&] (int x) { // expected-note {{use explicit capture list to capture 'a'}}
+      [&] (int x) {
         ++y;
         ++x;
         contract_assert([&](int v) { // expected-note {{contract context}}

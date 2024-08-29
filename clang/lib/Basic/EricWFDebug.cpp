@@ -5,19 +5,10 @@
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/TextNodeDumper.h"
 
-namespace clang {
-void showDeclContext(const DeclContext *DC, const ASTContext *) {
-  assert(isa<Decl>(DC));
-  showDecl(cast<Decl>(DC));
-}
+#include <sys/types.h>
+#include <sys/wait.h>
 
-void showDecl(const Decl *D) {
-  llvm::errs() << D->getDeclKindName();
-  if (auto *ND = dyn_cast<NamedDecl>(D)) {
-    llvm::errs() << " " << ND->getQualifiedNameAsString();
-  }
-  llvm::errs() << "\n";
-}
+namespace clang {
 
 static TextNodeDumper createDumper(const ASTContext *Context) {
   if (Context)
@@ -32,6 +23,16 @@ void EricWFDump(const Stmt *S, const ASTContext *Context) {
 
 void EricWFDump(const Decl *D, const ASTContext *Context) {
   createDumper(Context).Visit(D);
+}
+
+
+void EricWFDump(const DeclContext *DC, const ASTContext *Context) {
+  if (DC->hasValidDeclKind()) {
+    const auto *D = cast<Decl>(DC);
+    createDumper(Context).Visit(D);
+  } else {
+    llvm::errs() << "DeclContext " << DC->getDeclKindName() << "\n";
+  }
 }
 
 void printWithBanner(const char *CMessage, bool IsClosingBanner) {
@@ -76,5 +77,38 @@ void EricWFDump(const char *Message, const Decl *D, const ASTContext *Context) {
   BannerWrapper Banner(Message);
   EricWFDump(D, Context);
 }
+
+void EricWFDump(const char *Message, const DeclContext *D, const ASTContext *Context) {
+  BannerWrapper Banner(Message);
+  EricWFDump(D, Context);
+}
+
+namespace ericwf_impl {
+ForkResult ForkInternal() {
+  if constexpr (EricWFDebugEnabled) {
+    pid_t c_pid = fork();
+    if (c_pid == -1) {
+      llvm::errs() << "Failed to fork\n";
+      std::exit(1);
+    } else if (c_pid > 0) {
+      int status;
+      wait(&status);
+      if (WIFEXITED(status)) {
+        printf("The process ended with exit(%d).\\n", WEXITSTATUS(status));
+        return {WhoAmI::Parent, WEXITSTATUS(status)};
+      }
+      if (WIFSIGNALED(status)) {
+        printf("The process ended with kill -%d.\\n", WTERMSIG(status));
+        return {WhoAmI::Parent, WTERMSIG(status)};
+      }
+      return {WhoAmI::Parent, status};
+    } else {
+      return {WhoAmI::Child, 0};
+    }
+  } else {
+    std::terminate();
+  }
+}
+} // namespace ericwf_impl
 
 } // namespace clang

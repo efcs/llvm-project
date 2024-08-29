@@ -1021,7 +1021,8 @@ static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, boo
     } else
       break;
   }
-  assert(DC && DC->isFunctionOrMethod() && "Not in a function context?");
+  if (DC && !DC->isFunctionOrMethod())
+    return nullptr;
   return DC;
 }
 
@@ -1047,7 +1048,11 @@ QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
   //   }};
   // ```
   const DeclContext *ContractContext = walkUpDeclContextToFunction(CurrentContractEntry->ContextAtPush);
+  if (!ContractContext)
+    return QT;
   const DeclContext *QTContext = walkUpDeclContextToFunction(CurContext );
+  if (!QTContext)
+    return QT;
   if (!ContractContext->Equals(QTContext))
     return QT;
 
@@ -1056,64 +1061,91 @@ QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
 
 namespace {
 
-struct CapturedVar {
-  const ContractStmt *InContract = nullptr;
-  const Expr *CapturingExpr = nullptr;
-  SourceLocation CaptureLoc;
+struct CaptureUsage {
+  clang::LambdaCapture Capture;
+  const ContractStmt *UsedInContract = nullptr;
+  const Expr *UsageExpr = nullptr;
+  SourceLocation UsageLoc = SourceLocation();
+
+  CaptureUsage(clang::LambdaCapture Capture) : Capture(Capture) {}
 };
 
+/// TODO(EricWF): Remove this and do it inline instead. We currently
+/// do this as a RecursiveASTVisitor because the changes to do it during
+/// the initial parsing pass are too invasive to do dur
 struct LambdaCaptureChecker : RecursiveASTVisitor<LambdaCaptureChecker> {
   typedef RecursiveASTVisitor<LambdaCaptureChecker> super;
 
   Sema &Actions;
   const LambdaExpr *const CurLambda = nullptr;
   const ContractStmt *CurContract = nullptr;
-  DenseMap<const ValueDecl *, CapturedVar> BadCaptures;
-  DenseMap<const ValueDecl *, clang::LambdaCapture> Captures;
+
+
+  // Note: The value `nullptr` is used to denote a capture of CXXThis.
+  DenseMap<const ValueDecl *, CaptureUsage> Captures;
+
+
+  void observeUsage(const ValueDecl *VD, const Expr *E, SourceLocation Loc) {
+    if (auto Pos = Captures.find(VD); Pos != Captures.end()) {
+      if (!CurContract)
+        Captures.erase(VD);
+      else {
+        auto& Usage = Pos->second;
+        if (Usage.UsageExpr == nullptr || (isa<LambdaExpr>(Usage.UsageExpr) && !isa<LambdaExpr>(E))) {
+          Usage.UsedInContract = CurContract;
+          Usage.UsageExpr = E;
+          Usage.UsageLoc = Loc;
+        }
+      }
+    }
+  }
 
 private:
-public:
-  bool shouldVisitLambdaBody() const { return false; }
+  LambdaCaptureChecker(Sema &S, LambdaExpr *LE) : Actions(S), CurLambda(LE) { Init(); }
+
 
   void Run() {
-    for (auto C : CurLambda->captures()) {
-      if (!C.capturesVariable())
-        continue;
-      if (C.isExplicit())
-        continue;
-      // EricWFDump("Inserting Capture ", C.getCapturedVar(), &Actions.Context);
-      Captures.insert({C.getCapturedVar(), C});
-    }
-
+    // Traverse the lambdas function-level contracts and body to find the bad captures.
     FunctionDecl *FD = CurLambda->getCallOperator();
     assert(FD->getBody());
     if (FD->hasContracts())
       TraverseDecl(FD->getContracts());
     TraverseStmt(CurLambda->getBody());
-    for (auto C : Captures) {
-      SourceLocation Loc = C.second.getLocation();
 
-      if (BadCaptures.count(C.first) != 0) {
-        auto &Bad = BadCaptures[C.first];
-        Actions.Diag(Bad.CapturingExpr->getExprLoc(),
-                     diag::err_lambda_implicit_capture_in_contracts_only)
-            << cast<NamedDecl>(C.first);
-        Actions.Diag(CurLambda->getCaptureDefaultLoc(),
-                     diag::note_lambda_implicit_capture_in_contracts_only)
-            << cast<NamedDecl>(C.first);
-        Actions.Diag(Bad.InContract->getBeginLoc(),
-                     diag::note_contract_context);
-      } else {
-        Actions.Diag(Loc, diag::err_lambda_implicit_capture_in_contracts_only)
-            << cast<NamedDecl>(C.first);
-        Actions.Diag(CurLambda->getCaptureDefaultLoc(),
-                     diag::note_lambda_implicit_capture_in_contracts_only)
-            << cast<NamedDecl>(C.first);
-      }
+    // Finally, diagnose any captures that still remain, since they do not have any non-contrac
+    // usages.
+    for (auto& [Var, Bad] : Captures) {
+      assert(Bad.UsageExpr);
+      Actions.Diag(CurLambda->getCaptureDefaultLoc(),
+                   diag::err_lambda_implicit_capture_in_contracts_only)
+          << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
+      Actions.Diag(Bad.UsageLoc, diag::note_lambda_implicit_capture_in_contract_usage)
+          << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
+      Actions.Diag(Bad.UsedInContract->getBeginLoc(),
+                   diag::note_contract_context);
+
     }
   }
 
-  LambdaCaptureChecker(Sema &S, LambdaExpr *LE) : Actions(S), CurLambda(LE) {}
+  void Init() {
+    // Collect all of the implicit captures of the lambda.
+    // If the lambda capture hasn't been removed after traversing the tree then
+    // that lambda capture is bad, and must be diagnosed as only being used inside
+    // of a contract.
+    for (auto C : CurLambda->captures()) {
+      if (C.capturesThis() && C.isImplicit())
+        Captures.insert({nullptr, {C}});
+      if (!C.capturesVariable())
+        continue;
+      if (C.isExplicit())
+        continue;
+      // EricWFDump("Inserting Capture ", C.getCapturedVar(), &Actions.Context);
+      Captures.insert({C.getCapturedVar(), {C}});
+    }
+  }
+
+public:
+  bool shouldVisitLambdaBody() const { return false; }
 
   bool TraverseContractStmt(ContractStmt *CS) {
     assert(CS->getCond());
@@ -1124,33 +1156,37 @@ public:
     return true;
   }
 
-  bool VisitLambdaExpr(LambdaExpr *LE) {
-    assert(LE != CurLambda);
+  bool TraverseLambdaExpr(LambdaExpr *LE) {
+    assert(LE != CurLambda && "Revisiting the root lambda?");
     for (auto CS : LE->getCallOperator()->contracts())
       TraverseContractStmt(CS);
+
+    // Iterate over the captures of the nested lambda, and mark any of our captures as having been seen
+    // outside of a contract. This assumes that the inner lambda has a valid usage of the capture.
+    // If it doesn't, we'll diagnose that separately.
     for (auto C : LE->captures()) {
-      if (!C.capturesVariable() || Captures.count(C.getCapturedVar()) == 0)
-        continue;
-      const ValueDecl *VD = C.getCapturedVar();
-      if (!CurContract)
-        Captures.erase(VD);
-      else if (CurContract && BadCaptures.count(VD) == 0)
-        BadCaptures[VD] = {CurContract, LE, C.getLocation()};
+      assert(C.capturesThis() || C.capturesVariable());
+      observeUsage(C.capturesThis() ? nullptr : C.getCapturedVar(), LE, C.getLocation());
     }
     return true;
   }
 
   bool VisitDeclRefExpr(DeclRefExpr *E) {
-    if (auto *VD = dyn_cast<ValueDecl>(E->getDecl());
-        VD && Captures.count(VD)) {
-      if (!CurContract)
-        Captures.erase(VD);
-      else if (CurContract &&
-               (BadCaptures.count(VD) == 0 ||
-                isa<LambdaExpr>(BadCaptures.find(VD)->second.CapturingExpr)))
-        BadCaptures[VD] = {CurContract, E, E->getExprLoc()};
-    }
+    if (auto *VD = dyn_cast<ValueDecl>(E->getDecl()); VD && E->isNonOdrUse() != NOUR_Unevaluated)
+      observeUsage(VD, E, E->getExprLoc());
     return true;
+  }
+
+  bool VisitMemberExpr(MemberExpr *E) {
+    if (E->isNonOdrUse() != NOUR_Unevaluated)
+      observeUsage(nullptr, E, E->getExprLoc());
+    return true;
+  }
+
+public:
+  static void Check(Sema &Actions, LambdaExpr *LE) {
+    LambdaCaptureChecker Checker(Actions, LE);
+    Checker.Run();
   }
 };
 
@@ -1158,11 +1194,7 @@ public:
 
 void Sema::CheckLambdaCapturesForContracts(LambdaExpr *LE) {
   // Check the contracts on the function declaration.
-
-  // EricWFDump("Checking Lambda", FD, &Context);
-
-  LambdaCaptureChecker Checker(*this, LE);
-  Checker.Run();
+  LambdaCaptureChecker::Check(*this, LE);
 }
 
 std::optional<unsigned>
@@ -1179,10 +1211,6 @@ Sema::getFunctionScopeIndexForDeclaration(const ValueDecl *VD) {
   const DeclContext *const VarCtx = VD->getDeclContext();
   if (!VarCtx->Encloses(Ctx)) {
     assert(!VarCtx->Equals(Ctx));
-    llvm::errs() << "Weird decl context: \n";
-    showDeclContext(Ctx);
-    llvm::errs() << "VarCtx=\n";
-    showDeclContext(VarCtx);
     return std::nullopt;
   }
   unsigned StartScope = FunctionScopes.size() - 1;
@@ -1191,13 +1219,8 @@ Sema::getFunctionScopeIndexForDeclaration(const ValueDecl *VD) {
     Ctx = walkUpDeclContextToFunction(Ctx, /*AllowLambda=*/true);
     --StartScope;
   }
-  if (!Ctx) {
-    llvm::errs() << "Failed to find decl context for variable\n";
-    showDeclContext(VarCtx);
-    llvm::errs() << "Current Ctx\n";
-    showDeclContext(CurContext);
+  if (!Ctx)
     return std::nullopt;
-  }
 
   auto TestDC = getDeclContextForFunctionScopeIndex(StartScope);
   assert(TestDC && TestDC->Equals(Ctx));

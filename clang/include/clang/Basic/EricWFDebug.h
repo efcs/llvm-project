@@ -75,14 +75,46 @@ class Decl;
 class DeclContext;
 class ASTContext;
 
-void showDecl(const Decl *D);
-void showDeclContext(const DeclContext *DC, const ASTContext *Ctx = nullptr);
+
 void EricWFDump(const Stmt *S, const ASTContext *Ctx = nullptr);
 void EricWFDump(const Decl *D, const ASTContext *Ctx = nullptr);
+void EricWFDump(const DeclContext *D, const ASTContext *Ctx = nullptr);
+
 void EricWFDump(const char *Message, const Stmt *S,
                 const ASTContext *Ctx = nullptr);
+
 void EricWFDump(const char *Message, const Decl *D,
                 const ASTContext *Ctx = nullptr);
+void EricWFDump(const char *Message, const DeclContext *D,
+                const ASTContext *Ctx = nullptr);
+
+namespace ericwf_impl {
+enum class WhoAmI { Child, Parent };
+struct ForkResult {
+  WhoAmI Who;
+  int ChildExitCode = -1;
+};
+ForkResult ForkInternal();
+
+} // end namespace ericwf_impl
+
+
+template <class Pred,  class Callable>
+bool EricWFDebugFork(Pred &&P, Callable &&C) {
+  if constexpr (EricWFDebugEnabled) {
+    if (Pred()) {
+      ericwf_impl::ForkResult Res = ericwf_impl::ForkInternal();
+      if (Res.Who == ericwf_impl::WhoAmI::Child) {
+        C();
+        std::exit(0);
+      } else {
+        int ChildExitCode = Res.ChildExitCode;
+        return ChildExitCode == 0;
+      }
+    }
+  }
+}
+
 } // end namespace clang
 
 #endif // LLVM_CLANG_BASIC_ERICWFDEBUG_H
