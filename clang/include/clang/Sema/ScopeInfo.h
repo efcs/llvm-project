@@ -735,10 +735,6 @@ public:
 
   /// NonContractCaptureMap - A map of captured variables to (index+1) into
   /// Captures that are not captured across a contract.
-  llvm::DenseMap<ValueDecl *, unsigned> NonContractCaptureMap;
-
-  /// NonContractCaptureMap - A map of captured variables to (index+1) into
-  /// Captures that are not captured across a contract.
   llvm::DenseMap<ValueDecl *, unsigned> ContractCaptureMap;
 
   SmallVector<Capture, 4> ContractCaptures;
@@ -796,7 +792,9 @@ public:
 
   /// Determine whether the given variable has been captured.
   bool isCaptured(ValueDecl *Var) const { return CaptureMap.count(Var) != 0; }
-
+  bool isCapturedInContract(ValueDecl *Var) const {
+    return ContractCaptureMap.count(Var) != 0;
+  }
   /// Determine whether the given variable-array type has been captured.
   bool isVLATypeCaptured(const VariableArrayType *VAT) const;
 
@@ -817,6 +815,24 @@ public:
     Iter Known = CaptureMap.find(Var);
     assert(Known != CaptureMap.end() && "Variable has not been captured");
     return Captures[Known->second - 1];
+  }
+
+  const Capture &getContractCapture(ValueDecl *Var) const {
+    using Iter = llvm::DenseMap<ValueDecl *, unsigned>::const_iterator;
+
+    Iter Known = ContractCaptureMap.find(Var);
+    assert(Known != ContractCaptureMap.end() &&
+           "Variable has not been captured");
+    return ContractCaptures[Known->second - 1];
+  }
+
+  Capture &getContractCapture(ValueDecl *Var) {
+    using Iter = llvm::DenseMap<ValueDecl *, unsigned>::const_iterator;
+
+    Iter Known = ContractCaptureMap.find(Var);
+    assert(Known != ContractCaptureMap.end() &&
+           "Variable has not been captured");
+    return ContractCaptures[Known->second - 1];
   }
 
   static bool classof(const FunctionScopeInfo *FSI) {

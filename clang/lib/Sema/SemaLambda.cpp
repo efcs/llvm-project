@@ -1954,7 +1954,11 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
 ExprResult Sema::ActOnLambdaExpr(SourceLocation StartLoc, Stmt *Body) {
   LambdaScopeInfo LSI = *cast<LambdaScopeInfo>(FunctionScopes.back());
   ActOnFinishFunctionBody(LSI.CallOperator, Body);
-  return BuildLambdaExpr(StartLoc, Body->getEndLoc(), &LSI);
+  ExprResult Lambda = BuildLambdaExpr(StartLoc, Body->getEndLoc(), &LSI);
+  if (Lambda.isUsable())
+    CheckLambdaCapturesForContracts2(
+        Lambda.getAs<LambdaExpr>()->getCallOperator());
+  return Lambda;
 }
 
 static LambdaCaptureDefault
@@ -2128,8 +2132,10 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
 
       if (IsImplicit && From.isVariableCapture() &&
           From.isCapturedAcrossContract() &&
-          LSI->NonContractCaptureMap.count(From.getVariable()) != 0) {
+          LSI->ContractCaptureMap.count(From.getVariable()) != 0) {
+        ((void)From);
         assert(false);
+        // FIXME(EricWF)
       }
 
       // Use source ranges of explicit captures for fixits where available.

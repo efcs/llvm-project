@@ -2769,6 +2769,8 @@ public:
                                      FunctionDecl *NewDecl);
 
   void CheckLambdaCapturesForContracts(FunctionDecl *FD);
+  void CheckLambdaCapturesForContracts2(FunctionDecl *FD);
+
   /// Perform semantic analysis for a contract specifier on the specified function.
   /// For function templates, these checks should be performed with the instantiation of
   /// the body, and not the declaration.
@@ -2798,6 +2800,10 @@ public:
       SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
       const FunctionDecl *Pattern,
       const MultiLevelTemplateArgumentList &TemplateArgs);
+
+  std::optional<unsigned>
+  getFunctionScopeIndexForDeclaration(const ValueDecl *VD);
+  const DeclContext *getDeclContextForFunctionScopeIndex(unsigned ScopeIndex);
 
   ///@}
 

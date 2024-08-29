@@ -18876,6 +18876,8 @@ bool Sema::tryCaptureVariable(
                                              DeclRefType)) {
       CSI->getCapture(Var).markUsed(BuildAndDiagnose);
       break;
+    } else if (CSI->ContractCaptureMap.count(Var)) {
+      CSI->getContractCapture(Var).markUsed(BuildAndDiagnose);
     }
 
     // When evaluating some attributes (like enable_if) we might refer to a

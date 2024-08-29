@@ -2238,7 +2238,7 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   }
 
   // Visit any contracts attached to the function declaration..
-#if 0 // TODO(EricWF): Enable this.
+#if 1 // TODO(EricWF): Enable this.
   if (auto *Contracts = D->getContracts()) {
     TRY_TO(TraverseDecl(Contracts));
   }

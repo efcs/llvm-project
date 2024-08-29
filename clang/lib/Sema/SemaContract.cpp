@@ -787,6 +787,11 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
   return NewCSD;
 }
 
+struct ContractCapturePair {
+  SmallVector<const Capture *> InContract;
+  SmallVector<const Capture *> OutOfContract;
+};
+
 // ActOnContractsOnFinishFunctionBody
 //
 // This function ensures there is a usable version of the
@@ -831,6 +836,28 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   }
   if (!Def->isTemplateInstantiation())
     CheckLambdaCapturesForContracts(Def);
+
+  if (const LambdaScopeInfo *LSI =
+          dyn_cast<LambdaScopeInfo>(getCurFunction())) {
+    llvm::DenseMap<const ValueDecl *, ContractCapturePair> CheckedCaptures;
+    for (auto &KV : LSI->ContractCaptureMap) {
+      if (LSI->CaptureMap.contains(KV.first))
+        continue;
+      const Capture &C = LSI->ContractCaptures[KV.second - 1];
+      assert(C.isVariableCapture());
+
+      const ValueDecl *VD = C.getVariable();
+      assert(VD && isa<NamedDecl>(VD));
+      auto *ND = cast<NamedDecl>(KV.first);
+      Diag(C.getLocation(), diag::err_lambda_implicit_capture_in_contracts_only)
+          << ND;
+      Diag(LSI->CaptureDefaultLoc,
+           diag::note_lambda_implicit_capture_in_contracts_only)
+          << ND;
+      Diag(C.getContractLoc(), diag::note_contract_context);
+      Def->isInvalidDecl();
+    }
+  }
 }
 
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
@@ -856,7 +883,7 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
   // ...
   //  const is combined with the cv-qualifier-seq used to generate the resulting
   //  type (see below
-  if (!S.CXXThisTypeOverride.isNull() && false) {
+  if (!S.CXXThisTypeOverride.isNull()) {
     assert(S.CXXThisTypeOverride->isPointerType());
     QualType ClassType = S.CXXThisTypeOverride->getPointeeType();
     if (not ClassType.isConstQualified()) {
@@ -987,13 +1014,14 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
 static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, bool AllowLambda = false) {
   while (true) {
     if (isa<BlockDecl>(DC) || isa<EnumDecl>(DC) || isa<CapturedDecl>(DC) ||
-        isa<RequiresExprBodyDecl>(DC)) {
+        isa<RequiresExprBodyDecl>(DC) || isa<LinkageSpecDecl>(DC)) {
       DC = DC->getParent();
     } else if (!AllowLambda && isa<CXXMethodDecl>(DC) &&
-        cast<CXXMethodDecl>(DC)->getOverloadedOperator() == OO_Call &&
-        cast<CXXRecordDecl>(DC->getParent())->isLambda()) {
+               cast<CXXMethodDecl>(DC)->getOverloadedOperator() == OO_Call &&
+               cast<CXXRecordDecl>(DC->getParent())->isLambda()) {
       DC = DC->getParent()->getParent();
-    } else break;
+    } else
+      break;
   }
   assert(DC && DC->isFunctionOrMethod() && "Not in a function context?");
   return DC;
@@ -1356,10 +1384,114 @@ public:
   }
 };
 
+struct CapturedVar {
+  const ContractStmt *InContract = nullptr;
+  const Expr *CapturingExpr = nullptr;
+  SourceLocation CaptureLoc;
+};
+
+struct LambdaCaptureChecker2 : RecursiveASTVisitor<LambdaCaptureChecker2> {
+  typedef RecursiveASTVisitor<LambdaCaptureChecker2> super;
+
+  Sema &Actions;
+  const FunctionDecl *CurLambda = nullptr;
+  const ContractStmt *CurContract = nullptr;
+  DenseMap<const ValueDecl *, CapturedVar> BadCaptures;
+  DenseMap<const ValueDecl *, clang::LambdaCapture> Captures;
+
+private:
+public:
+  bool shouldVisitLambdaBody() const { return false; }
+
+  void Run() {
+    assert(CurLambda->getBody());
+    if (CurLambda->hasContracts())
+      TraverseDecl(CurLambda->getContracts());
+    TraverseStmt(CurLambda->getBody());
+    for (auto C : Captures) {
+      SourceLocation Loc = C.second.getLocation();
+
+      if (BadCaptures.count(C.first) != 0) {
+        auto &Bad = BadCaptures[C.first];
+        Actions.Diag(Bad.CapturingExpr->getExprLoc(),
+                     diag::err_lambda_implicit_capture_in_contracts_only)
+            << cast<NamedDecl>(C.first);
+        Actions.Diag(CurLambda->getLocation(),
+                     diag::note_lambda_implicit_capture_in_contracts_only)
+            << cast<NamedDecl>(C.first);
+        Actions.Diag(Bad.InContract->getBeginLoc(),
+                     diag::note_contract_context);
+      } else {
+        Actions.Diag(Loc, diag::err_lambda_implicit_capture_in_contracts_only)
+            << cast<NamedDecl>(C.first);
+        Actions.Diag(CurLambda->getLocation(),
+                     diag::note_lambda_implicit_capture_in_contracts_only)
+            << cast<NamedDecl>(C.first);
+      }
+    }
+  }
+
+  LambdaCaptureChecker2(Sema &S, FunctionDecl *FD) : Actions(S), CurLambda(FD) {
+    assert(isLambdaCallOperator(FD));
+    DeclContext *DC = FD->getDeclContext();
+    assert(DC->isRecord());
+    auto *RD = cast<CXXRecordDecl>(DC);
+    assert(RD->isLambda());
+    for (auto C : RD->captures()) {
+      if (!C.capturesVariable())
+        continue;
+      if (C.isExplicit())
+        continue;
+      // EricWFDump("Inserting Capture ", C.getCapturedVar(), &Actions.Context);
+      Captures.insert({C.getCapturedVar(), C});
+    }
+  }
+
+  bool TraverseContractStmt(ContractStmt *CS) {
+    assert(CS->getCond());
+    const ContractStmt *Prev = CurContract;
+    CurContract = CS;
+    TraverseStmt(CS->getCond());
+    CurContract = Prev;
+    return true;
+  }
+
+  bool VisitLambdaExpr(LambdaExpr *LE) {
+    assert(LE->getCallOperator() != CurLambda);
+    for (auto CS : LE->getCallOperator()->contracts())
+      TraverseContractStmt(CS);
+    for (auto C : LE->captures()) {
+      if (!C.capturesVariable() || Captures.count(C.getCapturedVar()) == 0)
+        continue;
+      const ValueDecl *VD = C.getCapturedVar();
+      if (!CurContract)
+        Captures.erase(VD);
+      else if (CurContract && BadCaptures.count(VD) == 0)
+        BadCaptures[VD] = {CurContract, LE, C.getLocation()};
+    }
+    return true;
+  }
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    if (auto *VD = dyn_cast<ValueDecl>(E->getDecl());
+        VD && Captures.count(VD)) {
+      if (!CurContract)
+        Captures.erase(VD);
+      else if (CurContract &&
+               (BadCaptures.count(VD) == 0 ||
+                isa<LambdaExpr>(BadCaptures.find(VD)->second.CapturingExpr)))
+        BadCaptures[VD] = {CurContract, E, E->getExprLoc()};
+    }
+    return true;
+  }
+};
+
 } // namespace
 
 void Sema::CheckLambdaCapturesForContracts(FunctionDecl *FD) {
   // Check the contracts on the function declaration.
+  return;
+  // return CheckLambdaCapturesForContracts2(FD);
 
   LambdaCaptureChecker Checker(*this);
 
@@ -1371,7 +1503,8 @@ void Sema::CheckLambdaCapturesForContracts(FunctionDecl *FD) {
   if (Parent && Parent->isFunctionOrMethod())
     return;
   else if (Parent && !isa<TranslationUnitDecl>(Parent) &&
-           !isa<CXXRecordDecl>(Parent) && !isa<NamespaceDecl>(Parent))
+           !isa<CXXRecordDecl>(Parent) && !isa<NamespaceDecl>(Parent) &&
+           !isa<LinkageSpecDecl>(Parent))
     showDeclContext(Parent);
 
   if (Parent && isa<CXXRecordDecl>(Parent)) {
@@ -1387,4 +1520,73 @@ void Sema::CheckLambdaCapturesForContracts(FunctionDecl *FD) {
     Checker.TraverseStmt(Def->getBody());
   }
   assert(Checker.Scopes.empty());
+}
+
+void Sema::CheckLambdaCapturesForContracts2(FunctionDecl *FD) {
+  // Check the contracts on the function declaration.
+
+  if (!isLambdaCallOperator(FD))
+    return;
+
+  // EricWFDump("Checking Lambda", FD, &Context);
+
+  LambdaCaptureChecker2 Checker(*this, FD);
+  Checker.Run();
+}
+
+std::optional<unsigned>
+Sema::getFunctionScopeIndexForDeclaration(const ValueDecl *VD) {
+  const DeclContext *Ctx = CurContext;
+  assert(CurContext->isFunctionOrMethod());
+  if (FunctionScopes.size() == 0)
+    return std::nullopt;
+  if (auto *PVD = dyn_cast<ParmVarDecl>(VD)) {
+    unsigned Idx = PVD->getFunctionScopeIndex();
+    assert(Idx < FunctionScopes.size());
+    return Idx;
+  }
+  const DeclContext *const VarCtx = VD->getDeclContext();
+  if (!VarCtx->Encloses(Ctx)) {
+    assert(!VarCtx->Equals(Ctx));
+    llvm::errs() << "Weird decl context: \n";
+    showDeclContext(Ctx);
+    llvm::errs() << "VarCtx=\n";
+    showDeclContext(VarCtx);
+    return std::nullopt;
+  }
+  unsigned StartScope = FunctionScopes.size() - 1;
+  while (Ctx && !Ctx->Equals(VarCtx)) {
+    assert(StartScope > 0);
+    Ctx = walkUpDeclContextToFunction(Ctx, /*AllowLambda=*/true);
+    --StartScope;
+  }
+  if (!Ctx) {
+    llvm::errs() << "Failed to find decl context for variable\n";
+    showDeclContext(VarCtx);
+    llvm::errs() << "Current Ctx\n";
+    showDeclContext(CurContext);
+    return std::nullopt;
+  }
+
+  auto TestDC = getDeclContextForFunctionScopeIndex(StartScope);
+  assert(TestDC && TestDC->Equals(Ctx));
+  return StartScope;
+}
+
+const DeclContext *
+Sema::getDeclContextForFunctionScopeIndex(unsigned ScopeIndex) {
+  const DeclContext *Ctx = CurContext;
+  assert(ScopeIndex < FunctionScopes.size());
+  unsigned ScopesToGo = FunctionScopes.size() - ScopeIndex - 1;
+  assert(Ctx->isFunctionOrMethod());
+  if (!Ctx->isFunctionOrMethod())
+    Ctx = walkUpDeclContextToFunction(Ctx, /*AllowLambda=*/true);
+  assert(Ctx);
+  while (ScopesToGo > 0) {
+    --ScopesToGo;
+    Ctx = walkUpDeclContextToFunction(Ctx, /*AllowLambda=*/true);
+    assert(Ctx && Ctx->isFunctionOrMethod());
+  }
+
+  return Ctx;
 }

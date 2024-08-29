@@ -2254,11 +2254,6 @@ static void checkEscapingByref(VarDecl *VD, Sema &S) {
     }
 }
 
-struct ContractCapturePair {
-  SmallVector<const Capture *> InContract;
-  SmallVector<const Capture *> OutOfContract;
-};
-
 static void markEscapingByrefs(const FunctionScopeInfo &FSI, Sema &S) {
   // Set the EscapingByref flag of __block variables captured by
   // escaping blocks.
@@ -2281,28 +2276,6 @@ static void markEscapingByrefs(const FunctionScopeInfo &FSI, Sema &S) {
                                 BD->getCaretLocation(),
                                 Sema::NTCUC_BlockCapture,
                                 Sema::NTCUK_Destruct|Sema::NTCUK_Copy);
-    }
-  }
-
-  if (const LambdaScopeInfo *LSI = dyn_cast<LambdaScopeInfo>(&FSI)) {
-    llvm::DenseMap<const ValueDecl *, ContractCapturePair> CheckedCaptures;
-    for (auto &KV : LSI->ContractCaptureMap) {
-      assert(false);
-      if (LSI->CaptureMap.contains(KV.first))
-        continue;
-      const Capture &C = LSI->ContractCaptures[KV.second - 1];
-      assert(C.isVariableCapture());
-
-      const ValueDecl *VD = C.getVariable();
-      assert(VD && isa<NamedDecl>(VD));
-      auto *ND = cast<NamedDecl>(KV.first);
-      S.Diag(C.getLocation(),
-             diag::err_lambda_implicit_capture_in_contracts_only)
-          << ND;
-      S.Diag(LSI->CaptureDefaultLoc,
-             diag::note_lambda_implicit_capture_in_contracts_only)
-          << ND;
-      S.Diag(C.getContractLoc(), diag::note_contract_context);
     }
   }
 

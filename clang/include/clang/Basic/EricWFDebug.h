@@ -77,7 +77,12 @@ class ASTContext;
 
 void showDecl(const Decl *D);
 void showDeclContext(const DeclContext *DC, const ASTContext *Ctx = nullptr);
-
+void EricWFDump(const Stmt *S, const ASTContext *Ctx = nullptr);
+void EricWFDump(const Decl *D, const ASTContext *Ctx = nullptr);
+void EricWFDump(const char *Message, const Stmt *S,
+                const ASTContext *Ctx = nullptr);
+void EricWFDump(const char *Message, const Decl *D,
+                const ASTContext *Ctx = nullptr);
 } // end namespace clang
 
 #endif // LLVM_CLANG_BASIC_ERICWFDEBUG_H
