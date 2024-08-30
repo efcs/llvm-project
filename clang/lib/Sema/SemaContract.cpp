@@ -1115,12 +1115,16 @@ private:
     // Finally, diagnose any captures that still remain, since they do not have any non-contrac
     // usages.
     for (auto& [Var, Bad] : Captures) {
-      assert(Bad.UsageExpr);
+
       Actions.Diag(CurLambda->getCaptureDefaultLoc(),
                    diag::err_lambda_implicit_capture_in_contracts_only)
           << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
-      Actions.Diag(Bad.UsageLoc, diag::note_lambda_implicit_capture_in_contract_usage)
-          << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
+
+      SourceLocation UsageLoc = Bad.UsageLoc;
+      if (UsageLoc.isInvalid())
+        UsageLoc = Bad.Capture.getLocation();
+      Actions.Diag(UsageLoc, diag::note_lambda_implicit_capture_in_contract_usage)
+            << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
       Actions.Diag(Bad.UsedInContract->getBeginLoc(),
                    diag::note_contract_context);
 
@@ -1180,6 +1184,11 @@ public:
   bool VisitMemberExpr(MemberExpr *E) {
     if (E->isNonOdrUse() != NOUR_Unevaluated)
       observeUsage(nullptr, E, E->getExprLoc());
+    return true;
+  }
+
+  bool VisitCXXThisExpr(CXXThisExpr *E) {
+    observeUsage(nullptr, E, E->getExprLoc());
     return true;
   }
 

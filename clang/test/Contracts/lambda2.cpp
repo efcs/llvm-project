@@ -137,6 +137,7 @@ auto Imp = lambda<int>;
 
 namespace ConstificationContext {
   void f(int p) {
-    contract_assert([=]() mutable { return ++p; }());
+    contract_assert([&]() { return [&] () { return ++p; }(); }());
   }
 }
+
