@@ -861,11 +861,12 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
                                            bool OverrideThis)
     : S(S),
-      Record{Loc,
+      Record{S, Loc,
              S.CurContext,
              S.CXXThisTypeOverride,
              static_cast<unsigned>(
                  S.FunctionScopes.empty() ? 0ul : S.FunctionScopes.size() - 1),
+             S.FunctionScopes.empty() ? nullptr : S.FunctionScopes.back(),
              false,
              S.ExprEvalContexts.back().InContractAssertion,
              S.CurrentContractEntry} {
@@ -893,10 +894,13 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     }
   }
 
+  //assert(!S.FunctionScopes.empty());
+
   if (!S.FunctionScopes.empty()) {
     assert(S.FunctionScopes.back() && "No function scope?");
     assert(!S.FunctionScopes.back()->InContract && "Already in contract?");
     S.FunctionScopes.back()->InContract = true;
+    S.FunctionScopes.back()->ContractLoc = Loc;
   }
 
   S.CurrentContractEntry = &Record;
@@ -909,9 +913,19 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
   S.CXXThisTypeOverride = Record.PreviousCXXThisType;
 
 
-  if (!S.FunctionScopes.empty())
-    S.FunctionScopes.back()->InContract = false;
+  if (!S.FunctionScopes.empty()) {
+    if (S.FunctionScopes.back() == Record.FunctionScopeAtPush) {
+      assert(S.FunctionScopes.back()->InContract);
+      S.FunctionScopes.back()->InContract = false;
+      S.FunctionScopes.back()->ContractLoc = SourceLocation();
+    } else {
+      assert(S.FunctionScopes.empty() || S.FunctionScopes.size() < Record.FunctionIndex);
+    }
 
+
+    S.FunctionScopes.back()->InContract = false;
+    S.FunctionScopes.back()->ContractLoc = SourceLocation();
+  }
   S.CurrentContractEntry = Record.Previous;
 }
 
@@ -923,6 +937,9 @@ bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
   // Fast Path: We're in an immediate contract assertion expression evaluation context.
   if (isContractAssertionContext())
     return true;
+
+  if (isa<VarDecl>(VD) && !cast<VarDecl>(VD)->isLocalVarDeclOrParm())
+    return false;
 
   // We're going to walk up from the DeclContext we captured when we entered the contract
   // scope to try and find the declaration context of the specified decl. If we do,
@@ -1115,18 +1132,18 @@ private:
     // Finally, diagnose any captures that still remain, since they do not have any non-contrac
     // usages.
     for (auto& [Var, Bad] : Captures) {
-
+      // We likely didn't see the usage because there was a intervening lambda that captured by copy.
+      if (Bad.UsedInContract == nullptr)
+        continue;
       Actions.Diag(CurLambda->getCaptureDefaultLoc(),
                    diag::err_lambda_implicit_capture_in_contracts_only)
           << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
-
       SourceLocation UsageLoc = Bad.UsageLoc;
-      if (UsageLoc.isInvalid())
-        UsageLoc = Bad.Capture.getLocation();
       Actions.Diag(UsageLoc, diag::note_lambda_implicit_capture_in_contract_usage)
             << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
-      Actions.Diag(Bad.UsedInContract->getBeginLoc(),
-                   diag::note_contract_context);
+      if (Bad.UsedInContract)
+        Actions.Diag(Bad.UsedInContract->getBeginLoc(),
+                    diag::note_contract_context);
 
     }
   }
@@ -1162,9 +1179,6 @@ public:
 
   bool TraverseLambdaExpr(LambdaExpr *LE) {
     assert(LE != CurLambda && "Revisiting the root lambda?");
-    for (auto CS : LE->getCallOperator()->contracts())
-      TraverseContractStmt(CS);
-
     // Iterate over the captures of the nested lambda, and mark any of our captures as having been seen
     // outside of a contract. This assumes that the inner lambda has a valid usage of the capture.
     // If it doesn't, we'll diagnose that separately.
@@ -1213,9 +1227,7 @@ Sema::getFunctionScopeIndexForDeclaration(const ValueDecl *VD) {
   if (FunctionScopes.size() == 0)
     return std::nullopt;
   if (auto *PVD = dyn_cast<ParmVarDecl>(VD)) {
-    unsigned Idx = PVD->getFunctionScopeIndex();
-    assert(Idx < FunctionScopes.size());
-    return Idx;
+    assert(PVD->getDeclContext()->isFunctionOrMethod());
   }
   const DeclContext *const VarCtx = VD->getDeclContext();
   if (!VarCtx->Encloses(Ctx)) {
@@ -1253,3 +1265,20 @@ Sema::getDeclContextForFunctionScopeIndex(unsigned ScopeIndex) {
 
   return Ctx;
 }
+
+bool Sema::isContractAssertionContext() const {
+  if (FunctionScopes.empty())
+    return ExprEvalContexts.back().isContractAssertionContext() || (CurrentContractEntry && CurrentContractEntry->HadNoFunctionScope);
+  return FunctionScopes.back()->InContract;
+}
+
+Sema::ContractScopeRecord::ContractScopeRecord(Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
+  QualType PreviousCXXThisType,
+  unsigned FunctionIndexAtPush, sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
+  bool WasInContractContext,
+      ContractScopeRecord *Previous)
+  : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
+  PreviousCXXThisType(PreviousCXXThisType),
+  FunctionIndex(FunctionIndexAtPush), FunctionScopeAtPush(InfoAtPush),
+  AddedConstToCXXThis(AddedConstToCXXThis),
+  WasInContractContext(WasInContractContext), HadNoFunctionScope(S.FunctionScopes.empty()), Previous(Previous) {}

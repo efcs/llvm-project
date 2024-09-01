@@ -12020,7 +12020,7 @@ def note_parameter_with_name_and_type : Note<
   "parameter %0 declared with type %1 here">;
 
 def err_lambda_implicit_capture_in_contracts_only : Error<
-         "implicit capture of %select{local entity %1|'this'}0 is not allowed when used exclusively within contract assertions">;
+         "implicit capture of %select{local entity %1|'this'}0 is not allowed when used exclusively in contract assertions">;
 
 def  note_lambda_implicit_capture_in_contract_usage : Note<"capture of %select{local entity %1|'this'}0 is "
   "required here">;

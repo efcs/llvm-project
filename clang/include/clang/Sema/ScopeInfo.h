@@ -181,6 +181,8 @@ public:
   /// Wether we're currently in a contract statement in this function scope.
   bool InContract : 1;
 
+  SourceLocation ContractLoc;
+
   /// First coroutine statement in the current function.
   /// (ex co_return, co_await, co_yield)
   SourceLocation FirstCoroutineStmtLoc;
@@ -760,16 +762,8 @@ public:
                   SourceLocation ContractLoc, bool Invalid) {
     Capture Cap(Var, isBlock, isByref, isNested, Loc, EllipsisLoc, CaptureType,
                 AcrossContract, ContractLoc, Invalid);
-
-    if (AcrossContract && false) {
-      if (ContractCaptureMap.count(Var) == 0) {
-        ContractCaptures.push_back(Cap);
-        ContractCaptureMap[Var] = ContractCaptures.size();
-      }
-    } else {
       Captures.push_back(Cap);
       CaptureMap[Var] = Captures.size();
-    }
   }
 
   void addVLATypeCapture(SourceLocation Loc, const VariableArrayType *VLAType,

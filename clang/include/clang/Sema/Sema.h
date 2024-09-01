@@ -6527,9 +6527,6 @@ public:
 
     bool isContractAssertionContext() const { return InContractAssertion; }
 
-    // True iff we're in a context that requires applying constification
-    // adjustments to some declarations.
-    bool isConstificationContext() const { return InContractAssertion; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6559,13 +6556,7 @@ public:
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
 
-  bool isContractAssertionContext() const {
-    return ExprEvalContexts.back().isContractAssertionContext();
-  }
-
-  bool isConstificationContext() const {
-    return ExprEvalContexts.back().isConstificationContext();
-  }
+  bool isContractAssertionContext() const;
 
   struct ContractScopeRecord {
     SourceLocation KeywordLoc;
@@ -6575,21 +6566,19 @@ public:
     /// The _index_ of the current function scope when we entered the contract
     /// (or -1 if there was none?)
     unsigned FunctionIndex;
+
+    sema::FunctionScopeInfo *FunctionScopeAtPush = nullptr;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
+    bool HadNoFunctionScope = false;
     ContractScopeRecord *Previous = nullptr;
 
   public:
-    ContractScopeRecord(SourceLocation KeywordLoc, DeclContext *PushContext,
+    ContractScopeRecord(Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
                         QualType PreviousCXXThisType,
-                        unsigned FunctionIndexAtPush, bool AddedConstToCXXThis,
+                        unsigned FunctionIndexAtPush, sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
                         bool WasInContractContext,
-                        ContractScopeRecord *Previous)
-        : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
-          PreviousCXXThisType(PreviousCXXThisType),
-          FunctionIndex(FunctionIndexAtPush),
-          AddedConstToCXXThis(AddedConstToCXXThis),
-          WasInContractContext(WasInContractContext), Previous(Previous) {}
+                        ContractScopeRecord *Previous);
 
     ContractScopeRecord(ContractScopeRecord const &) = delete;
     ContractScopeRecord &operator=(ContractScopeRecord const &) = delete;
@@ -6803,12 +6792,14 @@ public:
                           TryCaptureKind Kind, SourceLocation EllipsisLoc,
                           bool BuildAndDiagnose, QualType &CaptureType,
                           QualType &DeclRefType,
-                          const unsigned *const FunctionScopeIndexToStopAt);
+                          const unsigned *const FunctionScopeIndexToStopAt,
+                          std::optional<ContractTag> IsConstified = std::nullopt);
 
   /// Try to capture the given variable.
   bool tryCaptureVariable(ValueDecl *Var, SourceLocation Loc,
                           TryCaptureKind Kind = TryCapture_Implicit,
-                          SourceLocation EllipsisLoc = SourceLocation());
+                          SourceLocation EllipsisLoc = SourceLocation(),
+                          ContractTag IsConstified = ContractTag::No);
 
   /// Checks if the variable must be captured.
   bool NeedToCaptureVariable(ValueDecl *Var, SourceLocation Loc);

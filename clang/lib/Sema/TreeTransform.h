@@ -14735,7 +14735,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
           }
 
           // Capture the transformed variable.
-          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind);
+          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind, SourceLocation(),
+            C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
         }
 
         // FIXME: Retain a pack expansion if RetainExpansion is true.
@@ -14761,7 +14762,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     // Capture the transformed variable.
     getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind,
-                                 EllipsisLoc);
+                                 EllipsisLoc, C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
   }
   getSema().finishLambdaExplicitCaptures(LSI);
 

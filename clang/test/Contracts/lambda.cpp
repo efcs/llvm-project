@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics -verify %s -fcontracts ||  %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics  %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics -verify %s -fcontracts ||  %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics  %s -fcontracts ||  %clang_cc1 -std=c++26 -fsyntax-only -verify -fcolor-diagnostics  %s -fcontracts
 
 
 namespace test_one {
@@ -20,7 +20,10 @@ constexpr void f() {
 namespace test_two {
   void odr_use(const void*);
   void f(int x) {
-    (void)[&]() pre(x) { }; // expected-error {{exclusively in contract}} expected-note {{explicit capture}} expected-note {{within contract}}
+    (void)[&]() // expected-error {{'x' is not allowed}}
+      pre( // expected-note {{contract}}
+      x // expected-note {{required here}}
+      ) { };
     (void)[&]() pre(x) { odr_use(&x);};
   }
 }
@@ -145,16 +148,16 @@ void f(bool b) {
     }();
   }());
 
-  [&]() { // expected-note {{explicit capture}}
+  [&]() { // expected-error {{'b' is not allowed}}
     contract_assert([&]() { // expected-note {{within contract}}
-      return b; // expected-error {{exclusively in contract}}
+      return b; // expected-note {{required here}}
     }());
   }();
 }
 }
 namespace CrashTest {
-void bar(bool b) { [&]() {  // expected-note {{explicit capture}}
-  contract_assert(b); // expected-error {{exclusively in contract}} expected-note {{within contract}}
+void bar(bool b) { [&]() {  // expected-error {{'b' is not allowed}}
+  contract_assert(b); // expected-note {{required here}} expected-note {{within contract}}
 }(); }
 } // namespace CrashTest
 
@@ -164,14 +167,16 @@ namespace DoubleDeep {
   void foo(int a) {
     [&](int y) {
       ++y;
-      [&] (int x) {
+      [&] (int x) { // expected-error {{'a' is not allowed}}
         ++y;
         ++x;
-        contract_assert([&](int v) { // expected-note {{contract context}}
-          ++y; // expected-error {{inside a contract}}
-          ++x; // expected-error {{inside a contract}}
-          ++a; // expected-error {{inside a contract}} expected-error {{used exclusively in contract}}
-          ++v; // OK
+        contract_assert( // expected-note {{contract}}
+          [&]
+          (int v) {
+            ++y; // expected-error {{inside a contract}}
+            ++x; // expected-error {{inside a contract}}
+            ++a; // expected-error {{inside a contract}} expected-note {{required here}}
+            ++v; // OK
 
           return [&](int w) {
             ++a; // expected-error {{inside a contract}}

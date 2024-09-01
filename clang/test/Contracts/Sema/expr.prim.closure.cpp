@@ -6,14 +6,14 @@ void test() {
   auto f1 = [=] pre(i > 0) { // OK, no local entities are captured.
   };
   int i = 1;
-  auto f2 = [=] // expected-note {{use explicit capture}}
+  auto f2 = [=] // expected-error {{capture of local entity 'i'}}
       pre( // expected-note {{contract context introduced here}}
-          i > 0) { // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+          i > 0) { // expected-note {{required here}}
   };
   auto f3 = [i] pre(i > 0) { // OK, i is captured explicitly.
   };
-  auto f4 = [=] { // expected-note {{use explicit capture}}
-    contract_assert(i > 0); // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+  auto f4 = [=] { // expected-error {{capture of local entity 'i'}}
+    contract_assert(i > 0); // expected-note {{required here}}
     // expected-note@-1 {{contract context introduced here}}
   };
   auto f5 = [=] {

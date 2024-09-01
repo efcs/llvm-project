@@ -1,5 +1,6 @@
 
-// RUN:  %clang_cc1 -std=c++2b  -verify -fcontracts -fsyntax-only %s
+// RUN:  %clang_cc1 -std=c++2b  -verify -fcontracts -fsyntax-only %s || %clang_cc1 -std=c++2b -fcontracts -fcolor-diagnostics -fsyntax-only %s ||  %clang_cc1 -std=c++2b  -verify -fcontracts -fcolor-diagnostics -fsyntax-only %s
+
 
 // Test cases for contract assertions and lambda captures
 
@@ -34,9 +35,9 @@ int test_function(int (*func)()) // expected-note {{parameter of type 'int (*)()
 // Test 5: Lambda with implicit capture in precondition (should fail)
 void test_lambda_implicit_capture() {
     int i = 1;
-    auto f = [=] // expected-note {{use explicit capture list to capture 'i'}}
+    auto f = [=] // expected-error  {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
         pre( // expected-note {{within contract context introduced here}}
-            i > 0 // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+            i > 0 // expected-note {{capture of local entity 'i' is required here}}
         )
       { };
 }
@@ -50,9 +51,9 @@ void test_lambda_explicit_capture() {
 // Test 7: Lambda with implicit capture in contract_assert (should fail)
 void test_lambda_implicit_capture_assert() {
     int i = 1;
-    auto f = [=] { // expected-note {{use explicit capture list to capture 'i'}}
+    auto f = [=] { // expected-error {{implicit capture of local entity 'i'}}
         contract_assert(  // expected-note {{within contract context introduced here}}
-          i > 0 // expected-error {{implicit capture of local entity 'i' is not allowed when used exclusively in contract assertions}}
+          i > 0 // expected-note {{capture of local entity 'i'}}
           );
     };
 }

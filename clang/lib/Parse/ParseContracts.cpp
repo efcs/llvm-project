@@ -385,10 +385,12 @@ bool Parser::ParseLexedFunctionContracts(
 
   std::optional<ParseScope> FnScope;
   std::optional<Sema::ContextRAII> FnContext;
-
+  std::optional<Sema::FunctionScopeRAII> PopFnContext;
   if (ScopesToEnter & ContractEnterScopeKind::CES_Function) {
     FnScope.emplace(this, Scope::FnScope);
     FnContext.emplace(Actions, FunctionToPush, /*NewThisContext=*/false);
+    PopFnContext.emplace(Actions);
+    Actions.PushFunctionScope();
   }
 
   std::optional<Sema::CXXThisScopeRAII> ThisScope;

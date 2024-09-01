@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify %s -fcontracts ||  %clang_cc1 -std=c++26 -fsyntax-only -fcolor-diagnostics  %s -fcontracts || %clang_cc1 -fcolor-diagnostics -std=c++26 -fsyntax-only -verify %s -fcontracts
 
 
 template <class T, class U>
@@ -50,10 +50,7 @@ namespace GlobalScope {
     }(p);
 
     [&]() // expected-error {{ 'local' is not allowed }}
-      pre(local)    // expected-note {{ capture of local entity 'local' is required }}
-                    // expected-note@-1 {{ within contract context introduced here }}
-
-
+      pre(local)    // expected-note {{required here}} expected-note {{contract context}}
       post(local)
     {}();
 
@@ -83,11 +80,10 @@ namespace ClassScope {
 
           [&](int p2) { // expected-error {{ 'local' is not allowed }}
                         // expected-error@-1 {{ 'p' is not allowed }}
-              contract_assert(   // expected-note 2 {{ within contract context introduced here }}
+              contract_assert(   // expected-note 2 {{contract context}}
                 p2
-                && p // expected-error {{'p' in not allowed}}
-                     // expected-note@-2 {{ capture of local entity 'p' is required }}
-                && local   // expected-note {{ capture of local entity 'local' is required }}
+                && p // expected-note {{required here}}
+                && local   // expected-note {{required here}}
                 && global );
 
           }(p);
@@ -97,12 +93,10 @@ namespace ClassScope {
 
           }(p);
 
-          [=](int p2) { // expected-error {{ 'local' is not allowed }}
-                        // expected-error@-1 {{ 'p' is not allowed }}
-              contract_assert(p2 && p && local && global );   // expected-note {{ capture of local entity 'local' is required }}
-                                                              // expected-note@-1 2 {{ within contract context introduced here }}
-                                                              // expected-note@-2 {{ capture of local entity 'p' is required }}
-
+          [=](int p2) { // expected-error {{ 'local' is not allowed }} expected-error {{'p'}}
+              contract_assert( // expected-note 2 {{contract context}}
+                p2 && p // expected-note {{here}}
+                && local && global ); // expected-note {{here}}
           }(p);
           return 0;
       };
@@ -110,14 +104,22 @@ namespace ClassScope {
 } // namespace ClassScope
 
 namespace VarScope {
-using LambdaT = int(*)(int);
+using LambdaT = int(*)(int, int);
 template <class T>
-inline constexpr LambdaT lambda = +[](int p) {
+inline constexpr LambdaT lambda = +[](int p, int pppp) { // expected-note {{while substituting}}
   int local = 202;
 
   contract_assert(p && local );
-  contract_assert([&](int p2) { return p2 && p && local; }(p));
-  contract_assert([=](int p2) { return p2 && p && local;   }(p));
+  contract_assert(
+    [&]
+    (int p2) { return
+      p2 ||
+      pppp ||
+      local; }
+      (
+      p)
+  );
+  contract_assert([=](int p2) { return p2 || p || local;   }(p));
 
   [&](int p2) {
     contract_assert(p2 && p && local);
@@ -130,14 +132,70 @@ inline constexpr LambdaT lambda = +[](int p) {
   return 0;
 };
 
-auto Imp = lambda<int>;
+auto Imp = lambda<int>; // expected-note {{here}}
 
 
 } // namespace VarScope
 
+namespace NonDependentVarScope {
+auto lambda = +[](int p) {
+  int local = 202;
+
+  contract_assert(p && local );
+  contract_assert(
+  [&]
+  (int p2) {
+    return
+      p2 &&
+      p &&
+      local;
+  }(p));
+  contract_assert([=](int p2) { return p2 && p && local;   }(p));
+
+    [&](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+      contract_assert(p2 && p && local); // expected-note 2 {{contract context}} expected-note 2 {{required here}}
+
+    }(p);
+
+    [=](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+      contract_assert(p2 && p && local ); // expected-note 2 {{contract context}} expected-note 2 {{required here}}
+    }(p);
+    return 0;
+  };
+
+
+auto tmpl_lambda = [](auto p) {
+  int local = 202;
+
+  contract_assert(p || local );
+  contract_assert(
+      [&]
+          (int p2) {
+        return
+            p2 ||
+                p ||
+                local;
+      }(p));
+  contract_assert([=](int p2) { return p2 || p || local;   }(p));
+
+  [&](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+    contract_assert(p2 || p || local); // expected-note 2 {{contract context}} expected-note 2 {{required here}}
+
+  }(p);
+
+  [=](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+    contract_assert(p2 || p || local ); // expected-note 2 {{contract context}} expected-note 2 {{required here}}
+  }(p);
+  return 1;
+}(1);
+
+}
+
 namespace ConstificationContext {
   void f(int p) {
-    contract_assert([&]() { return [&] () { return ++p; }(); }());
+    contract_assert([&]() { return [&] () { return ++p; }(); }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+    contract_assert([=]() mutable { return [&] () { return ++p; }(); }()); // ok
+    contract_assert([&]() { return [=]() mutable { return ++p; }(); }() ); // expected-error {{cannot assign}}
   }
 }
 

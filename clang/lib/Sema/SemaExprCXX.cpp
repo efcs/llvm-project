@@ -1255,7 +1255,7 @@ QualType Sema::getCurrentThisType() {
     ThisTy = Context.getPointerType(ClassTy);
   }
   if (!ThisTy.isNull() &&
-      currentEvaluationContext().isConstificationContext()) {
+      currentEvaluationContext().isContractAssertionContext()) {
     ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
   }
 

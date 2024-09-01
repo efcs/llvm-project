@@ -2198,8 +2198,11 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc, SourceLocation EndLoc,
           ValueDecl *Var = From.getVariable();
           LambdaCaptureKind Kind =
               From.isCopyCapture() ? LCK_ByCopy : LCK_ByRef;
-          return LambdaCapture(From.getLocation(), IsImplicit, Kind, Var,
+          LambdaCapture Cap(From.getLocation(), IsImplicit, Kind, Var,
                                From.getEllipsisLoc());
+          if (From.isCapturedAcrossContract())
+            Cap.setCapturedAcrossContract(true, From.getContractLoc());
+          return Cap;
         }
       }();
 
