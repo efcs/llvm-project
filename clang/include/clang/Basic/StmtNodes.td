@@ -310,3 +310,6 @@ def OpenACCAssociatedStmtConstruct
     : StmtNode<OpenACCConstructStmt, /*abstract=*/1>;
 def OpenACCComputeConstruct : StmtNode<OpenACCAssociatedStmtConstruct>;
 def OpenACCLoopConstruct : StmtNode<OpenACCAssociatedStmtConstruct>;
+
+// HLSL Constructs.
+def HLSLOutArgExpr : StmtNode<Expr>;

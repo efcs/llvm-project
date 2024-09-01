@@ -1811,9 +1811,9 @@ ExprResult Sema::PerformImplicitConversion(Expr *From, QualType ToType,
     return ExprError();
 
   // Objective-C ARC: Determine whether we will allow the writeback conversion.
-  bool AllowObjCWritebackConversion
-    = getLangOpts().ObjCAutoRefCount &&
-      (Action == AA_Passing || Action == AA_Sending);
+  bool AllowObjCWritebackConversion =
+      getLangOpts().ObjCAutoRefCount && (Action == AssignmentAction::Passing ||
+                                         Action == AssignmentAction::Sending);
   if (getLangOpts().ObjC)
     ObjC().CheckObjCBridgeRelatedConversions(From->getBeginLoc(), ToType,
                                              From->getType(), From);
@@ -5993,7 +5993,8 @@ ExprResult Sema::PerformContextuallyConvertToBool(Expr *From) {
 
   ImplicitConversionSequence ICS = TryContextuallyConvertToBool(*this, From);
   if (!ICS.isBad())
-    return PerformImplicitConversion(From, Context.BoolTy, ICS, AA_Converting);
+    return PerformImplicitConversion(From, Context.BoolTy, ICS,
+                                     AssignmentAction::Converting);
 
   if (!DiagnoseMultipleUserDefinedConversion(From, Context.BoolTy))
     return Diag(From->getBeginLoc(), diag::err_typecheck_bool_condition)
@@ -6159,7 +6160,8 @@ static ExprResult BuildConvertedConstantExpression(Sema &S, Expr *From,
             T, cast<NonTypeTemplateParmDecl>(Dest)),
         SourceLocation(), From);
   } else {
-    Result = S.PerformImplicitConversion(From, T, ICS, Sema::AA_Converting);
+    Result =
+        S.PerformImplicitConversion(From, T, ICS, AssignmentAction::Converting);
   }
   if (Result.isInvalid())
     return Result;
@@ -6380,7 +6382,8 @@ ExprResult Sema::PerformContextuallyConvertToObjCPointer(Expr *From) {
   ImplicitConversionSequence ICS =
     TryContextuallyConvertToObjCPointer(*this, From);
   if (!ICS.isBad())
-    return PerformImplicitConversion(From, Ty, ICS, AA_Converting);
+    return PerformImplicitConversion(From, Ty, ICS,
+                                     AssignmentAction::Converting);
   return ExprResult();
 }
 
@@ -7066,6 +7069,10 @@ void Sema::AddOverloadCandidate(
       // (13.3.3.1) that converts that argument to the corresponding
       // parameter of F.
       QualType ParamType = Proto->getParamType(ArgIdx);
+      auto ParamABI = Proto->getExtParameterInfo(ArgIdx).getABI();
+      if (ParamABI == ParameterABI::HLSLOut ||
+          ParamABI == ParameterABI::HLSLInOut)
+        ParamType = ParamType.getNonReferenceType();
       Candidate.Conversions[ConvIdx] = TryCopyInitialization(
           *this, Args[ArgIdx], ParamType, SuppressUserConversions,
           /*InOverloadResolution=*/true,
@@ -14373,7 +14380,8 @@ Sema::CreateOverloadedUnaryOp(SourceLocation OpLoc, UnaryOperatorKind Opc,
       // break out so that we will build the appropriate built-in
       // operator node.
       ExprResult InputRes = PerformImplicitConversion(
-          Input, Best->BuiltinParamTypes[0], Best->Conversions[0], AA_Passing,
+          Input, Best->BuiltinParamTypes[0], Best->Conversions[0],
+          AssignmentAction::Passing,
           CheckedConversionKind::ForBuiltinOverloadedOp);
       if (InputRes.isInvalid())
         return ExprError();
@@ -14835,14 +14843,16 @@ ExprResult Sema::CreateOverloadedBinOp(SourceLocation OpLoc,
         // operator node.
         ExprResult ArgsRes0 = PerformImplicitConversion(
             Args[0], Best->BuiltinParamTypes[0], Best->Conversions[0],
-            AA_Passing, CheckedConversionKind::ForBuiltinOverloadedOp);
+            AssignmentAction::Passing,
+            CheckedConversionKind::ForBuiltinOverloadedOp);
         if (ArgsRes0.isInvalid())
           return ExprError();
         Args[0] = ArgsRes0.get();
 
         ExprResult ArgsRes1 = PerformImplicitConversion(
             Args[1], Best->BuiltinParamTypes[1], Best->Conversions[1],
-            AA_Passing, CheckedConversionKind::ForBuiltinOverloadedOp);
+            AssignmentAction::Passing,
+            CheckedConversionKind::ForBuiltinOverloadedOp);
         if (ArgsRes1.isInvalid())
           return ExprError();
         Args[1] = ArgsRes1.get();
@@ -15213,14 +15223,16 @@ ExprResult Sema::CreateOverloadedArraySubscriptExpr(SourceLocation LLoc,
         // operator node.
         ExprResult ArgsRes0 = PerformImplicitConversion(
             Args[0], Best->BuiltinParamTypes[0], Best->Conversions[0],
-            AA_Passing, CheckedConversionKind::ForBuiltinOverloadedOp);
+            AssignmentAction::Passing,
+            CheckedConversionKind::ForBuiltinOverloadedOp);
         if (ArgsRes0.isInvalid())
           return ExprError();
         Args[0] = ArgsRes0.get();
 
         ExprResult ArgsRes1 = PerformImplicitConversion(
             Args[1], Best->BuiltinParamTypes[1], Best->Conversions[1],
-            AA_Passing, CheckedConversionKind::ForBuiltinOverloadedOp);
+            AssignmentAction::Passing,
+            CheckedConversionKind::ForBuiltinOverloadedOp);
         if (ArgsRes1.isInvalid())
           return ExprError();
         Args[1] = ArgsRes1.get();
