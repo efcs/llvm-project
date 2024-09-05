@@ -2822,7 +2822,7 @@ public:
   std::optional<unsigned>
   getFunctionScopeIndexForDeclaration(const ValueDecl *VD);
   const DeclContext *getDeclContextForFunctionScopeIndex(unsigned ScopeIndex);
-
+  void WalkUpContractScopesTest() const;
   ///@}
 
   //
@@ -6477,6 +6477,7 @@ public:
 
     /// Whether we're currently evaluating the predicate of a contract assertion
     bool InContractAssertion = false;
+    bool IsContainedWithinContract = false;
 
     // When evaluating immediate functions in the initializer of a default
     // argument or default member initializer, this is the declaration whose
@@ -6548,6 +6549,7 @@ public:
 
     bool isContractAssertionContext() const { return InContractAssertion; }
 
+    bool isContainedWithinContract() const { return IsContainedWithinContract; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6588,22 +6590,33 @@ public:
     /// (or -1 if there was none?)
     unsigned FunctionIndex;
 
+    const DeclContext *getFunctionContext(bool AllowLambda = true) const;
+
     sema::FunctionScopeInfo *FunctionScopeAtPush = nullptr;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
     bool HadNoFunctionScope = false;
-    ContractScopeRecord *Previous = nullptr;
+    unsigned FunctionScopeStartAtPush = 0;
 
   public:
-    ContractScopeRecord(Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
-                        QualType PreviousCXXThisType,
-                        unsigned FunctionIndexAtPush, sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
-                        bool WasInContractContext,
-                        ContractScopeRecord *Previous);
+    ContractScopeRecord(Sema &S, SourceLocation KeywordLoc,
+                        DeclContext *PushContext, QualType PreviousCXXThisType,
+                        unsigned FunctionIndexAtPush,
+                        sema::FunctionScopeInfo *InfoAtPush,
+                        bool AddedConstToCXXThis, bool WasInContractContext);
 
     ContractScopeRecord(ContractScopeRecord const &) = delete;
     ContractScopeRecord &operator=(ContractScopeRecord const &) = delete;
   };
+
+  SmallVector<ContractScopeRecord *, 4> ContractScopeStack;
+
+  ArrayRef<ContractScopeRecord *> getContractScopes() const;
+
+  SmallVector<ContractScopeRecord *>
+  getInterveningContractScopes(const ValueDecl *VD) const;
+  SmallVector<sema::FunctionScopeInfo *>
+  getInterveningFunctionScopesForContracts(const ValueDecl *VD) const;
 
   struct ContractScopeRAII {
     ContractScopeRAII(Sema &S, SourceLocation ContractLoc,
@@ -6620,11 +6633,11 @@ public:
 
   // The contract whos condition is the current expression evaluation context.
   // or null if we're not inside a contract.
-  ContractScopeRecord *CurrentContractEntry = nullptr;
+  ContractScopeRecord *getCurrentContractEntry() const;
 
   SourceLocation getCurrentContractKeywordLoc() {
-    assert(CurrentContractEntry && "No current contract?");
-    return CurrentContractEntry->KeywordLoc;
+    assert(getCurrentContractEntry() && "No current contract?");
+    return getCurrentContractEntry()->KeywordLoc;
   }
 
   // Return whether to constify the specified variable in the current context.

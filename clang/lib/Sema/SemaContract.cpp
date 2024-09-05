@@ -278,6 +278,244 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
   return New;
 }
 
+const char *ScopeKindToString(unsigned Val) {
+  switch (Val) {
+  case 0:
+    return "Function";
+  case 1:
+    return "Block";
+  case 2:
+    return "Lambda";
+  case 3:
+    return "CapturingRegion";
+  default:
+    return "<INVALID>";
+  }
+}
+
+void showContextChain(const DeclContext *DC, bool Lexical = false) {
+  unsigned Depth = 0;
+  while (DC != nullptr) {
+    EricWFDump(std::string(Lexical ? "Lexical " : "") + "Ctx #" +
+                   std::to_string(Depth++),
+               DC);
+    DC = Lexical ? DC->getLexicalParent() : DC->getParent();
+  }
+  llvm::errs() << "Found #" << Depth << " Contexts\n\n\n";
+}
+
+void debugIt(const Sema &S) {
+  llvm::errs() << "\n\n";
+  for (auto *FSI : S.getFunctionScopes()) {
+    llvm::errs() << ScopeKindToString(FSI->Kind) << "\n";
+  }
+
+  llvm::errs() << "\n\n\nDumping Context\n\n";
+
+  showContextChain(S.CurContext);
+  llvm::errs() << "\n\n\nDumping Lexical Context\n\n";
+
+  showContextChain(S.CurContext, true);
+  llvm::errs() << "\n\n\n";
+}
+
+using ContractScopeRecord = Sema::ContractScopeRecord;
+
+struct ScopeEntry {
+  const DeclContext *Ctx = nullptr;
+
+  unsigned FunctionScopeIndex = -1;
+  const FunctionScopeInfo *FSI = nullptr;
+
+  unsigned ContractScopeIndex = 0;
+  const ContractScopeRecord *CSR = nullptr;
+
+  bool capturesVariable(const ValueDecl *VD) const {
+    return getCaptureIfCaptured(VD).has_value();
+  }
+
+  std::optional<Capture> getCaptureIfCaptured(const ValueDecl *VD) const {
+    assert(FSI);
+    auto *CSI = dyn_cast<CapturingScopeInfo>(FSI);
+    if (!CSI)
+      return std::nullopt;
+
+    if (CSI->isCaptured(const_cast<ValueDecl *>(VD)))
+      return CSI->getCapture(const_cast<ValueDecl *>(VD));
+    return std::nullopt;
+  }
+
+  void dump() const {
+    assert(Ctx != nullptr);
+    assert(FSI != nullptr);
+    llvm::errs() << "ScopeEntry " << Ctx->getDeclKindName() << " ";
+    EricWFDump("Context is: ", Ctx);
+    llvm::errs() << "FunctionScopeIndex: " << FunctionScopeIndex << " ";
+    llvm::errs() << "ContractScopeIndex: " << ContractScopeIndex << " ";
+  }
+};
+
+struct ScopeWalker {
+  explicit ScopeWalker(const Sema &S)
+      : S(S), CurCtx(S.CurContext), FunctionScopes(S.getFunctionScopes()),
+        FunctionScopeIndex(FunctionScopes.size()),
+        ContractScopes(S.getContractScopes()),
+        ContractScopeIndex(ContractScopes.size()) {
+    assert(CurCtx);
+  }
+
+  ScopeWalker(ScopeWalker const &) = delete;
+  ScopeWalker &operator=(ScopeWalker const &) = delete;
+
+  FunctionScopeInfo *nextFuncScope() {
+    --FunctionScopeIndex;
+    ERICWF_FANCY_ASSERT(FunctionScopeIndex < FunctionScopes.size()) {
+      DumpScopes();
+    }
+    return FunctionScopes[FunctionScopeIndex];
+  }
+
+  ContractScopeRecord *nextContractScope() {
+    --ContractScopeIndex;
+    ERICWF_FANCY_ASSERT(ContractScopeIndex < ContractScopes.size()) {
+      DumpScopes();
+    }
+    return ContractScopes[ContractScopeIndex];
+  }
+
+  void DumpScopes() const {
+
+    llvm::errs() << "Have # of scopes: " << Scopes.size() << "\n";
+    llvm::errs() << "FunctionScopes.size() " << FunctionScopes.size() << "\n";
+    llvm::errs() << "ContractScopes.size() " << ContractScopes.size() << "\n";
+    llvm::errs() << "Actual Number of FunctionScopes: "
+                 << S.FunctionScopes.size() << "\n";
+    llvm::errs() << "Start FunctionScopeIndex: " << S.FunctionScopesStart
+                 << "\n";
+    unsigned Idx = 0;
+
+    for (auto SC : llvm::reverse(Scopes)) {
+      llvm::errs() << "ScopeEntry " << Idx++ << " ";
+      SC.dump();
+    }
+
+    debugIt(S);
+  }
+
+  SmallVector<ScopeEntry> doIt() {
+    while (CurCtx) {
+
+      assert(CurCtx->isFunctionOrMethod());
+      auto *FSI = nextFuncScope();
+      ERICWF_FANCY_ASSERT(FSI) { DumpScopes(); }
+      ContractScopeRecord *CSR = nullptr;
+      if (FSI->InContract) {
+        CSR = nextContractScope();
+        ERICWF_FANCY_ASSERT(CSR && CSR->FunctionScopeAtPush == FSI) {
+          DumpScopes();
+        }
+        Scopes.emplace_back(CurCtx, FunctionScopeIndex, FSI, ContractScopeIndex,
+                            CSR);
+      } else {
+        Scopes.emplace_back(CurCtx, FunctionScopeIndex, FSI, 0, nullptr);
+      }
+      CurCtx =
+          getLambdaAwareParentOfDeclContext(const_cast<DeclContext *>(CurCtx));
+      if (!CurCtx || !CurCtx->isFunctionOrMethod())
+        break;
+    }
+
+    ERICWF_FANCY_ASSERT(Scopes.size() == FunctionScopes.size() ||
+                        (Scopes.size() == FunctionScopes.size() - 1 && CurCtx &&
+                         CurCtx->isRecord())) {
+      DumpScopes();
+    }
+    ERICWF_FANCY_ASSERT(Scopes.size() >= ContractScopes.size()) {
+      DumpScopes();
+    }
+    SmallVector<ScopeEntry> Result{Scopes.rbegin(), Scopes.rend()};
+    Scopes = std::move(Result);
+    return Result;
+  }
+
+  const Sema &S;
+  const DeclContext *CurCtx;
+
+  SmallVector<FunctionScopeInfo *> FunctionScopes;
+  unsigned FunctionScopeIndex;
+
+  SmallVector<ContractScopeRecord *> ContractScopes;
+  unsigned ContractScopeIndex;
+
+  SmallVector<ScopeEntry> Scopes;
+};
+
+SmallVector<ScopeEntry> getScopeEntries(const Sema &S) {
+  ScopeWalker Walker(S);
+  return Walker.doIt();
+}
+
+SmallVector<ScopeEntry> getInterveningScopeEntries(const Sema &S,
+                                                   const ValueDecl *Var) {
+  VarDecl *VD = const_cast<VarDecl *>(dyn_cast<VarDecl>(Var));
+  if (!VD)
+    return {};
+  if (!VD->isLocalVarDeclOrParm())
+    return {};
+
+  auto *OldVD = VD;
+  VD = VD->getCanonicalDecl();
+
+  SmallVector<ScopeEntry> Result = getScopeEntries(S);
+  if (Result.empty())
+    return Result;
+
+  const DeclContext *VarCtx = VD->getDeclContext();
+  ERICWF_FANCY_ASSERT(VarCtx && VarCtx->isFunctionOrMethod()) {
+    EricWFDump(VarCtx);
+  }
+
+  ArrayRef ScopeEntries = Result;
+  assert(std::any_of(Result.begin(), Result.end(),
+                     [&](ScopeEntry Ent) { return Ent.Ctx->Equals(VarCtx); }));
+
+  while (!ScopeEntries.empty() && !VarCtx->Equals(ScopeEntries.front().Ctx)) {
+    ScopeEntries = ScopeEntries.drop_front(1);
+  }
+
+  std::optional<unsigned> LastCopyCaptureIdx;
+  unsigned Idx = 0;
+  for (auto Pos = ScopeEntries.begin(); Pos != ScopeEntries.end();
+       ++Pos, ++Idx) {
+
+    assert(VarCtx->Encloses(Pos->Ctx));
+    auto *CSI = dyn_cast<CapturingScopeInfo>(Pos->FSI);
+    if (!CSI)
+      continue;
+    assert(!CSI->isCaptured(OldVD));
+    if (CSI && CSI->isCaptured(VD)) {
+      Capture C = CSI->getCapture(VD);
+      if (C.isCopyCapture()) {
+        LastCopyCaptureIdx = Idx;
+      }
+    }
+  }
+  if (LastCopyCaptureIdx) {
+    ScopeEntries = ScopeEntries.drop_front(LastCopyCaptureIdx.value() + 1);
+  }
+  return SmallVector<ScopeEntry>(ScopeEntries.begin(), ScopeEntries.end());
+}
+
+const ContractScopeRecord *getInterveningContractEntry(const Sema &S,
+                                                       const ValueDecl *VD) {
+  auto Entries = getInterveningScopeEntries(S, VD);
+  for (auto &Ent : Entries) {
+    if (Ent.CSR)
+      return Ent.CSR;
+  }
+  return nullptr;
+}
+
 bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                            FunctionDecl *NewDecl) {
   // If the new declaration doesn't contain any contracts, that's fine, they can
@@ -719,6 +957,7 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
 }
 
 DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
+
   ContractSpecifierDecl *CSD = FD->getContracts();
   assert(CSD && CSD->hasInventedPlaceholdersTypes() &&
          "Cannot rebuild contracts without placeholders");
@@ -839,6 +1078,7 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
           dyn_cast<LambdaScopeInfo>(getCurFunction())) {
     llvm::DenseMap<const ValueDecl *, ContractCapturePair> CheckedCaptures;
     for (auto &KV : LSI->ContractCaptureMap) {
+      assert(false);
       if (LSI->CaptureMap.contains(KV.first))
         continue;
       const Capture &C = LSI->ContractCaptures[KV.second - 1];
@@ -861,15 +1101,15 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
 Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
                                            bool OverrideThis)
     : S(S),
-      Record{S, Loc,
+      Record{S,
+             Loc,
              S.CurContext,
              S.CXXThisTypeOverride,
              static_cast<unsigned>(
                  S.FunctionScopes.empty() ? 0ul : S.FunctionScopes.size() - 1),
              S.FunctionScopes.empty() ? nullptr : S.FunctionScopes.back(),
              false,
-             S.ExprEvalContexts.back().InContractAssertion,
-             S.CurrentContractEntry} {
+             S.ExprEvalContexts.back().InContractAssertion} {
 
   // Setup the constification context when building declref expressions.
   S.ExprEvalContexts.back().InContractAssertion = true;
@@ -903,11 +1143,11 @@ Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
     S.FunctionScopes.back()->ContractLoc = Loc;
   }
 
-  S.CurrentContractEntry = &Record;
+  S.ContractScopeStack.push_back(&Record);
 }
 
 Sema::ContractScopeRAII::~ContractScopeRAII() {
-  assert(S.CurrentContractEntry == &Record && "Contract scope mismatch");
+  assert(S.getCurrentContractEntry() == &Record && "Contract scope mismatch");
   assert(S.ExprEvalContexts.back().InContractAssertion == true);
   S.ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
   S.CXXThisTypeOverride = Record.PreviousCXXThisType;
@@ -926,12 +1166,14 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
     S.FunctionScopes.back()->InContract = false;
     S.FunctionScopes.back()->ContractLoc = SourceLocation();
   }
-  S.CurrentContractEntry = Record.Previous;
+  assert(!S.ContractScopeStack.empty() &&
+         S.ContractScopeStack.back() == &Record);
+  S.ContractScopeStack.pop_back();
 }
 
 bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
   // There's no contract scope anywhere above us.
-  if (!CurrentContractEntry)
+  if (!getCurrentContractEntry())
     return false;
 
   // Fast Path: We're in an immediate contract assertion expression evaluation context.
@@ -940,6 +1182,13 @@ bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
 
   if (isa<VarDecl>(VD) && !cast<VarDecl>(VD)->isLocalVarDeclOrParm())
     return false;
+
+  assert(VD);
+  return getInterveningContractEntry(*this, VD) != nullptr;
+  ;
+#if 0
+  if (!ContractScopes.empty())
+    return true;
 
   // We're going to walk up from the DeclContext we captured when we entered the contract
   // scope to try and find the declaration context of the specified decl. If we do,
@@ -950,13 +1199,19 @@ bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
     VD = cast<VarDecl>(VD)->getCanonicalDecl();
 
   const DeclContext *DC = VD->getDeclContext();
-  if (!DC->isFunctionOrMethod())
+  if (!DC->isFunctionOrMethod()) {
     return false;
+  }
+
+
+
+  assert(getCurrentContractEntry());
+
 
   // FIXME(EricWF): This seems expensive?
   // Make sure the ValueDecl has a DeclContext that is the same as or a parent
   // of the most recent contract entry
-  auto *StartContext = CurrentContractEntry->ContextAtPush;
+  auto *StartContext = getCurrentContractEntry()->ContextAtPush;
 
   while (StartContext) {
     if (StartContext->isFileContext())
@@ -966,15 +1221,17 @@ bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
     StartContext = StartContext->getParent();
   }
   return false;
+#endif
 }
 
 /// [basic.contract.general]
 /// Within the predicate of a contract assertion, id-expressions referring to
 /// variables with automatic storage duration are const ([expr.prim.id.unqual])
 ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
+  WalkUpContractScopesTest();
   auto &S = *this;
   assert(VD);
-  if (!S.CurrentContractEntry)
+  if (!S.getCurrentContractEntry())
     return CC_None;
 
   // Make sure that there's a contract scope interviening between the current
@@ -1028,8 +1285,10 @@ ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
 
 static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, bool AllowLambda = false) {
   while (true) {
+    assert(DC);
     if (isa<BlockDecl>(DC) || isa<EnumDecl>(DC) || isa<CapturedDecl>(DC) ||
-        isa<RequiresExprBodyDecl>(DC) || isa<LinkageSpecDecl>(DC)) {
+        isa<RequiresExprBodyDecl>(DC) || isa<LinkageSpecDecl>(DC) ||
+        (isa<CXXRecordDecl>(DC) && cast<CXXRecordDecl>(DC)->isLambda())) {
       DC = DC->getParent();
     } else if (!AllowLambda && isa<CXXMethodDecl>(DC) &&
                cast<CXXMethodDecl>(DC)->getOverloadedOperator() == OO_Call &&
@@ -1038,13 +1297,22 @@ static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, boo
     } else
       break;
   }
+  if (DC) {
+    if (!DC->isFunctionOrMethod()) {
+      assert(!DC->getParent() || !DC->getParent()->isFunctionOrMethod());
+      assert(!DC->getLexicalParent() ||
+             !DC->getLexicalParent()->isFunctionOrMethod());
+    }
+  } else {
+    llvm::errs() << "Found Null DC";
+  }
   if (DC && !DC->isFunctionOrMethod())
     return nullptr;
   return DC;
 }
 
 QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
-  if (!CurrentContractEntry)
+  if (!getCurrentContractEntry())
     return QT;
 
   // 'this' is constified any time the `this` object that is captured by a lambda which exists fully
@@ -1064,7 +1332,8 @@ QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
   //      }();
   //   }};
   // ```
-  const DeclContext *ContractContext = walkUpDeclContextToFunction(CurrentContractEntry->ContextAtPush);
+  const DeclContext *ContractContext =
+      walkUpDeclContextToFunction(getCurrentContractEntry()->ContextAtPush);
   if (!ContractContext)
     return QT;
   const DeclContext *QTContext = walkUpDeclContextToFunction(CurContext );
@@ -1177,6 +1446,11 @@ public:
     return true;
   }
 
+  bool TraverseLambdaCapture(LambdaExpr *LE, const LambdaCapture *C,
+                             Expr *Init) {
+    return true;
+  }
+
   bool TraverseLambdaExpr(LambdaExpr *LE) {
     assert(LE != CurLambda && "Revisiting the root lambda?");
     // Iterate over the captures of the nested lambda, and mark any of our captures as having been seen
@@ -1229,6 +1503,7 @@ Sema::getFunctionScopeIndexForDeclaration(const ValueDecl *VD) {
   if (auto *PVD = dyn_cast<ParmVarDecl>(VD)) {
     assert(PVD->getDeclContext()->isFunctionOrMethod());
   }
+
   const DeclContext *const VarCtx = VD->getDeclContext();
   if (!VarCtx->Encloses(Ctx)) {
     assert(!VarCtx->Equals(Ctx));
@@ -1268,17 +1543,110 @@ Sema::getDeclContextForFunctionScopeIndex(unsigned ScopeIndex) {
 
 bool Sema::isContractAssertionContext() const {
   if (FunctionScopes.empty())
-    return ExprEvalContexts.back().isContractAssertionContext() || (CurrentContractEntry && CurrentContractEntry->HadNoFunctionScope);
+    return ExprEvalContexts.back().isContractAssertionContext() ||
+           (getCurrentContractEntry() &&
+            getCurrentContractEntry()->HadNoFunctionScope);
   return FunctionScopes.back()->InContract;
 }
 
-Sema::ContractScopeRecord::ContractScopeRecord(Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
-  QualType PreviousCXXThisType,
-  unsigned FunctionIndexAtPush, sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
-  bool WasInContractContext,
-      ContractScopeRecord *Previous)
-  : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
-  PreviousCXXThisType(PreviousCXXThisType),
-  FunctionIndex(FunctionIndexAtPush), FunctionScopeAtPush(InfoAtPush),
-  AddedConstToCXXThis(AddedConstToCXXThis),
-  WasInContractContext(WasInContractContext), HadNoFunctionScope(S.FunctionScopes.empty()), Previous(Previous) {}
+Sema::ContractScopeRecord::ContractScopeRecord(
+    Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
+    QualType PreviousCXXThisType, unsigned FunctionIndexAtPush,
+    sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
+    bool WasInContractContext)
+    : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
+      PreviousCXXThisType(PreviousCXXThisType),
+      FunctionIndex(FunctionIndexAtPush), FunctionScopeAtPush(InfoAtPush),
+      AddedConstToCXXThis(AddedConstToCXXThis),
+      WasInContractContext(WasInContractContext),
+      HadNoFunctionScope(S.FunctionScopes.empty()) {
+  FunctionScopeStartAtPush = S.FunctionScopesStart;
+}
+
+ArrayRef<Sema::ContractScopeRecord *> Sema::getContractScopes() const {
+  unsigned Offset = 0;
+  for (auto Pos = ContractScopeStack.begin(); Pos != ContractScopeStack.end();
+       ++Pos) {
+    if ((*Pos)->FunctionScopeStartAtPush == FunctionScopesStart)
+      break;
+    ++Offset;
+  }
+  return llvm::ArrayRef(ContractScopeStack.begin() + Offset,
+                        ContractScopeStack.end());
+}
+
+SmallVector<Sema::ContractScopeRecord *>
+Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
+  assert(ValueD);
+  SmallVector<ContractScopeRecord *> Result;
+  auto *VD = dyn_cast<VarDecl>(ValueD);
+  if (!VD)
+    return Result;
+
+  if (!VD->isLocalVarDeclOrParm())
+    return Result;
+
+  auto CScopes = [](auto CL) -> SmallVector<ContractScopeRecord *> {
+    return {CL.begin(), CL.end()};
+  }(getContractScopes());
+  if (CScopes.empty())
+    return Result;
+
+  VD = VD->getCanonicalDecl();
+  assert(VD && VD->getDeclContext());
+  const DeclContext *VarCtx = VD->getDeclContext();
+  assert(VarCtx);
+  auto Pos = CScopes.end();
+  auto LastPos = CScopes.end();
+
+  while (Pos != CScopes.begin()) {
+    --Pos;
+    assert(*Pos);
+    ContractScopeRecord *CS = *Pos;
+    assert(CS->ContextAtPush);
+    if (!CS->ContextAtPush->isFunctionOrMethod())
+      return {Pos, CScopes.end()};
+
+    auto CCtx = (*Pos)->ContextAtPush;
+    assert(CCtx && CCtx->getPrimaryContext());
+
+    if (VarCtx->Encloses(CCtx) || VarCtx->Equals(CCtx)) {
+      LastPos = Pos;
+    } else {
+      break;
+    }
+  }
+  return {LastPos, CScopes.end()};
+}
+
+SmallVector<sema::FunctionScopeInfo *>
+Sema::getInterveningFunctionScopesForContracts(const ValueDecl *ValueD) const {
+  return {};
+}
+
+const DeclContext *
+Sema::ContractScopeRecord::getFunctionContext(bool AllowLambda) const {
+  if (!ContextAtPush->isFunctionOrMethod() ||
+      (isLambdaCallOperator(ContextAtPush) && !AllowLambda))
+    return walkUpDeclContextToFunction(ContextAtPush, AllowLambda);
+  return ContextAtPush;
+}
+
+Sema::ContractScopeRecord *Sema::getCurrentContractEntry() const {
+  auto EntryList = getContractScopes();
+  if (EntryList.empty())
+    return nullptr;
+  return EntryList.back();
+}
+
+void Sema::WalkUpContractScopesTest() const {
+
+  if (ContractScopeStack.empty())
+    return;
+  if (getFunctionScopes().empty())
+    return;
+  assert(CurContext->isFunctionOrMethod());
+  ScopeWalker Walker(*this);
+  auto Scopes = Walker.doIt();
+  ((void)Scopes);
+}

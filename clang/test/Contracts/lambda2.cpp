@@ -121,13 +121,19 @@ inline constexpr LambdaT lambda = +[](int p, int pppp) { // expected-note {{whil
   );
   contract_assert([=](int p2) { return p2 || p || local;   }(p));
 
-  [&](int p2) {
-    contract_assert(p2 && p && local);
+  [&](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+    contract_assert( // expected-note 2 {{contract context}}
+      p2
+      &&
+      p // expected-note {{here}}
+      &&
+      local); // expected-note {{here}}
 
   }(p);
 
-  [=](int p2) {
-    contract_assert(p2 && p && local );
+  [=](int p2) { // expected-error {{'p'}} expected-error {{'local'}}
+    contract_assert( // expected-note 2 {{contract context}}
+      p2 && p && local );  // expected-note 2 {{here}}
   }(p);
   return 0;
 };

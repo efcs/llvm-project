@@ -1399,6 +1399,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
   }
   if (!BuildAndDiagnose) return false;
 
+#if 0
   auto MinConstificationContext = [&]() -> std::optional<unsigned> {
     auto *Ent = CurrentContractEntry;
     while (Ent) {
@@ -1412,6 +1413,11 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     }
     return std::nullopt;
   }();
+#endif
+  auto ContractScopes = getContractScopes();
+  std::optional<unsigned> MinConstificationContext;
+  if (!ContractScopes.empty())
+    MinConstificationContext.emplace(ContractScopes.front()->FunctionIndex);
 
   // If we got here, then the closure at MaxFunctionScopesIndex on the
   // FunctionScopes stack, can capture the *enclosing object*, so capture it

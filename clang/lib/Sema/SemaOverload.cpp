@@ -5904,10 +5904,11 @@ ExprResult Sema::PerformImplicitObjectArgumentInitialization(
         // FIXME(EricWF): We might be here because we've made the 'this' type
         // const because we're  in a contract statement. But I don't know how do
         // reliably check that here.
-        if (CurrentContractEntry && CurrentContractEntry->AddedConstToCXXThis) {
+        if (getCurrentContractEntry() &&
+            getCurrentContractEntry()->AddedConstToCXXThis) {
           // If we're in a contract assertion context, we can't modify the
           // 'this' type. So we'll just return an error here.
-          Diag(CurrentContractEntry->KeywordLoc,
+          Diag(getCurrentContractKeywordLoc(),
                diag::note_cxx_this_const_in_contract_introduced_here);
         }
         return ExprError();

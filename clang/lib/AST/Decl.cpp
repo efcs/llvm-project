@@ -2583,8 +2583,10 @@ APValue *VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> &Notes,
   // failed.
   if (!Result)
     Eval->Evaluated = APValue();
-  else if (Eval->Evaluated.needsCleanup())
+  else if (Eval->Evaluated.needsCleanup() && !Eval->RegisteredForDestruction) {
+    Eval->RegisteredForDestruction = true;
     Ctx.addDestruction(&Eval->Evaluated);
+  }
 
   Eval->IsEvaluating = false;
   Eval->WasEvaluated = true;

@@ -12019,8 +12019,11 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       return ExprError();
   }
 
-  return getDerived().RebuildDeclRefExpr(QualifierLoc, ND, NameInfo,
-                                         Found, TemplateArgs);
+  ExprResult NewRef = getDerived().RebuildDeclRefExpr(
+      QualifierLoc, ND, NameInfo, Found, TemplateArgs);
+  if (E->isInContractContext())
+    NewRef.getAs<DeclRefExpr>()->setIsInContractContext(true);
+  return NewRef;
 }
 
 template<typename Derived>
@@ -14865,6 +14868,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     getSema().handleLambdaNumbering(Class, NewCallOperator, Numbering);
   }
 
+  bool WasInContract =
+      getSema().currentEvaluationContext().isContractAssertionContext();
   // FIXME: Sema's lambda-building mechanism expects us to push an expression
   // evaluation context even if we're not transforming the function body.
   getSema().PushExpressionEvaluationContext(
@@ -14874,6 +14879,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   getSema().currentEvaluationContext().InImmediateEscalatingFunctionContext =
       getSema().getLangOpts().CPlusPlus20 &&
       E->getCallOperator()->isImmediateEscalating();
+  getSema().currentEvaluationContext().IsContainedWithinContract =
+      WasInContract;
 
   Sema::CodeSynthesisContext C;
   C.Kind = clang::Sema::CodeSynthesisContext::LambdaExpressionSubstitution;
@@ -14988,7 +14995,10 @@ TreeTransform<Derived>::SkipLambdaBody(LambdaExpr *E, Stmt *S) {
       return StmtError();
 
     // Capture the transformed variable.
-    getSema().tryCaptureVariable(CapturedVar, C->getLocation());
+    getSema().tryCaptureVariable(
+        CapturedVar, C->getLocation(), Sema::TryCapture_Implicit,
+        SourceLocation(),
+        C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
   }
 
   return S;

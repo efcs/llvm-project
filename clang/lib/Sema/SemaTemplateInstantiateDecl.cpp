@@ -4633,10 +4633,43 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
   return NewTInfo;
 }
 
+bool isLambda(const FunctionDecl *FD) {
+  if (!isa<CXXMethodDecl>(FD))
+    return false;
+
+  auto *ParentDC = FD->getDeclContext()->getParent();
+  if (!ParentDC || !isa<CXXRecordDecl>(ParentDC))
+    return false;
+  auto *ParentRD = cast<CXXRecordDecl>(ParentDC);
+  return ParentRD->isLambda();
+}
+
+const CXXRecordDecl *getLambdaDecl(const FunctionDecl *FD) {
+  if (!isLambda(FD))
+    return nullptr;
+  return cast<CXXRecordDecl>(FD->getDeclContext()->getParent());
+}
+
+std::optional<LambdaCapture> findCapture(const CXXRecordDecl *RD,
+                                         const ValueDecl *VD) {
+  assert(RD && RD->isLambda());
+  for (auto C : RD->captures()) {
+    if (!C.capturesVariable())
+      continue;
+    if (C.getCapturedVar() == VD)
+      return C;
+    if (C.getCapturedVar()->getIdentifier() == VD->getIdentifier())
+      return C;
+  }
+  return std::nullopt;
+}
+
 void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
                                            const FunctionDecl *PatternDecl,
                                            LocalInstantiationScope &Scope) {
   LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(getFunctionScopes().back());
+  const CXXRecordDecl *Lambda = getLambdaDecl(PatternDecl);
+  assert(Lambda);
 
   for (auto *decl : PatternDecl->decls()) {
     assert(!isa<ResultNameDecl>(decl));
@@ -4655,10 +4688,15 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
     if (it == Function->decls().end())
       continue;
 
+    auto Cap = findCapture(Lambda, VD);
+    assert(!Cap || !Cap->isCapturedAcrossContract());
+
     Scope.InstantiatedLocal(VD, *it);
     LSI->addCapture(cast<VarDecl>(*it), /*isBlock=*/false, /*isByref=*/false,
                     /*isNested=*/false, VD->getLocation(), SourceLocation(),
-                    VD->getType(), /*AcrossContract*/ false, SourceLocation(),
+                    VD->getType(),
+                    /*AcrossContract*/ Cap && Cap->isCapturedAcrossContract(),
+                    Cap.has_value() ? Cap->getContractLoc() : SourceLocation(),
                     /*Invalid=*/false);
   }
 }

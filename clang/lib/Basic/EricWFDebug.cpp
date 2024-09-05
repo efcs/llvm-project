@@ -27,6 +27,10 @@ void EricWFDump(const Decl *D, const ASTContext *Context) {
 
 
 void EricWFDump(const DeclContext *DC, const ASTContext *Context) {
+  if (!DC) {
+    llvm::errs() << "Null Decl Context!\n";
+    return;
+  }
   if (DC->hasValidDeclKind()) {
     const auto *D = cast<Decl>(DC);
     createDumper(Context).Visit(D);
@@ -35,7 +39,7 @@ void EricWFDump(const DeclContext *DC, const ASTContext *Context) {
   }
 }
 
-void printWithBanner(const char *CMessage, bool IsClosingBanner) {
+void printWithBanner(std::string_view CMessage, bool IsClosingBanner) {
   std::string Message = std::string(CMessage);
   if (IsClosingBanner)
     Message = "Done " + Message;
@@ -44,23 +48,23 @@ void printWithBanner(const char *CMessage, bool IsClosingBanner) {
   const int BannerLeftWidth = (BannerWidth - MessageWidth - 2) / 2;
   const int BannerRightWidth = BannerWidth - MessageWidth - 2 - BannerLeftWidth;
 
-  std::string FullMessage = std::string('=', BannerLeftWidth) + " " + Message +
-                            " " + std::string('=', BannerRightWidth);
+  std::string FullMessage = std::string(BannerLeftWidth, '=') + " " + Message +
+                            " " + std::string(BannerRightWidth, '=');
   if (IsClosingBanner)
     llvm::errs() << "\n";
   llvm::errs() << FullMessage << "\n";
 }
 
 struct BannerWrapper {
-  const char *CMessage;
+  std::string_view CMessage;
 
-  explicit BannerWrapper(const char *Message) : CMessage(Message) {
-    if (CMessage)
+  explicit BannerWrapper(std::string_view Message) : CMessage(Message) {
+    if (!CMessage.empty())
       printWithBanner(CMessage, false);
   }
 
   ~BannerWrapper() {
-    if (CMessage)
+    if (!CMessage.empty())
       printWithBanner(CMessage, true);
   }
 
@@ -68,17 +72,20 @@ struct BannerWrapper {
   BannerWrapper &operator=(const BannerWrapper &) = delete;
 };
 
-void EricWFDump(const char *Message, const Stmt *S, const ASTContext *Context) {
+void EricWFDump(std::string_view Message, const Stmt *S,
+                const ASTContext *Context) {
   BannerWrapper Banner(Message);
   EricWFDump(S, Context);
 }
 
-void EricWFDump(const char *Message, const Decl *D, const ASTContext *Context) {
+void EricWFDump(std::string_view Message, const Decl *D,
+                const ASTContext *Context) {
   BannerWrapper Banner(Message);
   EricWFDump(D, Context);
 }
 
-void EricWFDump(const char *Message, const DeclContext *D, const ASTContext *Context) {
+void EricWFDump(std::string_view Message, const DeclContext *D,
+                const ASTContext *Context) {
   BannerWrapper Banner(Message);
   EricWFDump(D, Context);
 }

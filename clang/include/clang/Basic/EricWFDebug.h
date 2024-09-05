@@ -19,6 +19,8 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/Signals.h"
 #include "llvm/Support/raw_ostream.h"
+#include <cassert>
+#include <string_view>
 
 namespace clang {
 
@@ -44,7 +46,7 @@ inline void printSourceLocation(const char *file, const char *func,
 #define ERICWF_STACK_TRACE(N)                                                  \
   do {                                                                         \
     if (::clang::EricWFDebugEnabled) {                                         \
-      llvm::PrintStackTrace(llvm::errs(), N)                                   \
+      llvm::sys::PrintStackTrace(llvm::errs(), N);                             \
     }                                                                          \
   } while (0)
 
@@ -69,23 +71,68 @@ inline void printSourceLocation(const char *file, const char *func,
 #define ERICWF_ASSERT(...) ((void)0)
 #endif
 
+#ifdef ERICWF_DEBUG_ENABLED
+#define ERICWF_FANCY_ASSERT(...)                                               \
+  if (::clang::EricWFFancyAssertHolder assertObj{                              \
+          bool(__VA_ARGS__), #__VA_ARGS__, __FILE__, __PRETTY_FUNCTION__,      \
+          __LINE__};                                                           \
+      !assertObj.value)
+#else
+#define ERICWF_FANCY_ASSERT(...)                                               \
+  assert(__VA_ARGS__);                                                         \
+  if constexpr (false)
+#endif
+
 namespace clang {
 class Stmt;
 class Decl;
 class DeclContext;
 class ASTContext;
 
+class EricWFFancyAssertHolder {
+public:
+  EricWFFancyAssertHolder(bool condition, const char *condition_expr,
+                          const char *file, const char *func, int line)
+      : value(condition), expr(condition_expr), file(file), func(func),
+        line(line) {}
+
+  void printAndDie() {
+    llvm::errs() << file << ":" << line << ": ";
+    if (func) {
+      llvm::errs() << func << ": ";
+    }
+    llvm::errs() << "Assertion `" << expr << "' failed.\n";
+    std::terminate();
+  }
+
+  ~EricWFFancyAssertHolder() {
+    if (!value) {
+      printAndDie();
+    }
+  }
+
+  EricWFFancyAssertHolder(EricWFFancyAssertHolder const &) = delete;
+  EricWFFancyAssertHolder &operator=(EricWFFancyAssertHolder const &) = delete;
+
+  explicit operator bool() const { return !value; }
+
+  bool value;
+  const char *expr;
+  const char *file;
+  const char *func;
+  int line;
+};
 
 void EricWFDump(const Stmt *S, const ASTContext *Ctx = nullptr);
 void EricWFDump(const Decl *D, const ASTContext *Ctx = nullptr);
 void EricWFDump(const DeclContext *D, const ASTContext *Ctx = nullptr);
 
-void EricWFDump(const char *Message, const Stmt *S,
+void EricWFDump(std::string_view Message, const Stmt *S,
                 const ASTContext *Ctx = nullptr);
 
-void EricWFDump(const char *Message, const Decl *D,
+void EricWFDump(std::string_view Message, const Decl *D,
                 const ASTContext *Ctx = nullptr);
-void EricWFDump(const char *Message, const DeclContext *D,
+void EricWFDump(std::string_view Message, const DeclContext *D,
                 const ASTContext *Ctx = nullptr);
 
 namespace ericwf_impl {

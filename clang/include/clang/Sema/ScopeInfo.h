@@ -659,7 +659,7 @@ public:
           SourceLocation Loc, QualType CaptureType)
       : CapturedVLA(VLA), Loc(Loc), CaptureType(CaptureType), Kind(Cap_VLA),
         Nested(IsNested), CapturesThis(false), ODRUsed(false),
-        NonODRUsed(false), Invalid(false) {}
+        NonODRUsed(false), CapturedAcrossContract(false), Invalid(false) {}
 
   bool isThisCapture() const { return CapturesThis; }
   bool isVariableCapture() const {

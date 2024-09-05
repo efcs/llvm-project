@@ -1587,8 +1587,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
-
-    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute
@@ -1611,6 +1609,13 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   ParseScope BodyScope(this, ScopeFlags);
 
   Actions.ActOnStartOfLambdaDefinition(Intro, D, DS);
+  if (isFunctionContractKeyword(Tok)) {
+    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
+    assert(D.Contracts);
+  }
+  assert(Actions.CurContext->isFunctionOrMethod());
+  cast<FunctionDecl>(Actions.CurContext)->setContracts(D.Contracts);
+  D.Contracts = nullptr;
 
   // Parse compound-statement.
   if (!Tok.is(tok::l_brace)) {
@@ -1640,6 +1645,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
     }
 
     if (!D.LateParsedContracts.empty()) {
+      assert(false);
       ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
                                   CES_AllScopes);
     }

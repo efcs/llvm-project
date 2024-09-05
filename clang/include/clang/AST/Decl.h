@@ -870,13 +870,19 @@ struct EvaluatedStmt {
   bool HasICEInit : 1;
   bool CheckedForICEInit : 1;
 
+  // The APvalue stored here may need re-evaluation under contracts, in which
+  // case we need to track if we've already regisetered this value for
+  // destruction.
+  bool RegisteredForDestruction : 1;
+
   LazyDeclStmtPtr Value;
   APValue Evaluated;
 
   EvaluatedStmt()
       : WasEvaluated(false), IsEvaluating(false),
         HasConstantInitialization(false), HasConstantDestruction(false),
-        HasICEInit(false), CheckedForICEInit(false) {}
+        HasICEInit(false), CheckedForICEInit(false),
+        RegisteredForDestruction(false) {}
 };
 
 /// Represents a variable declaration or definition.
@@ -3095,6 +3101,9 @@ class FieldDecl : public DeclaratorDecl, public Mergeable<FieldDecl> {
   unsigned Mutable : 1;
   LLVM_PREFERRED_TYPE(InitStorageKind)
   unsigned StorageKind : 2;
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned IsConstifiedCapture : 1;
+
   mutable unsigned CachedFieldIndex : 28;
 
   /// If this is a bitfield with a default member initializer, this
@@ -3134,6 +3143,7 @@ protected:
         CachedFieldIndex(0), Init() {
     if (BW)
       setBitWidth(BW);
+    IsConstifiedCapture = false;
   }
 
 public:
@@ -3276,6 +3286,11 @@ public:
 
   /// Set the captured variable length array type for this field.
   void setCapturedVLAType(const VariableArrayType *VLAType);
+
+  bool isConstifiedCapture() const { return IsConstifiedCapture; }
+  void setIsConstifiedCapture(bool Value = true) {
+    IsConstifiedCapture = Value;
+  }
 
   /// Returns the parent of this field declaration, which
   /// is the struct in which this field is defined.

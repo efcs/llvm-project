@@ -3273,7 +3273,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
   // is expanded by some outer '...' in the context of the use.
   type = type.getNonPackExpansionType();
 
-  bool TypeWasSetByLambdaCapture = false;
+  // bool TypeWasSetByLambdaCapture = false;
 
   switch (D->getKind()) {
     // Ignore all the non-ValueDecl kinds.
@@ -3366,7 +3366,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
       QualType CapturedType = getCapturedDeclRefType(cast<VarDecl>(VD), Loc);
       if (!CapturedType.isNull()) {
         type = CapturedType;
-        TypeWasSetByLambdaCapture = true;
+        // TypeWasSetByLambdaCapture = true;
       }
     }
 
@@ -3465,8 +3465,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
   }
 
   const ContractConstification Constification = getContractConstification(VD);
-  bool ApplyConstification = !TypeWasSetByLambdaCapture &&
-                             Constification == CC_ApplyConst;
+  bool ApplyConstification = Constification == CC_ApplyConst;
 
   if (ApplyConstification)
     type = type.withConst();
@@ -13182,6 +13181,9 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   if (var->getType().isConstQualified()) return NCCK_None;
   assert(var->hasLocalStorage() && "capture added 'const' to non-local?");
 
+  if (DRE->isConstified())
+    return NCCK_Contract;
+
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();
@@ -13221,7 +13223,7 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   // Unless we have an init-capture, we've gone one step too far.
   if (!var->isInitCapture())
     DC = Prev;
-  if (S.CurrentContractEntry || PassedThroughContract)
+  if (S.getCurrentContractEntry() || PassedThroughContract)
     return NCCK_Contract;
 
   return (isa<BlockDecl>(DC) ? NCCK_Block : NCCK_Lambda);
@@ -13364,7 +13366,7 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           }
           S.Diag(MD->getLocation(), diag::note_typecheck_assign_const)
               << ConstMethod << MD << MD->getSourceRange();
-        } else if (S.CurrentContractEntry) {
+        } else if (S.getCurrentContractEntry()) {
           S.Diag(Loc, diag::err_typecheck_assign_constified)
               << ExprRange << /*IsMemberExpr*/ true;
           DiagnosticEmitted = true;
@@ -18371,6 +18373,9 @@ static bool isVariableAlreadyCapturedInScopeInfo(CapturingScopeInfo *CSI,
         !(isa<CapturedRegionScopeInfo>(CSI) &&
           cast<CapturedRegionScopeInfo>(CSI)->CapRegionKind == CR_OpenMP))
       DeclRefType.addConst();
+    if (Cap.isCapturedAcrossContract()) {
+      DeclRefType.addConst();
+    }
     return true;
   }
 
@@ -19142,6 +19147,10 @@ bool Sema::tryCaptureVariable(
 
   ConstificationInfo ConstTracker;
 
+  if (getContractConstification(Var) == CC_ApplyConst) {
+    ConstTracker.enableDueToContract(ExprLoc);
+  }
+
   if (FunctionScopesIndex < FunctionScopes.size() &&
      FunctionScopesIndex >= FunctionScopesStart &&
       FunctionScopes[FunctionScopesIndex]->InContract)
@@ -19184,15 +19193,14 @@ bool Sema::tryCaptureVariable(
       Nested = true;
     } else {
       LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
-
+      if (LSI->InContract)
+        ConstTracker.enableDueToContract(LSI->ContractLoc);
       Invalid =
           !captureInLambda(LSI, Var, ExprLoc, BuildAndDiagnose, CaptureType,
                            DeclRefType, Nested, Kind, EllipsisLoc,
                            /*IsTopScope*/ I == N - 1, *this,
                            ConstTracker, Invalid);
       Nested = true;
-      if (LSI->InContract)
-        ConstTracker.enableDueToContract(LSI->ContractLoc);
     }
 
     if (Invalid && !BuildAndDiagnose)
