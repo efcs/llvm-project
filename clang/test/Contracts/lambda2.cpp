@@ -193,7 +193,7 @@ auto tmpl_lambda = [](auto p) {
     contract_assert(p2 || p || local ); // expected-note 2 {{contract context}} expected-note 2 {{required here}}
   }(p);
   return 1;
-}(1);
+}(1); // expected-note {{here}}
 
 }
 
