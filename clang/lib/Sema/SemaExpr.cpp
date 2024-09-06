@@ -13181,27 +13181,34 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   if (var->getType().isConstQualified()) return NCCK_None;
   assert(var->hasLocalStorage() && "capture added 'const' to non-local?");
 
-  if (DRE->isConstified())
+  if (DRE->isConstified() || DRE->isInContractContext())
     return NCCK_Contract;
-
+  DRE->dumpColor();
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();
 
+  if (S.getContractConstification(var) == CC_ApplyConst)
+    return NCCK_Contract;
+
+#if 1
   bool PassedThroughContract = false;
 
   if (ScopeIndex - 1u < S.FunctionScopes.size()) {
-    PassedThroughContract |= S.FunctionScopes[ScopeIndex - 1]->InContract;
+    PassedThroughContract |= S.FunctionScopes[ScopeIndex - 1]->isInContract();
   }
+#endif
 
     // Decide whether the first capture was for a block or a lambda.
   while (DC) {
+#if 1
     if (DC->isFunctionOrMethod()) {
       --ScopeIndex;
       assert(ScopeIndex >= S.FunctionScopesStart);
       assert(ScopeIndex < S.FunctionScopes.size());
-      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->InContract;
+      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->isInContract();
     }
+#endif
     // For init-capture, it is possible that the variable belongs to the
     // template pattern of the current context.
     if (auto *FD = dyn_cast<FunctionDecl>(DC))
@@ -13213,17 +13220,19 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
     Prev = DC;
     DC = DC->getParent();
   }
+#if 1
   if (!DC) {
     --ScopeIndex;
     if (ScopeIndex < S.FunctionScopes.size())
-      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->InContract;
+      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->isInContract();
 
   }
-
+#endif
   // Unless we have an init-capture, we've gone one step too far.
   if (!var->isInitCapture())
     DC = Prev;
-  if (S.getCurrentContractEntry() || PassedThroughContract)
+
+  if (PassedThroughContract)
     return NCCK_Contract;
 
   return (isa<BlockDecl>(DC) ? NCCK_Block : NCCK_Lambda);
@@ -19153,8 +19162,8 @@ bool Sema::tryCaptureVariable(
 
   if (FunctionScopesIndex < FunctionScopes.size() &&
      FunctionScopesIndex >= FunctionScopesStart &&
-      FunctionScopes[FunctionScopesIndex]->InContract)
-    ConstTracker.enableDueToContract(FunctionScopes[FunctionScopesIndex]->ContractLoc);
+      FunctionScopes[FunctionScopesIndex]->isInContract())
+    ConstTracker.enableDueToContract(ContractScopeStack[FunctionScopes[FunctionScopesIndex]->ContractScopeIndex].KeywordLoc);
 
   if (InContract.has_value() && InContract.value() == ContractTag::Yes) {
     ConstTracker.enableDueToContract(ExprLoc);
@@ -19193,13 +19202,14 @@ bool Sema::tryCaptureVariable(
       Nested = true;
     } else {
       LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
-      if (LSI->InContract)
-        ConstTracker.enableDueToContract(LSI->ContractLoc);
+
       Invalid =
           !captureInLambda(LSI, Var, ExprLoc, BuildAndDiagnose, CaptureType,
                            DeclRefType, Nested, Kind, EllipsisLoc,
                            /*IsTopScope*/ I == N - 1, *this,
                            ConstTracker, Invalid);
+      if (LSI->isInContract())
+        ConstTracker.enableDueToContract(getContractLocForFunctionScope(LSI));
       Nested = true;
     }
 
@@ -19358,11 +19368,16 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
     // Rebuild as a non-odr-use DeclRefExpr.
     MarkNotOdrUsed();
-    return DeclRefExpr::Create(
+    auto *NewDRE = DeclRefExpr::Create(
         S.Context, DRE->getQualifierLoc(), DRE->getTemplateKeywordLoc(),
         DRE->getDecl(), DRE->refersToEnclosingVariableOrCapture(),
         DRE->getNameInfo(), DRE->getType(), DRE->getValueKind(),
         DRE->getFoundDecl(), CopiedTemplateArgs(DRE), NOUR);
+    if (DRE->isInContractContext())
+      NewDRE->setIsInContractContext(true);
+    if (DRE->isConstified())
+      NewDRE->setIsConstified(true);
+    return NewDRE;
   }
 
   case Expr::FunctionParmPackExprClass: {

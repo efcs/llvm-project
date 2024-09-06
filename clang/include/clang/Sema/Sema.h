@@ -6582,6 +6582,9 @@ public:
   bool isContractAssertionContext() const;
 
   struct ContractScopeRecord {
+    // The index of this entry within the ContractScopeStack.
+    unsigned Index;
+
     SourceLocation KeywordLoc;
     DeclContext *ContextAtPush;
     QualType PreviousCXXThisType;
@@ -6589,31 +6592,32 @@ public:
     /// The _index_ of the current function scope when we entered the contract
     /// (or -1 if there was none?)
     unsigned FunctionIndex;
-
-    const DeclContext *getFunctionContext(bool AllowLambda = true) const;
+    unsigned StartFunctionIndex;
 
     sema::FunctionScopeInfo *FunctionScopeAtPush = nullptr;
     bool AddedConstToCXXThis = false;
     bool WasInContractContext = false;
     bool HadNoFunctionScope = false;
     unsigned FunctionScopeStartAtPush = 0;
+    const DeclContext *getFunctionContext(bool AllowLambda = true) const;
 
-  public:
-    ContractScopeRecord(Sema &S, SourceLocation KeywordLoc,
-                        DeclContext *PushContext, QualType PreviousCXXThisType,
-                        unsigned FunctionIndexAtPush,
-                        sema::FunctionScopeInfo *InfoAtPush,
-                        bool AddedConstToCXXThis, bool WasInContractContext);
-
-    ContractScopeRecord(ContractScopeRecord const &) = delete;
-    ContractScopeRecord &operator=(ContractScopeRecord const &) = delete;
   };
 
-  SmallVector<ContractScopeRecord *, 4> ContractScopeStack;
+  SmallVector<ContractScopeRecord, 4> ContractScopeStack;
+  llvm::DenseMap<const DeclContext*, unsigned> ContractScopeIndexMap;
 
-  ArrayRef<ContractScopeRecord *> getContractScopes() const;
+  SourceLocation getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const;
 
-  SmallVector<ContractScopeRecord *>
+  void PushContractScope(SourceLocation Loc, bool OverrideThis = false);
+  ContractScopeRecord PopContractScope();
+
+  const ContractScopeRecord *getContractScopeForContext(const DeclContext *DC) const;
+
+  ArrayRef<ContractScopeRecord> getContractScopes() const;
+  ArrayRef<ContractScopeRecord> getAllContractScopes() const;
+
+
+  ArrayRef<ContractScopeRecord>
   getInterveningContractScopes(const ValueDecl *VD) const;
   SmallVector<sema::FunctionScopeInfo *>
   getInterveningFunctionScopesForContracts(const ValueDecl *VD) const;
@@ -6628,12 +6632,11 @@ public:
     ContractScopeRAII &operator=(ContractScopeRAII const &) = delete;
 
     Sema &S;
-    ContractScopeRecord Record;
   };
 
   // The contract whos condition is the current expression evaluation context.
   // or null if we're not inside a contract.
-  ContractScopeRecord *getCurrentContractEntry() const;
+  const ContractScopeRecord *getCurrentContractEntry() const;
 
   SourceLocation getCurrentContractKeywordLoc() {
     assert(getCurrentContractEntry() && "No current contract?");

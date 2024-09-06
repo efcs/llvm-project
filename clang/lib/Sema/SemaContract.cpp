@@ -306,11 +306,16 @@ void showContextChain(const DeclContext *DC, bool Lexical = false) {
 
 void debugIt(const Sema &S) {
   llvm::errs() << "\n\n";
+  llvm::errs() << "Partial Scopes:\n";
   for (auto *FSI : S.getFunctionScopes()) {
     llvm::errs() << ScopeKindToString(FSI->Kind) << "\n";
   }
+  llvm::errs() << "Full Scopes\n";
+  for (auto *FSI : S.FunctionScopes) {
+    llvm::errs() << ScopeKindToString(FSI->Kind) << "\n";
+  }
 
-  llvm::errs() << "\n\n\nDumping Context\n\n";
+  llvm::errs() << "\n\nDumping Context\n\n";
 
   showContextChain(S.CurContext);
   llvm::errs() << "\n\n\nDumping Lexical Context\n\n";
@@ -357,10 +362,11 @@ struct ScopeEntry {
 
 struct ScopeWalker {
   explicit ScopeWalker(const Sema &S)
-      : S(S), CurCtx(S.CurContext), FunctionScopes(S.getFunctionScopes()),
+      : S(S), CurCtx(S.CurContext), FunctionScopes(S.FunctionScopes),
         FunctionScopeIndex(FunctionScopes.size()),
-        ContractScopes(S.getContractScopes()),
-        ContractScopeIndex(ContractScopes.size()) {
+        ContractScopeIndex(S.getContractScopes().size()) {
+    for (auto &Item : S.getContractScopes())
+      ContractScopes.push_back(&Item);
     assert(CurCtx);
   }
 
@@ -375,7 +381,7 @@ struct ScopeWalker {
     return FunctionScopes[FunctionScopeIndex];
   }
 
-  ContractScopeRecord *nextContractScope() {
+  const ContractScopeRecord *nextContractScope() {
     --ContractScopeIndex;
     ERICWF_FANCY_ASSERT(ContractScopeIndex < ContractScopes.size()) {
       DumpScopes();
@@ -408,9 +414,9 @@ struct ScopeWalker {
       assert(CurCtx->isFunctionOrMethod());
       auto *FSI = nextFuncScope();
       ERICWF_FANCY_ASSERT(FSI) { DumpScopes(); }
-      ContractScopeRecord *CSR = nullptr;
-      if (FSI->InContract) {
-        CSR = nextContractScope();
+      const ContractScopeRecord *CSR = nullptr;
+      if (FSI->ContractScopeIndex != unsigned(-1)) {
+        CSR = &S.ContractScopeStack[FSI->ContractScopeIndex];
         ERICWF_FANCY_ASSERT(CSR && CSR->FunctionScopeAtPush == FSI) {
           DumpScopes();
         }
@@ -419,13 +425,16 @@ struct ScopeWalker {
       } else {
         Scopes.emplace_back(CurCtx, FunctionScopeIndex, FSI, 0, nullptr);
       }
+
       CurCtx =
           getLambdaAwareParentOfDeclContext(const_cast<DeclContext *>(CurCtx));
       if (!CurCtx || !CurCtx->isFunctionOrMethod())
         break;
+      if (Scopes.size() == FunctionScopes.size())
+        break;
     }
 
-    ERICWF_FANCY_ASSERT(Scopes.size() == FunctionScopes.size() ||
+    ERICWF_FANCY_ASSERT((Scopes.size() <= FunctionScopes.size() && Scopes.size() >= S.getFunctionScopes().size()) ||
                         (Scopes.size() == FunctionScopes.size() - 1 && CurCtx &&
                          CurCtx->isRecord())) {
       DumpScopes();
@@ -441,10 +450,10 @@ struct ScopeWalker {
   const Sema &S;
   const DeclContext *CurCtx;
 
-  SmallVector<FunctionScopeInfo *> FunctionScopes;
+  SmallVector<FunctionScopeInfo *, 4> FunctionScopes;
   unsigned FunctionScopeIndex;
 
-  SmallVector<ContractScopeRecord *> ContractScopes;
+  SmallVector<const ContractScopeRecord*> ContractScopes;
   unsigned ContractScopeIndex;
 
   SmallVector<ScopeEntry> Scopes;
@@ -1098,79 +1107,6 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   }
 }
 
-Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
-                                           bool OverrideThis)
-    : S(S),
-      Record{S,
-             Loc,
-             S.CurContext,
-             S.CXXThisTypeOverride,
-             static_cast<unsigned>(
-                 S.FunctionScopes.empty() ? 0ul : S.FunctionScopes.size() - 1),
-             S.FunctionScopes.empty() ? nullptr : S.FunctionScopes.back(),
-             false,
-             S.ExprEvalContexts.back().InContractAssertion} {
-
-  // Setup the constification context when building declref expressions.
-  S.ExprEvalContexts.back().InContractAssertion = true;
-
-  // P2900R8 [expr.prim.this]p2
-  //   If the expression 'this' appears ... in a contract assertion
-  //     (including as the result of the implicit transformation in the body of
-  //     a non-static member function and including in the bodies of nested
-  //     lambda-expressions),
-  // ...
-  //  const is combined with the cv-qualifier-seq used to generate the resulting
-  //  type (see below
-  if (!S.CXXThisTypeOverride.isNull()) {
-    assert(S.CXXThisTypeOverride->isPointerType());
-    QualType ClassType = S.CXXThisTypeOverride->getPointeeType();
-    if (not ClassType.isConstQualified()) {
-      // If the 'this' object is const-qualified, we need to remove the
-      // const-qualification for the contract check.
-      ClassType.addConst();
-      Record.AddedConstToCXXThis = true;
-      S.CXXThisTypeOverride = S.Context.getPointerType(ClassType);
-    }
-  }
-
-  //assert(!S.FunctionScopes.empty());
-
-  if (!S.FunctionScopes.empty()) {
-    assert(S.FunctionScopes.back() && "No function scope?");
-    assert(!S.FunctionScopes.back()->InContract && "Already in contract?");
-    S.FunctionScopes.back()->InContract = true;
-    S.FunctionScopes.back()->ContractLoc = Loc;
-  }
-
-  S.ContractScopeStack.push_back(&Record);
-}
-
-Sema::ContractScopeRAII::~ContractScopeRAII() {
-  assert(S.getCurrentContractEntry() == &Record && "Contract scope mismatch");
-  assert(S.ExprEvalContexts.back().InContractAssertion == true);
-  S.ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
-  S.CXXThisTypeOverride = Record.PreviousCXXThisType;
-
-
-  if (!S.FunctionScopes.empty()) {
-    if (S.FunctionScopes.back() == Record.FunctionScopeAtPush) {
-      assert(S.FunctionScopes.back()->InContract);
-      S.FunctionScopes.back()->InContract = false;
-      S.FunctionScopes.back()->ContractLoc = SourceLocation();
-    } else {
-      assert(S.FunctionScopes.empty() || S.FunctionScopes.size() < Record.FunctionIndex);
-    }
-
-
-    S.FunctionScopes.back()->InContract = false;
-    S.FunctionScopes.back()->ContractLoc = SourceLocation();
-  }
-  assert(!S.ContractScopeStack.empty() &&
-         S.ContractScopeStack.back() == &Record);
-  S.ContractScopeStack.pop_back();
-}
-
 bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
   // There's no contract scope anywhere above us.
   if (!getCurrentContractEntry())
@@ -1542,55 +1478,66 @@ Sema::getDeclContextForFunctionScopeIndex(unsigned ScopeIndex) {
 }
 
 bool Sema::isContractAssertionContext() const {
-  if (FunctionScopes.empty())
+  auto *CR = getCurrentContractEntry();
+  if (!CR)
+    return false;
+  return CR->FunctionScopeAtPush == getCurFunction() ||
+  (CR->FunctionScopeAtPush == nullptr && FunctionScopesStart == 0 && FunctionScopes.size() == 1);
+
+#if 0
+  return getCurrentContractEntry() && (getCurrentContractEntry()->FunctionScopeAtPush == getCurFunction() ||
+      (getCurrentContractEntry()));
+  if (FunctionScopes.empty()) {
+    auto *CR = getCurrentContractEntry();
+    return CR != nullptr;
     return ExprEvalContexts.back().isContractAssertionContext() ||
            (getCurrentContractEntry() &&
             getCurrentContractEntry()->HadNoFunctionScope);
+
+  }
   return FunctionScopes.back()->InContract;
+#endif
 }
 
-Sema::ContractScopeRecord::ContractScopeRecord(
-    Sema &S, SourceLocation KeywordLoc, DeclContext *PushContext,
-    QualType PreviousCXXThisType, unsigned FunctionIndexAtPush,
-    sema::FunctionScopeInfo *InfoAtPush, bool AddedConstToCXXThis,
-    bool WasInContractContext)
-    : KeywordLoc(KeywordLoc), ContextAtPush(PushContext),
-      PreviousCXXThisType(PreviousCXXThisType),
-      FunctionIndex(FunctionIndexAtPush), FunctionScopeAtPush(InfoAtPush),
-      AddedConstToCXXThis(AddedConstToCXXThis),
-      WasInContractContext(WasInContractContext),
-      HadNoFunctionScope(S.FunctionScopes.empty()) {
-  FunctionScopeStartAtPush = S.FunctionScopesStart;
+ArrayRef<Sema::ContractScopeRecord> Sema::getAllContractScopes() const {
+  return llvm::ArrayRef(ContractScopeStack.begin(), ContractScopeStack.end());
 }
-
-ArrayRef<Sema::ContractScopeRecord *> Sema::getContractScopes() const {
+ArrayRef<Sema::ContractScopeRecord> Sema::getContractScopes() const {
+  return getAllContractScopes();
+#if 0
   unsigned Offset = 0;
   for (auto Pos = ContractScopeStack.begin(); Pos != ContractScopeStack.end();
        ++Pos) {
-    if ((*Pos)->FunctionScopeStartAtPush == FunctionScopesStart)
+    if (Pos->FunctionScopeStartAtPush == FunctionScopesStart)
       break;
     ++Offset;
   }
   return llvm::ArrayRef(ContractScopeStack.begin() + Offset,
                         ContractScopeStack.end());
+#endif
 }
 
-SmallVector<Sema::ContractScopeRecord *>
+ArrayRef<Sema::ContractScopeRecord>
 Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
   assert(ValueD);
-  SmallVector<ContractScopeRecord *> Result;
+
   auto *VD = dyn_cast<VarDecl>(ValueD);
   if (!VD)
-    return Result;
+    return std::nullopt;
 
   if (!VD->isLocalVarDeclOrParm())
-    return Result;
+    return std::nullopt;
 
-  auto CScopes = [](auto CL) -> SmallVector<ContractScopeRecord *> {
-    return {CL.begin(), CL.end()};
+  auto CScopes = [](auto CL) -> SmallVector<const ContractScopeRecord *> {
+    SmallVector<const ContractScopeRecord*> Out;
+    for (auto & CS : CL) {
+      Out.push_back(&CS);
+    }
+    return Out;
   }(getContractScopes());
   if (CScopes.empty())
-    return Result;
+    return std::nullopt;
+
 
   VD = VD->getCanonicalDecl();
   assert(VD && VD->getDeclContext());
@@ -1599,24 +1546,32 @@ Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
   auto Pos = CScopes.end();
   auto LastPos = CScopes.end();
 
+
+  auto ReturnRef = [&](auto Start) -> ArrayRef<ContractScopeRecord> {
+    if (Start == CScopes.end())
+      return std::nullopt;
+    unsigned StartIdx = (*Start)->Index;
+    return llvm::ArrayRef(ContractScopeStack.begin() + StartIdx, ContractScopeStack.end());
+
+  };
+
   while (Pos != CScopes.begin()) {
     --Pos;
-    assert(*Pos);
-    ContractScopeRecord *CS = *Pos;
+    const ContractScopeRecord *CS = *Pos;
     assert(CS->ContextAtPush);
-    if (!CS->ContextAtPush->isFunctionOrMethod())
-      return {Pos, CScopes.end()};
+    if (!CS->ContextAtPush->isFunctionOrMethod()) {
+      llvm::errs() << "Had non-function context\n";
+      EricWFDump(CS->ContextAtPush);
+      return ReturnRef(Pos);
+    }
 
     auto CCtx = (*Pos)->ContextAtPush;
-    assert(CCtx && CCtx->getPrimaryContext());
-
-    if (VarCtx->Encloses(CCtx) || VarCtx->Equals(CCtx)) {
+    if (VarCtx->Encloses(CCtx) || VarCtx->Equals(CCtx))
       LastPos = Pos;
-    } else {
+    else
       break;
-    }
   }
-  return {LastPos, CScopes.end()};
+  return ReturnRef(LastPos);
 }
 
 SmallVector<sema::FunctionScopeInfo *>
@@ -1632,21 +1587,133 @@ Sema::ContractScopeRecord::getFunctionContext(bool AllowLambda) const {
   return ContextAtPush;
 }
 
-Sema::ContractScopeRecord *Sema::getCurrentContractEntry() const {
+const Sema::ContractScopeRecord *Sema::getCurrentContractEntry() const {
   auto EntryList = getContractScopes();
   if (EntryList.empty())
     return nullptr;
-  return EntryList.back();
+  return &EntryList.back();
 }
 
 void Sema::WalkUpContractScopesTest() const {
 
   if (ContractScopeStack.empty())
     return;
-  if (getFunctionScopes().empty())
+  if (FunctionScopes.empty())
     return;
   assert(CurContext->isFunctionOrMethod());
   ScopeWalker Walker(*this);
   auto Scopes = Walker.doIt();
   ((void)Scopes);
+}
+
+
+Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, SourceLocation Loc,
+                                           bool OverrideThis)
+    : S(S) {
+  S.PushContractScope(Loc, OverrideThis);
+}
+
+Sema::ContractScopeRAII::~ContractScopeRAII() {
+  S.PopContractScope();
+}
+
+
+void Sema::PushContractScope(SourceLocation Loc, bool OverrideThis) {
+  ContractScopeRecord Record{
+         .Index = static_cast<unsigned>(ContractScopeStack.size()),
+         .KeywordLoc = Loc,
+         .ContextAtPush = CurContext,
+         .PreviousCXXThisType = CXXThisTypeOverride,
+         .FunctionIndex = static_cast<unsigned>(
+             FunctionScopes.empty() ? 0ul : FunctionScopes.size() - 1),
+         .StartFunctionIndex = FunctionScopesStart,
+         .FunctionScopeAtPush = getCurFunction(),
+         .AddedConstToCXXThis = false,
+         .WasInContractContext = ExprEvalContexts.back().InContractAssertion,
+         .HadNoFunctionScope = FunctionScopes.empty(),
+         .FunctionScopeStartAtPush = FunctionScopesStart};
+
+    // Setup the constification context when building declref expressions.
+    ExprEvalContexts.back().InContractAssertion = true;
+  assert(CurContext);
+  ERICWF_FANCY_ASSERT(CurContext->isFunctionOrMethod()) {
+    EricWFDump(CurContext, &Context);
+  }
+    assert(ContractScopeIndexMap.find(CurContext) == ContractScopeIndexMap.end());
+
+    ContractScopeIndexMap[CurContext] = Record.Index;
+    // P2900R8 [expr.prim.this]p2
+    //   If the expression 'this' appears ... in a contract assertion
+    //     (including as the result of the implicit transformation in the body of
+    //     a non-static member function and including in the bodies of nested
+    //     lambda-expressions),
+    // ...
+    //  const is combined with the cv-qualifier-seq used to generate the resulting
+    //  type (see below
+    if (!CXXThisTypeOverride.isNull()) {
+      assert(CXXThisTypeOverride->isPointerType());
+      QualType ClassType = CXXThisTypeOverride->getPointeeType();
+      if (not ClassType.isConstQualified()) {
+        // If the 'this' object is const-qualified, we need to remove the
+        // const-qualification for the contract check.
+        ClassType.addConst();
+        Record.AddedConstToCXXThis = true;
+        CXXThisTypeOverride = Context.getPointerType(ClassType);
+      }
+    }
+
+    //assert(!S.FunctionScopes.empty());
+
+
+  if (Record.FunctionScopeAtPush) {
+    auto *LastScope = Record.FunctionScopeAtPush;
+    assert(LastScope && !LastScope->isInContract());
+
+    LastScope->ContractScopeIndex = Record.Index;
+  }
+
+    ContractScopeStack.push_back(Record);
+}
+
+ContractScopeRecord Sema::PopContractScope() {
+  assert(!ContractScopeStack.empty());
+
+  auto Record = ContractScopeStack.back();
+  ContractScopeStack.pop_back();
+
+  assert(ContractScopeIndexMap.contains(Record.ContextAtPush) && ContractScopeIndexMap[Record.ContextAtPush]  == Record.Index);
+  ContractScopeIndexMap.erase(Record.ContextAtPush);
+
+
+  assert(ExprEvalContexts.back().InContractAssertion == true);
+  ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
+  CXXThisTypeOverride = Record.PreviousCXXThisType;
+
+
+  if (Record.FunctionScopeAtPush) {
+
+    if (FunctionScopes.back() == Record.FunctionScopeAtPush) {
+      assert(FunctionScopes.back()->ContractScopeIndex != unsigned(-1));
+      FunctionScopes.back()->ContractScopeIndex = -1;
+    } else {
+      assert(getFunctionScopes().empty() || FunctionScopes.size() < Record.FunctionIndex);
+    }
+  }
+
+  return Record;
+}
+
+const ContractScopeRecord *Sema::getContractScopeForContext(const DeclContext *DC) const {
+  auto Pos = ContractScopeIndexMap.find(DC);
+  if (Pos == ContractScopeIndexMap.end())
+    return nullptr;
+  unsigned Idx = Pos->second;
+  assert(Idx < ContractScopeStack.size());
+  return &ContractScopeStack[Idx];
+}
+
+SourceLocation Sema::getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const {
+  assert(FSI->isInContract());
+  assert(FSI->ContractScopeIndex < ContractScopeStack.size());
+  return ContractScopeStack[FSI->ContractScopeIndex].KeywordLoc;
 }

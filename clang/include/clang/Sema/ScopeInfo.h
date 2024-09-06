@@ -179,9 +179,8 @@ public:
   bool FoundImmediateEscalatingExpression : 1;
 
   /// Wether we're currently in a contract statement in this function scope.
-  bool InContract : 1;
 
-  SourceLocation ContractLoc;
+  unsigned ContractScopeIndex = -1;
 
   /// First coroutine statement in the current function.
   /// (ex co_return, co_await, co_yield)
@@ -403,7 +402,7 @@ public:
         ObjCIsDesignatedInit(false), ObjCWarnForNoDesignatedInitChain(false),
         ObjCIsSecondaryInit(false), ObjCWarnForNoInitDelegation(false),
         NeedsCoroutineSuspends(true), FoundImmediateEscalatingExpression(false),
-        InContract(false), ErrorTrap(Diag) {}
+        ContractScopeIndex(-1), ErrorTrap(Diag) {}
 
   virtual ~FunctionScopeInfo();
 
@@ -553,6 +552,9 @@ public:
     CoroutineSuspends.first = Initial;
     CoroutineSuspends.second = Final;
   }
+
+  bool isInContract() const { return ContractScopeIndex != unsigned(-1); }
+
 
   /// Clear out the information in this function scope, making it
   /// suitable for reuse.

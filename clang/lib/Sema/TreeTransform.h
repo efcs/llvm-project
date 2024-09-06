@@ -12023,6 +12023,9 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       QualifierLoc, ND, NameInfo, Found, TemplateArgs);
   if (E->isInContractContext())
     NewRef.getAs<DeclRefExpr>()->setIsInContractContext(true);
+  if (E->isConstified())
+    NewRef.getAs<DeclRefExpr>()->setIsConstified(true);
+
   return NewRef;
 }
 
