@@ -2605,6 +2605,9 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
 
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
+
+      ThisDecl->dumpColor();
+
       D.complete(ThisDecl);
       if (ThisDecl)
         DeclsInGroup.push_back(ThisDecl);

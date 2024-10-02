@@ -3134,6 +3134,7 @@ public:
       S.CurContext = ContextToPush;
       if (NewThisContext)
         S.CXXThisTypeOverride = QualType();
+
       // Any saved FunctionScopes do not refer to this context.
       S.FunctionScopesStart = S.FunctionScopes.size();
       S.InventedParameterInfosStart = S.InventedParameterInfos.size();
@@ -6584,11 +6585,16 @@ public:
   struct ContractScopeRecord {
     // The index of this entry within the ContractScopeStack.
     unsigned Index;
+    ContractKind Kind;
+
+    // Whether this scope was pushed prior to the function declaration
+    // being available, and so the ContextAtPush is not the function itself yet,
+    // but the context in which the function is being declared.
+    ContractScopeOffset ScopeOffset;
 
     SourceLocation KeywordLoc;
     DeclContext *ContextAtPush;
     QualType PreviousCXXThisType;
-
     /// The _index_ of the current function scope when we entered the contract
     /// (or -1 if there was none?)
     unsigned FunctionIndex;
@@ -6606,9 +6612,14 @@ public:
   SmallVector<ContractScopeRecord, 4> ContractScopeStack;
   llvm::DenseMap<const DeclContext*, unsigned> ContractScopeIndexMap;
 
+  const ContractScopeRecord *getFirstEnclosingContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getLastEnclosingContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getFirstEnclosedContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getLastEnclosedContractScopeForContext(const DeclContext *DC) const;
+
   SourceLocation getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const;
 
-  void PushContractScope(SourceLocation Loc, bool OverrideThis = false);
+  void PushContractScope(ContractKind CK, ContractScopeOffset ScopeOffset, SourceLocation Loc);
   ContractScopeRecord PopContractScope();
 
   const ContractScopeRecord *getContractScopeForContext(const DeclContext *DC) const;
@@ -6623,8 +6634,7 @@ public:
   getInterveningFunctionScopesForContracts(const ValueDecl *VD) const;
 
   struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S, SourceLocation ContractLoc,
-                      bool ReplaceThis = false);
+    ContractScopeRAII(Sema &S, ContractKind CK, ContractScopeOffset Offset, SourceLocation ContractLoc);
     ~ContractScopeRAII();
 
   private:

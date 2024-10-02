@@ -24,6 +24,7 @@
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/Frontend/OpenMP/OMPContext.h"
 #include "llvm/Support/SaveAndRestore.h"
+#include "clang/Basic/ContractOptions.h"
 #include <optional>
 #include <stack>
 
@@ -2129,6 +2130,7 @@ public:
     CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
     LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
   };
+
   std::optional<ContractKind> getContractKeyword(const Token &Token) const;
   std::optional<ContractKind> getContractKeyword() const {
     return getContractKeyword(Tok);
@@ -2153,7 +2155,7 @@ private:
                                       QualType TrailingReturnType = QualType());
 
   StmtResult ParseFunctionContractSpecifierImpl(
-      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
+      llvm::function_ref<QualType()> ReturnTypeResolver, ContractScopeOffset ScopeOffset, bool &IsInvalid);
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);

@@ -111,6 +111,14 @@ enum class ContractEmissionStyle {
   InDefinition,
 };
 
+
+// Indicates whether the contract scope information was pushed prior to the function declaration context being
+// available (and therefore will need special consideration when adjusting the context).
+enum ContractScopeOffset {
+  CSO_ParentContext,
+  CSO_FunctionContext
+};
+
 /// Represents the set of contract groups that have been enabled or disabled
 /// on the command line using '-fclang-contract-groups='.
 ///
