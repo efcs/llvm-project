@@ -112,8 +112,9 @@ void VTEmitter::run(raw_ostream &OS) {
     if (Valid) {
       if (!VTRanges.count(Key))
         VTRanges[Key].First = Name;
-      assert(!VTRanges[Key].Closed && "Gap detected!");
-      VTRanges[Key].Last = Name;
+      auto& RangeVal = VTRanges[Key];
+      assert(!RangeVal.Closed && "Gap detected!");
+      RangeVal.Last = Name;
     } else if (VTRanges.count(Key)) {
       VTRanges[Key].Closed = true;
     }

@@ -53,9 +53,9 @@ public:
   std::optional<TypeIndex> getNext(TypeIndex Prev) override;
   CVType getType(TypeIndex Index) override;
   StringRef getTypeName(TypeIndex Index) override;
-  bool contains(TypeIndex Index) override;
-  uint32_t size() override;
-  uint32_t capacity() override;
+  bool contains(TypeIndex Index) const override;
+  uint32_t size() const override;
+  uint32_t capacity() const override;
   bool replaceType(TypeIndex &Index, CVType Data, bool Stabilize) override;
 
   // public interface

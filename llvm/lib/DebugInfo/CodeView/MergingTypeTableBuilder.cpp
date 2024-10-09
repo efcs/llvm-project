@@ -54,16 +54,16 @@ StringRef MergingTypeTableBuilder::getTypeName(TypeIndex Index) {
   llvm_unreachable("Method not implemented");
 }
 
-bool MergingTypeTableBuilder::contains(TypeIndex Index) {
+bool MergingTypeTableBuilder::contains(TypeIndex Index) const {
   if (Index.isSimple() || Index.isNoneType())
     return false;
 
   return Index.toArrayIndex() < SeenRecords.size();
 }
 
-uint32_t MergingTypeTableBuilder::size() { return SeenRecords.size(); }
+uint32_t MergingTypeTableBuilder::size() const { return SeenRecords.size(); }
 
-uint32_t MergingTypeTableBuilder::capacity() { return SeenRecords.size(); }
+uint32_t MergingTypeTableBuilder::capacity() const { return SeenRecords.size(); }
 
 ArrayRef<ArrayRef<uint8_t>> MergingTypeTableBuilder::records() const {
   return SeenRecords;

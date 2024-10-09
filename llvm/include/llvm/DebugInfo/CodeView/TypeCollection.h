@@ -19,16 +19,16 @@ class TypeCollection {
 public:
   virtual ~TypeCollection() = default;
 
-  bool empty() { return size() == 0; }
+  bool empty() const { return size() == 0; }
 
   virtual std::optional<TypeIndex> getFirst() = 0;
   virtual std::optional<TypeIndex> getNext(TypeIndex Prev) = 0;
 
   virtual CVType getType(TypeIndex Index) = 0;
   virtual StringRef getTypeName(TypeIndex Index) = 0;
-  virtual bool contains(TypeIndex Index) = 0;
-  virtual uint32_t size() = 0;
-  virtual uint32_t capacity() = 0;
+  virtual bool contains(TypeIndex Index) const = 0;
+  virtual uint32_t size() const = 0;
+  virtual uint32_t capacity() const = 0;
   virtual bool replaceType(TypeIndex &Index, CVType Data, bool Stabilize) = 0;
 
   template <typename TFunc> void ForEachRecord(TFunc Func) {

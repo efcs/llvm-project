@@ -2757,10 +2757,10 @@ class JSONWriter {
   llvm::raw_ostream &OS;
   SmallVector<StringRef, 16> DirStack;
 
-  unsigned getDirIndent() { return 4 * DirStack.size(); }
-  unsigned getFileIndent() { return 4 * (DirStack.size() + 1); }
-  bool containedIn(StringRef Parent, StringRef Path);
-  StringRef containedPart(StringRef Parent, StringRef Path);
+  unsigned getDirIndent() const { return 4 * DirStack.size(); }
+  unsigned getFileIndent() const { return 4 * (DirStack.size() + 1); }
+  bool containedIn(StringRef Parent, StringRef Path) const;
+  StringRef containedPart(StringRef Parent, StringRef Path) const;
   void startDirectory(StringRef Path);
   void endDirectory();
   void writeEntry(StringRef VPath, StringRef RPath);
@@ -2776,7 +2776,7 @@ public:
 
 } // namespace
 
-bool JSONWriter::containedIn(StringRef Parent, StringRef Path) {
+bool JSONWriter::containedIn(StringRef Parent, StringRef Path) const {
   using namespace llvm::sys;
 
   // Compare each path component.
@@ -2790,7 +2790,7 @@ bool JSONWriter::containedIn(StringRef Parent, StringRef Path) {
   return IParent == EParent;
 }
 
-StringRef JSONWriter::containedPart(StringRef Parent, StringRef Path) {
+StringRef JSONWriter::containedPart(StringRef Parent, StringRef Path) const {
   assert(!Parent.empty());
   assert(containedIn(Parent, Path));
   return Path.substr(Parent.size() + 1);

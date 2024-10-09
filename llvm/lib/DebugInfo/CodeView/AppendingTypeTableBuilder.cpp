@@ -50,16 +50,16 @@ StringRef AppendingTypeTableBuilder::getTypeName(TypeIndex Index) {
   llvm_unreachable("Method not implemented");
 }
 
-bool AppendingTypeTableBuilder::contains(TypeIndex Index) {
+bool AppendingTypeTableBuilder::contains(TypeIndex Index) const {
   if (Index.isSimple() || Index.isNoneType())
     return false;
 
   return Index.toArrayIndex() < SeenRecords.size();
 }
 
-uint32_t AppendingTypeTableBuilder::size() { return SeenRecords.size(); }
+uint32_t AppendingTypeTableBuilder::size() const { return SeenRecords.size(); }
 
-uint32_t AppendingTypeTableBuilder::capacity() { return SeenRecords.size(); }
+uint32_t AppendingTypeTableBuilder::capacity() const { return SeenRecords.size(); }
 
 ArrayRef<ArrayRef<uint8_t>> AppendingTypeTableBuilder::records() const {
   return SeenRecords;

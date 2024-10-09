@@ -52,13 +52,13 @@ StringRef TypeTableCollection::getTypeName(TypeIndex Index) {
   return Names[I];
 }
 
-bool TypeTableCollection::contains(TypeIndex Index) {
+bool TypeTableCollection::contains(TypeIndex Index) const {
   return Index.toArrayIndex() <= size();
 }
 
-uint32_t TypeTableCollection::size() { return Records.size(); }
+uint32_t TypeTableCollection::size() const { return Records.size(); }
 
-uint32_t TypeTableCollection::capacity() { return Records.size(); }
+uint32_t TypeTableCollection::capacity() const { return Records.size(); }
 
 bool TypeTableCollection::replaceType(TypeIndex &Index, CVType Data,
                                       bool Stabilize) {

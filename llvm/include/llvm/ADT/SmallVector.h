@@ -171,7 +171,7 @@ protected:
 
   /// Return true unless Elt will be invalidated by resizing the vector to
   /// NewSize.
-  bool isSafeToReferenceAfterResize(const void *Elt, size_t NewSize) {
+  bool isSafeToReferenceAfterResize(const void *Elt, size_t NewSize) const {
     // Past the end.
     if (LLVM_LIKELY(!isReferenceToStorage(Elt)))
       return true;
@@ -185,7 +185,7 @@ protected:
   }
 
   /// Check whether Elt will be invalidated by resizing the vector to NewSize.
-  void assertSafeToReferenceAfterResize(const void *Elt, size_t NewSize) {
+  void assertSafeToReferenceAfterResize(const void *Elt, size_t NewSize)  const{
     assert(isSafeToReferenceAfterResize(Elt, NewSize) &&
            "Attempting to reference an element of the vector in an operation "
            "that invalidates it");
@@ -193,12 +193,12 @@ protected:
 
   /// Check whether Elt will be invalidated by increasing the size of the
   /// vector by N.
-  void assertSafeToAdd(const void *Elt, size_t N = 1) {
+  void assertSafeToAdd(const void *Elt, size_t N = 1) const {
     this->assertSafeToReferenceAfterResize(Elt, this->size() + N);
   }
 
   /// Check whether any part of the range will be invalidated by clearing.
-  void assertSafeToReferenceAfterClear(const T *From, const T *To) {
+  void assertSafeToReferenceAfterClear(const T *From, const T *To) const {
     if (From == To)
       return;
     this->assertSafeToReferenceAfterResize(From, 0);
@@ -208,10 +208,10 @@ protected:
       class ItTy,
       std::enable_if_t<!std::is_same<std::remove_const_t<ItTy>, T *>::value,
                        bool> = false>
-  void assertSafeToReferenceAfterClear(ItTy, ItTy) {}
+  void assertSafeToReferenceAfterClear(ItTy, ItTy) const {}
 
   /// Check whether any part of the range will be invalidated by growing.
-  void assertSafeToAddRange(const T *From, const T *To) {
+  void assertSafeToAddRange(const T *From, const T *To) const {
     if (From == To)
       return;
     this->assertSafeToAdd(From, To - From);
@@ -221,7 +221,7 @@ protected:
       class ItTy,
       std::enable_if_t<!std::is_same<std::remove_const_t<ItTy>, T *>::value,
                        bool> = false>
-  void assertSafeToAddRange(ItTy, ItTy) {}
+  void assertSafeToAddRange(ItTy, ItTy) const {}
 
   /// Reserve enough space to add one element, and return the updated element
   /// pointer in case it was a reference to the storage.

@@ -53,16 +53,16 @@ StringRef GlobalTypeTableBuilder::getTypeName(TypeIndex Index) {
   llvm_unreachable("Method not implemented");
 }
 
-bool GlobalTypeTableBuilder::contains(TypeIndex Index) {
+bool GlobalTypeTableBuilder::contains(TypeIndex Index)  const {
   if (Index.isSimple() || Index.isNoneType())
     return false;
 
   return Index.toArrayIndex() < SeenRecords.size();
 }
 
-uint32_t GlobalTypeTableBuilder::size() { return SeenRecords.size(); }
+uint32_t GlobalTypeTableBuilder::size() const { return SeenRecords.size(); }
 
-uint32_t GlobalTypeTableBuilder::capacity() { return SeenRecords.size(); }
+uint32_t GlobalTypeTableBuilder::capacity() const { return SeenRecords.size(); }
 
 ArrayRef<ArrayRef<uint8_t>> GlobalTypeTableBuilder::records() const {
   return SeenRecords;

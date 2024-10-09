@@ -689,7 +689,7 @@ static int unwindBacktrace(void **StackTrace, int MaxEntries) {
     void *IP = (void *)_Unwind_GetIP(Context);
     if (!IP)
       return _URC_END_OF_STACK;
-
+    ((void)Entries);
     assert(Entries < MaxEntries && "recursively called after END_OF_STACK?");
     if (Entries >= 0)
       StackTrace[Entries] = IP;

@@ -130,7 +130,7 @@ StringRef LazyRandomTypeCollection::getTypeName(TypeIndex Index) {
   return Records[I].Name;
 }
 
-bool LazyRandomTypeCollection::contains(TypeIndex Index) {
+bool LazyRandomTypeCollection::contains(TypeIndex Index) const {
   if (Index.isSimple() || Index.isNoneType())
     return false;
 
@@ -141,9 +141,9 @@ bool LazyRandomTypeCollection::contains(TypeIndex Index) {
   return true;
 }
 
-uint32_t LazyRandomTypeCollection::size() { return Count; }
+uint32_t LazyRandomTypeCollection::size() const { return Count; }
 
-uint32_t LazyRandomTypeCollection::capacity() { return Records.size(); }
+uint32_t LazyRandomTypeCollection::capacity() const { return Records.size(); }
 
 Error LazyRandomTypeCollection::ensureTypeExists(TypeIndex TI) {
   if (contains(TI))
