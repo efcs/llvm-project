@@ -15485,7 +15485,13 @@ LambdaScopeInfo *Sema::RebuildLambdaScopeInfo(CXXMethodDecl *CallOperator) {
   // captured within tryCaptureVar.
   auto I = LambdaClass->field_begin();
   for (const auto &C : LambdaClass->captures()) {
-    assert(!C.isCapturedAcrossContract());
+    if (C.isCapturedAcrossContract()) {
+      if (C.capturesVariable())
+        C.getCapturedVar()->dumpColor();
+      else if (C.capturesThis())
+        llvm::errs() << "Captured This!!\n";
+    }
+//    assert(!C.isCapturedAcrossContract());
     if (C.capturesVariable()) {
       ValueDecl *VD = C.getCapturedVar();
       if (VD->isInitCapture())
