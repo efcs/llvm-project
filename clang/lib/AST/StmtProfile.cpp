@@ -132,6 +132,13 @@ namespace {
           return;
         }
 
+        // FIXME(EricWF): Temporary hack to get the branch in better shape until I can merge the more correct
+        // fix from the other branch.
+        if (auto *RND = dyn_cast<ResultNameDecl>(D)) {
+          VisitType(RND->getType());
+          return;
+        }
+
         if (const TemplateTypeParmDecl *TTP =
                 dyn_cast<TemplateTypeParmDecl>(D)) {
           ID.AddInteger(TTP->getDepth());
