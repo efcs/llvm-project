@@ -759,6 +759,11 @@ class TargetSpecificAttr<TargetSpec target> {
 /// redeclarations, even when it's written on a parameter.
 class InheritableParamAttr : InheritableAttr;
 
+/// A attribute that is either a declaration attribute or a statement attribute,
+/// and if used as a declaration attribute, is inherited by later
+/// redeclarations, even when it's written on a parameter.
+class InheritableParamOrStmtAttr : InheritableParamAttr;
+
 /// An attribute which changes the ABI rules for a specific parameter.
 class ParameterABIAttr : InheritableParamAttr {
   let Subjects = SubjectList<[ParmVar]>;
@@ -928,7 +933,7 @@ def AnalyzerNoReturn : InheritableAttr {
   let Documentation = [Undocumented];
 }
 
-def Annotate : InheritableParamAttr {
+def Annotate : InheritableParamOrStmtAttr {
   let Spellings = [Clang<"annotate">];
   let Args = [StringArgument<"Annotation">, VariadicExprArgument<"Args">];
   // Ensure that the annotate attribute can be used with
@@ -3357,6 +3362,47 @@ def Unavailable : InheritableAttr {
                  "IR_ARCFieldWithOwnership"], 1, /*fake*/ 1>];
   let Documentation = [Undocumented];
   let MeaningfulToClassTemplateDefinition = 1;
+}
+
+def ContractGroup : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_group">];
+  let Args = [ StringArgument<"Group"> ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+def ContractSemantic : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_semantic">];
+  let Args = [
+    EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
+        ["ignore", "observe", "enforce", "quick_enforce"],
+        ["Ignore", "Observe", "Enforce", "QuickEnforce"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>,
+    DefaultBoolArgument<"Override", 0, /*fake*/ 0>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+
+def ContractEmission : StmtAttr {
+  let Spellings = [CXX11<"clang", "contract_emission">];
+  let Args = [
+    EnumArgument<"Emission", "ContractEmissionStyle", /*is_string=*/true,
+        ["in_caller", "in_definition"],
+        ["InCaller", "InDefinition"],
+        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>
+  ];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Documentation = [Undocumented];
+}
+
+
+def ContractMessage : StmtAttr {
+    let Spellings = [CXX11<"clang", "contract_message">];
+    let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
+    let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+    let Documentation = [Undocumented];
 }
 
 def DiagnoseIf : InheritableAttr {

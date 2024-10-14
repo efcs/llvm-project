@@ -3588,6 +3588,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
     for (StringRef Sanitizer : serializeSanitizerKinds(Opts.Sanitize))
       GenerateArg(Consumer, OPT_fsanitize_EQ, Sanitizer);
 
+
+    for (StringRef ContractGroup :
+         Opts.ContractOpts.serializeContractGroupArgs())
+      GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
     return;
   }
 
@@ -3687,10 +3691,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
   if (Opts.Blocks && !(Opts.OpenCL && Opts.OpenCLVersion == 200))
     GenerateArg(Consumer, OPT_fblocks);
 
-  if (Opts.ConvergentFunctions &&
-      !(Opts.OpenCL || (Opts.CUDA && Opts.CUDAIsDevice) || Opts.SYCLIsDevice ||
-        Opts.HLSL))
+  if (Opts.ConvergentFunctions)
     GenerateArg(Consumer, OPT_fconvergent_functions);
+  else
+    GenerateArg(Consumer, OPT_fno_convergent_functions);
 
   if (Opts.NoBuiltin && !Opts.Freestanding)
     GenerateArg(Consumer, OPT_fno_builtin);
@@ -3867,6 +3871,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
 
   if (!Opts.RandstructSeed.empty())
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
+
+  for (StringRef ContractGroup :
+       Opts.ContractOpts.serializeContractGroupArgs())
+    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
 }
 
 bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
@@ -4106,9 +4114,12 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
   Opts.Blocks = Args.hasArg(OPT_fblocks) || (Opts.OpenCL
     && Opts.OpenCLVersion == 200);
 
-  Opts.ConvergentFunctions = Args.hasArg(OPT_fconvergent_functions) ||
-                             Opts.OpenCL || (Opts.CUDA && Opts.CUDAIsDevice) ||
-                             Opts.SYCLIsDevice || Opts.HLSL;
+  bool HasConvergentOperations = Opts.OpenMPIsTargetDevice || Opts.OpenCL ||
+                                 Opts.CUDAIsDevice || Opts.SYCLIsDevice ||
+                                 Opts.HLSL || T.isAMDGPU() || T.isNVPTX();
+  Opts.ConvergentFunctions =
+      Args.hasFlag(OPT_fconvergent_functions, OPT_fno_convergent_functions,
+                   HasConvergentOperations);
 
   Opts.NoBuiltin = Args.hasArg(OPT_fno_builtin) || Opts.Freestanding;
   if (!Opts.NoBuiltin)
@@ -4163,9 +4174,6 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
       Opts.OpenMP && Args.hasArg(options::OPT_fopenmp_enable_irbuilder);
   bool IsTargetSpecified =
       Opts.OpenMPIsTargetDevice || Args.hasArg(options::OPT_fopenmp_targets_EQ);
-
-  Opts.ConvergentFunctions =
-      Opts.ConvergentFunctions || Opts.OpenMPIsTargetDevice;
 
   if (Opts.OpenMP || Opts.OpenMPSimd) {
     if (int Version = getLastArgIntValue(
@@ -4539,6 +4547,17 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
           << Requested.getName() << Recommended.getName();
     }
   }
+
+  auto EmitContractDiag = [&](ContractGroupDiagnostic CGD, StringRef GroupName,
+                              StringRef InvalidChar = "") {
+    Diags.Report(diag::err_drv_contract_group_name_invalid)
+        << (int)CGD << GroupName << InvalidChar;
+  };
+
+  std::vector<std::string> ContractGroupValues =
+      Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
+  Opts.ContractOpts.parseContractGroups(ContractGroupValues,
+                                           EmitContractDiag);
 
   return Diags.getNumErrors() == NumErrorsBefore;
 }

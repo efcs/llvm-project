@@ -132,6 +132,13 @@ namespace {
           return;
         }
 
+        // FIXME(EricWF): Temporary hack to get the branch in better shape until I can merge the more correct
+        // fix from the other branch.
+        if (auto *RND = dyn_cast<ResultNameDecl>(D)) {
+          VisitType(RND->getType());
+          return;
+        }
+
         if (const TemplateTypeParmDecl *TTP =
                 dyn_cast<TemplateTypeParmDecl>(D)) {
           ID.AddInteger(TTP->getDepth());
@@ -489,6 +496,13 @@ void OMPClauseProfiler::VisitOMPSimdlenClause(const OMPSimdlenClause *C) {
 
 void OMPClauseProfiler::VisitOMPSizesClause(const OMPSizesClause *C) {
   for (auto *E : C->getSizesRefs())
+    if (E)
+      Profiler->VisitExpr(E);
+}
+
+void OMPClauseProfiler::VisitOMPPermutationClause(
+    const OMPPermutationClause *C) {
+  for (Expr *E : C->getArgsRefs())
     if (E)
       Profiler->VisitExpr(E);
 }
@@ -1358,6 +1372,11 @@ void StmtProfiler::VisitSYCLUniqueStableNameExpr(
 void StmtProfiler::VisitPredefinedExpr(const PredefinedExpr *S) {
   VisitExpr(S);
   ID.AddInteger(llvm::to_underlying(S->getIdentKind()));
+}
+
+void StmtProfiler::VisitOpenACCAsteriskSizeExpr(
+    const OpenACCAsteriskSizeExpr *S) {
+  VisitExpr(S);
 }
 
 void StmtProfiler::VisitIntegerLiteral(const IntegerLiteral *S) {
@@ -2326,6 +2345,8 @@ void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
   VisitExpr(S);
 }
 
+void StmtProfiler::VisitContractStmt(const ContractStmt *S) { VisitStmt(S); }
+
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
   VisitExpr(E);
 }
@@ -2552,6 +2573,11 @@ void OpenACCClauseProfiler::VisitNumGangsClause(
     Profiler.VisitStmt(E);
 }
 
+void OpenACCClauseProfiler::VisitTileClause(const OpenACCTileClause &Clause) {
+  for (auto *E : Clause.getSizeExprs())
+    Profiler.VisitStmt(E);
+}
+
 void OpenACCClauseProfiler::VisitNumWorkersClause(
     const OpenACCNumWorkersClause &Clause) {
   assert(Clause.hasIntExpr() && "num_workers clause requires a valid int expr");
@@ -2628,6 +2654,12 @@ void OpenACCClauseProfiler::VisitIndependentClause(
     const OpenACCIndependentClause &Clause) {}
 
 void OpenACCClauseProfiler::VisitSeqClause(const OpenACCSeqClause &Clause) {}
+
+void OpenACCClauseProfiler::VisitGangClause(const OpenACCGangClause &Clause) {
+  for (unsigned I = 0; I < Clause.getNumExprs(); ++I) {
+    Profiler.VisitStmt(Clause.getExpr(I).second);
+  }
+}
 
 void OpenACCClauseProfiler::VisitReductionClause(
     const OpenACCReductionClause &Clause) {

@@ -356,6 +356,13 @@ Retry:
     SemiError = "co_return";
     break;
 
+  case tok::kw_contract_assert: // C++20 contract-assert-statement
+    ProhibitAttributes(CXX11Attrs);
+    ProhibitAttributes(GNUAttrs); // The attributes go after the keyword
+    Res = ParseContractAssertStatement();
+    SemiError = "contract_assert";
+    break;
+
   case tok::kw_asm: {
     for (const ParsedAttr &AL : CXX11Attrs)
       // Could be relaxed if asm-related regular keyword attributes are
@@ -1956,10 +1963,10 @@ StmtResult Parser::ParseDoStatement() {
   SourceLocation Start = Tok.getLocation();
   ExprResult Cond = ParseExpression();
   // Correct the typos in condition before closing the scope.
-  if (Cond.isUsable())
+  if (Cond.isUsable()) {
     Cond = Actions.CorrectDelayedTyposInExpr(Cond, /*InitDecl=*/nullptr,
                                              /*RecoverUncorrectedTypos=*/true);
-  else {
+  } else {
     if (!Tok.isOneOf(tok::r_paren, tok::r_square, tok::r_brace))
       SkipUntil(tok::semi);
     Cond = Actions.CreateRecoveryExpr(

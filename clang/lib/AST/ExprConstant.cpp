@@ -52,6 +52,7 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "llvm/ADT/APFixedPoint.h"
@@ -61,6 +62,7 @@
 #include "llvm/Support/Casting.h"
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/SaveAndRestore.h"
+#include "llvm/Support/Signals.h"
 #include "llvm/Support/SipHash.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
@@ -520,7 +522,6 @@ namespace {
     CallRef() : OrigCallee(), CallIndex(0), Version() {}
     CallRef(const FunctionDecl *Callee, unsigned CallIndex, unsigned Version)
         : OrigCallee(Callee), CallIndex(CallIndex), Version(Version) {}
-
     explicit operator bool() const { return OrigCallee; }
 
     /// Get the parameter that the caller initialized, corresponding to the
@@ -535,6 +536,7 @@ namespace {
     /// virtual override), but this function's parameters are the ones that
     /// appear in the parameter map.
     const FunctionDecl *OrigCallee;
+
     /// The call index of the frame that holds the argument values.
     unsigned CallIndex;
     /// The version of the parameters corresponding to this call.
@@ -597,6 +599,10 @@ namespace {
     CallRef createCall(const FunctionDecl *Callee) {
       return {Callee, Index, ++CurTempVersion};
     }
+
+    // The slot for the result of the contract evaluation.
+    const LValue *ResultSlot = nullptr;
+    const APValue *ResultValue = nullptr;
 
     // FIXME: Adding this to every 'CallStackFrame' may have a nontrivial impact
     // on the overall stack usage of deeply-recursing constexpr evaluations.
@@ -3481,7 +3487,7 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
     return true;
   }
 
-  if (isa<ParmVarDecl>(VD)) {
+  if (auto *PVD = dyn_cast<ParmVarDecl>(VD); PVD) {
     // Assume parameters of a potential constant expression are usable in
     // constant expressions.
     if (!Info.checkingPotentialConstantExpression() ||
@@ -4261,6 +4267,21 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
     // started in the current evaluation.
     BaseVal = Info.EvaluatingDeclValue;
   } else if (const ValueDecl *D = LVal.Base.dyn_cast<const ValueDecl *>()) {
+
+    // Allow reading the result of a function call inside a post contract.
+    // FIXME(EricWF): There's more validation that needs to be done here.
+    if (auto *RND = dyn_cast<ResultNameDecl>(D); RND) {
+      assert(RND == RND->getCanonicalResultName());
+
+      APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
+
+      if (!Val) {
+        Info.CCEDiag(RND->getLocation(), diag::err_ericwf_fixme)
+            << "Failing to find completed object";
+        return CompleteObject();
+      }
+      return CompleteObject(LVal.Base, Val, RND->getType());
+    }
     // Allow reading from a GUID declaration.
     if (auto *GD = dyn_cast<MSGuidDecl>(D)) {
       if (isModification(AK)) {
@@ -5330,6 +5351,30 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
   return true;
 }
 
+static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
+  using CES = ContractEvaluationSemantic;
+  auto &Ctx = Info.Ctx;
+
+  if (!Info.EvaluateContracts)
+    return true;
+
+  CES Sem = S->getSemantic(Ctx);
+  if (Sem == CES::Ignore)
+    return true;
+
+  const Expr *E = S->getCond();
+  bool Result;
+  if (!EvaluateCond(Info,nullptr, E, Result))
+    return false;
+  if (!Result) {
+    Info.CCEDiag(E, Sem == CES::Observe ? diag::warn_constexpr_contract_failure
+                                        : diag::err_constexpr_contract_failure)
+        << E->getSourceRange();
+    return Sem == CES::Observe;
+  }
+  return true;
+}
+
 // Evaluate a statement.
 static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
                                    const Stmt *S, const SwitchCase *Case) {
@@ -5500,12 +5545,14 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
 
   case Stmt::ReturnStmtClass: {
     const Expr *RetExpr = cast<ReturnStmt>(S)->getRetValue();
+
     FullExpressionRAII Scope(Info);
     if (RetExpr && RetExpr->isValueDependent()) {
       EvaluateDependentExpr(RetExpr, Info);
       // We know we returned, but we don't know what the value is.
       return ESR_Failed;
     }
+
     if (RetExpr &&
         !(Result.Slot
               ? EvaluateInPlace(Result.Value, Info, *Result.Slot, RetExpr)
@@ -5567,7 +5614,11 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
     }
     return Scope.destroy() ? ESR_Succeeded : ESR_Failed;
   }
-
+  case Stmt::ContractStmtClass: {
+    if (EvaluateContract(cast<ContractStmt>(S), Info))
+      return ESR_Succeeded;
+    return ESR_Failed;
+  }
   case Stmt::WhileStmtClass: {
     const WhileStmt *WS = cast<WhileStmt>(S);
     while (true) {
@@ -6472,6 +6523,69 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
+static bool EvaluatePreContracts(EvalInfo &Info, const FunctionDecl *Callee,
+                                 CallStackFrame *Frame) {
+  ContractSpecifierDecl *Contracts = Callee->getContracts();
+  if (!Contracts)
+    return true;
+  for (auto *S : Contracts->preconditions()) {
+    if (!EvaluateContract(S, Frame->Info)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
+                                  APValue &ResultValue,
+                                  const LValue *ResultSlot) {
+  if (Info.checkingPotentialConstantExpression())
+    return false;
+
+  ContractSpecifierDecl *Contracts = Callee->getContracts();
+  if (!Contracts)
+    return true;
+  BlockScopeRAII Scope(Info);
+  const ResultNameDecl *CanonicalResultName =
+      Contracts->getCanonicalResultName();
+
+  bool NeedsResultSlot =
+      (!ResultSlot || !ResultSlot->getLValueBase()) && CanonicalResultName;
+
+  APValue *LastValue = nullptr;
+  LValue LV;
+  if (NeedsResultSlot) {
+    auto *RND = CanonicalResultName;
+    assert(RND->getType().isTriviallyCopyableType(Info.Ctx));
+
+    APValue &V = Info.CurrentCall->createTemporary(
+        CanonicalResultName, CanonicalResultName->getType(), ScopeKind::Block,
+        LV);
+
+    // Perform the trivial copy of the result of the function into the
+    // temporary.
+    V = ResultValue;
+    Info.CurrentCall->ResultSlot = nullptr;
+    LastValue = &V;
+  } else {
+    Info.CurrentCall->ResultSlot = ResultSlot;
+    Info.CurrentCall->ResultValue = &ResultValue;
+  }
+  ((void)LastValue);
+
+  for (auto *S : Contracts->postconditions()) {
+    if (!EvaluateContract(S, Info))
+      return false;
+  }
+  // If we used a different result slot, the return value needs to be copied
+  // back.
+  if (NeedsResultSlot) {
+    assert(LastValue);
+    ResultValue = *LastValue;
+  }
+  return true;
+}
+
 /// Evaluate a function call.
 static bool HandleFunctionCall(SourceLocation CallLoc,
                                const FunctionDecl *Callee, const LValue *This,
@@ -6517,14 +6631,20 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
+  if (!EvaluatePreContracts(Info, Callee, &Frame))
+    return false;
+
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
+
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return true;
+      return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
-  return ESR == ESR_Returned;
+  if (ESR == ESR_Returned)
+    return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
+  return false;
 }
 
 /// Evaluate a constructor call.
@@ -8087,7 +8207,8 @@ public:
 
   bool VisitCallExpr(const CallExpr *E) {
     APValue Result;
-    if (!handleCallExpr(E, Result, nullptr))
+    LValue ResultSlot;
+    if (!handleCallExpr(E, Result, &ResultSlot))
       return false;
     return DerivedSuccess(Result, E);
   }
@@ -8658,6 +8779,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E);
   bool VisitDeclRefExpr(const DeclRefExpr *E);
+  bool VisitResultNameDecl(const DeclRefExpr *DE, const ResultNameDecl *E);
   bool VisitPredefinedExpr(const PredefinedExpr *E) { return Success(E); }
   bool VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
@@ -8766,7 +8888,8 @@ static bool EvaluateLValue(const Expr *E, LValue &Result, EvalInfo &Info,
                            bool InvalidBaseOK) {
   assert(!E->isValueDependent());
   assert(E->isGLValue() || E->getType()->isFunctionType() ||
-         E->getType()->isVoidType() || isa<ObjCSelectorExpr>(E->IgnoreParens()));
+         E->getType()->isVoidType() ||
+         isa<ObjCSelectorExpr>(E->IgnoreParens()));
   return LValueExprEvaluator(Info, Result, InvalidBaseOK).Visit(E);
 }
 
@@ -8775,6 +8898,11 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   if (isa<FunctionDecl, MSGuidDecl, TemplateParamObjectDecl,
           UnnamedGlobalConstantDecl>(D))
     return Success(cast<ValueDecl>(D));
+
+  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D)) {
+    return VisitResultNameDecl(E, RND);
+  }
+
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     return VisitVarDecl(E, VD);
   if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
@@ -8782,9 +8910,7 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   return Error(E);
 }
 
-
 bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
-
   // If we are within a lambda's call operator, check whether the 'VD' referred
   // to within 'E' actually represents a lambda-capture that maps to a
   // data-member/field within the closure object, and if so, evaluate to the
@@ -8859,6 +8985,28 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
     return false;
   }
   return Success(*V, E);
+}
+
+bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
+                                              const ResultNameDecl *VD) {
+
+  auto *Frame = Info.CurrentCall;
+  // We don't always have a result value when we're doing this kind of
+  // evaluation?
+  if (Info.checkingPotentialConstantExpression())
+    return false;
+
+  assert(Frame);
+  if (Frame->ResultSlot) {
+    return Success(Frame->ResultSlot->getLValueBase());
+
+    // return Success(Frame->ResultSlot;
+  } else {
+    APValue::LValueBase Base(
+        VD->getCanonicalResultName(), Frame->Index,
+        Frame->getCurrentTemporaryVersion(VD->getCanonicalResultName()));
+    return Success(Base);
+  }
 }
 
 bool LValueExprEvaluator::VisitCallExpr(const CallExpr *E) {
@@ -9620,7 +9768,7 @@ bool PointerExprEvaluator::VisitCastExpr(const CastExpr *E) {
   return ExprEvaluatorBaseTy::VisitCastExpr(E);
 }
 
-static CharUnits GetAlignOfType(EvalInfo &Info, QualType T,
+static CharUnits GetAlignOfType(const ASTContext &Ctx, QualType T,
                                 UnaryExprOrTypeTrait ExprKind) {
   // C++ [expr.alignof]p3:
   //     When alignof is applied to a reference type, the result is the
@@ -9631,23 +9779,22 @@ static CharUnits GetAlignOfType(EvalInfo &Info, QualType T,
     return CharUnits::One();
 
   const bool AlignOfReturnsPreferred =
-      Info.Ctx.getLangOpts().getClangABICompat() <= LangOptions::ClangABI::Ver7;
+      Ctx.getLangOpts().getClangABICompat() <= LangOptions::ClangABI::Ver7;
 
   // __alignof is defined to return the preferred alignment.
   // Before 8, clang returned the preferred alignment for alignof and _Alignof
   // as well.
   if (ExprKind == UETT_PreferredAlignOf || AlignOfReturnsPreferred)
-    return Info.Ctx.toCharUnitsFromBits(
-      Info.Ctx.getPreferredTypeAlign(T.getTypePtr()));
+    return Ctx.toCharUnitsFromBits(Ctx.getPreferredTypeAlign(T.getTypePtr()));
   // alignof and _Alignof are defined to return the ABI alignment.
   else if (ExprKind == UETT_AlignOf)
-    return Info.Ctx.getTypeAlignInChars(T.getTypePtr());
+    return Ctx.getTypeAlignInChars(T.getTypePtr());
   else
     llvm_unreachable("GetAlignOfType on a non-alignment ExprKind");
 }
 
-static CharUnits GetAlignOfExpr(EvalInfo &Info, const Expr *E,
-                                UnaryExprOrTypeTrait ExprKind) {
+CharUnits GetAlignOfExpr(const ASTContext &Ctx, const Expr *E,
+                         UnaryExprOrTypeTrait ExprKind) {
   E = E->IgnoreParens();
 
   // The kinds of expressions that we have special-case logic here for
@@ -9657,22 +9804,22 @@ static CharUnits GetAlignOfExpr(EvalInfo &Info, const Expr *E,
   // alignof decl is always accepted, even if it doesn't make sense: we default
   // to 1 in those cases.
   if (const DeclRefExpr *DRE = dyn_cast<DeclRefExpr>(E))
-    return Info.Ctx.getDeclAlign(DRE->getDecl(),
-                                 /*RefAsPointee*/true);
+    return Ctx.getDeclAlign(DRE->getDecl(),
+                            /*RefAsPointee*/ true);
 
   if (const MemberExpr *ME = dyn_cast<MemberExpr>(E))
-    return Info.Ctx.getDeclAlign(ME->getMemberDecl(),
-                                 /*RefAsPointee*/true);
+    return Ctx.getDeclAlign(ME->getMemberDecl(),
+                            /*RefAsPointee*/ true);
 
-  return GetAlignOfType(Info, E->getType(), ExprKind);
+  return GetAlignOfType(Ctx, E->getType(), ExprKind);
 }
 
 static CharUnits getBaseAlignment(EvalInfo &Info, const LValue &Value) {
   if (const auto *VD = Value.Base.dyn_cast<const ValueDecl *>())
     return Info.Ctx.getDeclAlign(VD);
   if (const auto *E = Value.Base.dyn_cast<const Expr *>())
-    return GetAlignOfExpr(Info, E, UETT_AlignOf);
-  return GetAlignOfType(Info, Value.Base.getTypeInfoType(), UETT_AlignOf);
+    return GetAlignOfExpr(Info.Ctx, E, UETT_AlignOf);
+  return GetAlignOfType(Info.Ctx, Value.Base.getTypeInfoType(), UETT_AlignOf);
 }
 
 /// Evaluate the value of the alignment argument to __builtin_align_{up,down},
@@ -9768,11 +9915,8 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
 
       if (BaseAlignment < Align) {
         Result.Designator.setInvalid();
-        // FIXME: Add support to Diagnostic for long / long long.
-        CCEDiag(E->getArg(0),
-                diag::note_constexpr_baa_insufficient_alignment) << 0
-          << (unsigned)BaseAlignment.getQuantity()
-          << (unsigned)Align.getQuantity();
+        CCEDiag(E->getArg(0), diag::note_constexpr_baa_insufficient_alignment)
+            << 0 << BaseAlignment.getQuantity() << Align.getQuantity();
         return false;
       }
     }
@@ -9783,11 +9927,11 @@ bool PointerExprEvaluator::VisitBuiltinCallExpr(const CallExpr *E,
 
       (OffsetResult.Base
            ? CCEDiag(E->getArg(0),
-                     diag::note_constexpr_baa_insufficient_alignment) << 1
+                     diag::note_constexpr_baa_insufficient_alignment)
+                 << 1
            : CCEDiag(E->getArg(0),
                      diag::note_constexpr_baa_value_insufficient_alignment))
-        << (int)OffsetResult.Offset.getQuantity()
-        << (unsigned)Align.getQuantity();
+          << OffsetResult.Offset.getQuantity() << Align.getQuantity();
       return false;
     }
 
@@ -11873,6 +12017,13 @@ public:
     return Success(E->getValue(), E);
   }
 
+  bool VisitOpenACCAsteriskSizeExpr(const OpenACCAsteriskSizeExpr *E) {
+    // This should not be evaluated during constant expr evaluation, as it
+    // should always be in an unevaluated context (the args list of a 'gang' or
+    // 'tile' clause).
+    return Error(E);
+  }
+
   bool VisitUnaryReal(const UnaryOperator *E);
   bool VisitUnaryImag(const UnaryOperator *E);
 
@@ -11948,6 +12099,8 @@ static bool EvaluateIntegerOrLValue(const Expr *E, APValue &Result,
 }
 
 static bool EvaluateInteger(const Expr *E, APSInt &Result, EvalInfo &Info) {
+  if (E->isValueDependent())
+    E->dumpColor();
   assert(!E->isValueDependent());
   APValue Val;
   if (!EvaluateIntegerOrLValue(E, Val, Info))
@@ -14471,11 +14624,11 @@ bool IntExprEvaluator::VisitUnaryExprOrTypeTraitExpr(
   case UETT_PreferredAlignOf:
   case UETT_AlignOf: {
     if (E->isArgumentType())
-      return Success(GetAlignOfType(Info, E->getArgumentType(), E->getKind()),
-                     E);
+      return Success(
+          GetAlignOfType(Info.Ctx, E->getArgumentType(), E->getKind()), E);
     else
-      return Success(GetAlignOfExpr(Info, E->getArgumentExpr(), E->getKind()),
-                     E);
+      return Success(
+          GetAlignOfExpr(Info.Ctx, E->getArgumentExpr(), E->getKind()), E);
   }
 
   case UETT_PtrAuthTypeDiscriminator: {
@@ -16579,7 +16732,8 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
 bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
                                  const VarDecl *VD,
                                  SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                                 bool IsConstantInitialization) const {
+                                 bool IsConstantInitialization,
+                                 bool EvaluateContracts) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
 
@@ -16600,6 +16754,7 @@ bool Expr::EvaluateAsInitializer(APValue &Value, const ASTContext &Ctx,
                     : EvalInfo::EM_ConstantFold);
   Info.setEvaluatingDecl(VD, Value);
   Info.InConstantContext = IsConstantInitialization;
+  Info.EvaluateContracts = EvaluateContracts;
 
   SourceLocation DeclLoc = VD->getLocation();
   QualType DeclTy = VD->getType();
@@ -16908,6 +17063,7 @@ static ICEDiag CheckICE(const Expr* E, const ASTContext &Ctx) {
   case Expr::GNUNullExprClass:
   case Expr::SourceLocExprClass:
   case Expr::EmbedExprClass:
+  case Expr::OpenACCAsteriskSizeExprClass:
     return NoDiag();
 
   case Expr::PackIndexingExprClass:

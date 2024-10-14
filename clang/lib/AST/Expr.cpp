@@ -443,6 +443,9 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx, ValueDecl *D,
   DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = false;
   DeclRefExprBits.NonOdrUseReason = NOUR;
   DeclRefExprBits.IsImmediateEscalating = false;
+  DeclRefExprBits.IsInContractContext = false;
+  DeclRefExprBits.IsConstified = false;
+
   DeclRefExprBits.Loc = L;
   setDependence(computeDependence(this, Ctx));
 }
@@ -483,6 +486,8 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
   }
   DeclRefExprBits.IsImmediateEscalating = false;
   DeclRefExprBits.HadMultipleCandidates = 0;
+  DeclRefExprBits.IsConstified = false;
+  DeclRefExprBits.IsInContractContext = false;
   setDependence(computeDependence(this, Ctx));
 }
 
@@ -3640,6 +3645,7 @@ bool Expr::HasSideEffects(const ASTContext &Ctx,
   case SYCLUniqueStableNameExprClass:
   case PackIndexingExprClass:
   case HLSLOutArgExprClass:
+  case OpenACCAsteriskSizeExprClass:
     // These never have a side-effect.
     return false;
 
@@ -5407,4 +5413,14 @@ HLSLOutArgExpr *HLSLOutArgExpr::Create(const ASTContext &C, QualType Ty,
 
 HLSLOutArgExpr *HLSLOutArgExpr::CreateEmpty(const ASTContext &C) {
   return new (C) HLSLOutArgExpr(EmptyShell());
+}
+
+OpenACCAsteriskSizeExpr *OpenACCAsteriskSizeExpr::Create(const ASTContext &C,
+                                                         SourceLocation Loc) {
+  return new (C) OpenACCAsteriskSizeExpr(Loc, C.IntTy);
+}
+
+OpenACCAsteriskSizeExpr *
+OpenACCAsteriskSizeExpr::CreateEmpty(const ASTContext &C) {
+  return new (C) OpenACCAsteriskSizeExpr({}, C.IntTy);
 }

@@ -381,6 +381,11 @@ void TextNodeDumper::Visit(const OMPClause *C) {
     OS << " <implicit>";
 }
 
+void TextNodeDumper::VisitOpenACCAsteriskSizeExpr(
+    const OpenACCAsteriskSizeExpr *E) {
+  // Nothing to do here, only location exists, and that is printed elsewhere.
+}
+
 void TextNodeDumper::Visit(const OpenACCClause *C) {
   if (!C) {
     ColorScope Color(OS, ShowColors, NullColor);
@@ -414,11 +419,23 @@ void TextNodeDumper::Visit(const OpenACCClause *C) {
     case OpenACCClauseKind::Private:
     case OpenACCClauseKind::Self:
     case OpenACCClauseKind::Seq:
+    case OpenACCClauseKind::Tile:
     case OpenACCClauseKind::VectorLength:
       // The condition expression will be printed as a part of the 'children',
       // but print 'clause' here so it is clear what is happening from the dump.
       OS << " clause";
       break;
+    case OpenACCClauseKind::Gang: {
+      OS << " clause";
+      // print the list of all GangKinds, so that there is some sort of
+      // relationship to the expressions listed afterwards.
+      auto *GC = cast<OpenACCGangClause>(C);
+
+      for (unsigned I = 0; I < GC->getNumExprs(); ++I) {
+        OS << " " << GC->getExpr(I).first;
+      }
+      break;
+    }
     case OpenACCClauseKind::Collapse:
       OS << " clause";
       if (cast<OpenACCCollapseClause>(C)->hasForce())
@@ -2303,6 +2320,17 @@ void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
   dumpType(D->getType());
 }
 
+void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
+  dumpName(D);
+  dumpType(D->getType());
+  if (!D->isCanonicalResultName()) {
+    OS << " canonical ";
+    dumpPointer(D->getCanonicalResultName());
+  } else {
+    dumpPointer(D);
+  }
+}
+
 void TextNodeDumper::VisitCapturedDecl(const CapturedDecl *D) {
   if (D->isNothrow())
     OS << " nothrow";
@@ -2915,6 +2943,38 @@ void TextNodeDumper::VisitOpenACCLoopConstruct(const OpenACCLoopConstruct *S) {
 void TextNodeDumper::VisitEmbedExpr(const EmbedExpr *S) {
   AddChild("begin", [=] { OS << S->getStartingElementPos(); });
   AddChild("number of elements", [=] { OS << S->getDataElementCount(); });
+}
+
+
+void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  switch (S->getContractKind()) {
+  case ContractKind::Post:
+    OS << " post";
+    break;
+  case ContractKind::Pre:
+    OS << " pre";
+    break;
+  case ContractKind::Assert:
+    OS << " contract_assert";
+    break;
+  }
+  if (Context) {
+    switch (S->getSemantic(*Context)) {
+    case ContractEvaluationSemantic::Ignore:
+      OS << " ignore";
+      break;
+    case ContractEvaluationSemantic::Enforce:
+      OS << " enforce";
+      break;
+    case ContractEvaluationSemantic::QuickEnforce:
+      OS << " quick_enforce";
+      break;
+    case ContractEvaluationSemantic::Observe:
+      OS << " observe";
+      break;
+    }
+  }
 }
 
 void TextNodeDumper::VisitAtomicExpr(const AtomicExpr *AE) {

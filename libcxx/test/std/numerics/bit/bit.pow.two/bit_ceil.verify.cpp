@@ -14,6 +14,7 @@
 // Remarks: This function shall not participate in overload resolution unless
 //          T is an unsigned integer type
 
+
 #include <bit>
 #include <cassert>
 #include <cstddef>
@@ -30,8 +31,10 @@ constexpr bool toobig()
     return 0 == std::bit_ceil(std::numeric_limits<T>::max());
 }
 
+
 int main(int, char**)
 {
+    // expected-error@* 5-15 {{contract failed}}
     // Make sure we generate a compile-time error for UB
     static_assert(toobig<unsigned char>(),      ""); // expected-error {{static assertion expression is not an integral constant expression}}
     static_assert(toobig<unsigned short>(),     ""); // expected-error {{static assertion expression is not an integral constant expression}}
@@ -44,8 +47,10 @@ int main(int, char**)
     static_assert(toobig<std::uint32_t>(), "");  // expected-error {{static assertion expression is not an integral constant expression}}
     static_assert(toobig<std::uint64_t>(), "");  // expected-error {{static assertion expression is not an integral constant expression}}
     static_assert(toobig<std::size_t>(), "");    // expected-error {{static assertion expression is not an integral constant expression}}
-    static_assert(toobig<std::uintmax_t>(), ""); // expected-error {{static assertion expression is not an integral constant expression}}
-    static_assert(toobig<std::uintptr_t>(), ""); // expected-error {{static assertion expression is not an integral constant expression}}
+
+    // expected-error@* 0-1 {{too many errors}}
+    static_assert(toobig<std::uintmax_t>(), ""); // expected-error 0-1 {{static assertion expression is not an integral constant expression}}
+    static_assert(toobig<std::uintptr_t>(), ""); // expected-error 0-1 {{static assertion expression is not an integral constant expression}}
 
     return 0;
 }

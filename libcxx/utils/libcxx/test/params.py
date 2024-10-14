@@ -128,6 +128,8 @@ def testClangTidy(cfg, version, executable):
     except ConfigurationRuntimeError:
         return None
 
+def hasContractSupport(cfg):
+    return hasCompileFlag(cfg, "-fcontracts") and hasCompileFlag(cfg, "-fcontract-group-evaluation-semantic=std=enforce")
 
 def getSuitableClangTidy(cfg):
     # If we didn't build the libcxx-tidy plugin via CMake, we can't run the clang-tidy tests.
@@ -360,7 +362,6 @@ DEFAULT_PARAMETERS = [
         if experimental
         else [
             AddFeature("libcpp-has-no-incomplete-pstl"),
-            AddFeature("libcpp-has-no-experimental-stop_token"),
             AddFeature("libcpp-has-no-experimental-tzdb"),
             AddFeature("libcpp-has-no-experimental-syncstream"),
         ],
@@ -439,5 +440,17 @@ DEFAULT_PARAMETERS = [
             AddSubstitution('%{clang-tidy}', exe),
         ]
     ),
+    Parameter(
+        name="use-contracts",
+        type=bool,
+        default=True,
+        help="Whether to enable contracts when compiling the test suite.",
+        actions=lambda use_contracts: [] if not use_contracts else [
+            AddCompileFlag("-fcontracts"),
+            AddCompileFlag('-fcolor-diagnostics'),
+            AddFeature("contracts"),
+            AddCompileFlag("-fcontract-group-evaluation-semantic=std=enforce"),
+        ],
+    )
 ]
 # fmt: on

@@ -439,7 +439,7 @@ def warn_reserved_extern_symbol: Warning<
   InGroup<ReservedIdentifier>, DefaultIgnore;
 def warn_deprecated_literal_operator_id: Warning<
   "identifier %0 preceded by whitespace in a literal operator declaration "
-  "is deprecated">, InGroup<DeprecatedLiteralOperator>, DefaultIgnore;
+  "is deprecated">, InGroup<DeprecatedLiteralOperator>;
 def warn_reserved_module_name : Warning<
   "%0 is a reserved name for a module">, InGroup<ReservedModuleIdentifier>;
 def warn_import_implementation_partition_unit_in_interface_unit : Warning<
@@ -3093,6 +3093,7 @@ def err_unsupported_placeholder_constraint : Error<
   "constrained placeholder types other than simple 'auto' on non-type template "
   "parameters not supported yet">;
 
+
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
 def err_template_different_type_constraint : Error<
@@ -5262,13 +5263,6 @@ def note_template_arg_refers_here_func : Note<
 def err_template_arg_template_params_mismatch : Error<
   "template template argument has different template parameters than its "
   "corresponding template template parameter">;
-def note_template_arg_template_params_mismatch : Note<
-  "template template argument has different template parameters than its "
-  "corresponding template template parameter">;
-def err_non_deduced_mismatch : Error<
-  "could not match %diff{$ against $|types}0,1">;
-def err_inconsistent_deduction : Error<
-  "conflicting deduction %diff{$ against $|types}0,1 for parameter">;
 def err_template_arg_not_integral_or_enumeral : Error<
   "non-type template argument of type %0 must have an integral or enumeration"
   " type">;
@@ -7521,6 +7515,9 @@ def note_typecheck_assign_const : Note<
   "member function %q1 is declared const here|"
   "%select{|nested }1data member %2 declared const here}0">;
 
+def err_typecheck_assign_constified : Error<
+    "cannot assign to %select{variable %1|non-static data member}0 because it is considered 'const' inside of a contract">;
+
 def warn_unsigned_always_true_comparison : Warning<
   "result of comparison of %select{%3|unsigned expression}0 %2 "
   "%select{unsigned expression|%3}0 is always %4">,
@@ -9386,7 +9383,8 @@ let CategoryName = "Inline Assembly Issue" in {
     "global register variables on this target">;
   def err_asm_register_size_mismatch : Error<"size of register '%0' does not "
     "match variable size">;
-  def err_asm_bad_register_type : Error<"bad type for named register variable">;
+  def err_asm_unsupported_register_type : Error<
+    "unsupported type for named register variable">;
   def err_asm_invalid_input_size : Error<
     "invalid input size for constraint '%0'">;
   def err_asm_invalid_output_size : Error<
@@ -10510,8 +10508,8 @@ def err_first_argument_to_cwsc_pdtor_call : Error<
 def err_second_argument_to_cwsc_not_pointer : Error<
   "second argument to __builtin_call_with_static_chain must be of pointer type">;
 
-def err_vector_incorrect_num_initializers : Error<
-  "%select{too many|too few}0 elements in vector initialization (expected %1 elements, have %2)">;
+def err_vector_incorrect_num_elements : Error<
+  "%select{too many|too few}0 elements in vector %select{initialization|operand}3 (expected %1 elements, have %2)">;
 def err_altivec_empty_initializer : Error<"expected initializer">;
 
 def err_invalid_neon_type_code : Error<
@@ -10625,7 +10623,10 @@ def warn_duplicate_attribute : Warning<
   "attribute %0 is already applied with different arguments">,
   InGroup<IgnoredAttributes>;
 def err_disallowed_duplicate_attribute : Error<
-  "attribute %0 cannot appear more than once on a declaration">;
+  "attribute %0 cannot appear more than once on a %select{declaration|contract specifier}1">;
+
+def err_disallow_incompatible_attribute : Error<
+    "attribute %1 cannot appear on a %select{declaration|contract specifier}0 with attribute %2">;
 
 def warn_sync_fetch_and_nand_semantics_change : Warning<
   "the semantics of this intrinsic changed with GCC "
@@ -10972,19 +10973,68 @@ def warn_imp_cast_drops_unaligned : Warning<
   InGroup<DiagGroup<"unaligned-qualifier-implicit-cast">>;
 
 // Function effects
+def warn_func_effect_violation : Warning<
+  "%select{function|constructor|destructor|lambda|block|member initializer of constructor}0 "
+  "with '%1' attribute "
+  "must not %select{allocate or deallocate memory|throw or catch exceptions|"
+  "have static local variables|use thread-local variables|access ObjC methods or properties}2">,
+  InGroup<FunctionEffects>, DefaultIgnore;
+def note_func_effect_violation : Note<
+  "%select{function|constructor|destructor|lambda|block|member initializer}0 "
+  "cannot be inferred '%1' because it "
+  "%select{allocates or deallocates memory|throws or catches exceptions|"
+  "has a static local variable|uses a thread-local variable|"
+  "accesses an ObjC method or property}2">;
+def warn_func_effect_calls_func_without_effect : Warning<
+  "%select{function|constructor|destructor|lambda|block|member initializer of constructor}0 "
+  "with '%1' attribute "
+  "must not call non-'%1' "
+  "%select{function|constructor|destructor|lambda|block}2 "
+  "'%3'">,
+  InGroup<FunctionEffects>, DefaultIgnore;
+def note_func_effect_calls_func_without_effect : Note<
+  "%select{function|constructor|destructor|lambda|block|member initializer}0 "
+  "cannot be inferred '%1' because it calls non-'%1' "
+  "%select{function|constructor|destructor|lambda|block}2 "
+  "'%3'">;
+def warn_func_effect_calls_expr_without_effect : Warning<
+  "%select{function|constructor|destructor|lambda|block|member initializer of constructor}0 "
+  "with '%1' attribute "
+  "must not call non-'%1' expression">,
+  InGroup<FunctionEffects>, DefaultIgnore;
+def note_func_effect_call_extern : Note<
+  "declaration cannot be inferred '%0' because it has no definition in this translation unit">;
+def note_func_effect_call_disallows_inference : Note<
+  "%select{function|constructor|destructor|lambda|block}0 "
+  "does not permit inference of '%1' because it is declared '%2'">;
+def note_func_effect_call_indirect : Note<
+  "%select{virtual method|function pointer}0 cannot be inferred '%1'">;
+def warn_perf_constraint_implies_noexcept : Warning<
+  "%select{function|constructor|destructor|lambda|block}0 "
+  "with '%1' attribute should be declared noexcept">,
+  InGroup<PerfConstraintImpliesNoexcept>, DefaultIgnore;
+
+// FIXME: It would be nice if we could provide fuller template expansion notes.
+def note_func_effect_from_template : Note<
+  "in template expansion here">;
+def note_func_effect_in_constructor : Note<
+  "in%select{| implicit}0 constructor here">;
+def note_in_evaluating_default_argument : Note<
+  "in evaluating default argument here">;
+
 // spoofing nonblocking/nonallocating
 def warn_invalid_add_func_effects : Warning<
   "attribute '%0' should not be added via type conversion">,
-  InGroup<FunctionEffects>;
+  InGroup<FunctionEffects>, DefaultIgnore;
 def warn_mismatched_func_effect_override : Warning<
   "attribute '%0' on overriding function does not match base declaration">,
-  InGroup<FunctionEffects>;
+  InGroup<FunctionEffects>, DefaultIgnore;
 def warn_mismatched_func_effect_redeclaration : Warning<
   "attribute '%0' on function does not match previous declaration">,
-  InGroup<FunctionEffects>;
+  InGroup<FunctionEffects>, DefaultIgnore;
 def warn_conflicting_func_effects : Warning<
   "effects conflict when merging declarations; kept '%0', discarded '%1'">,
-  InGroup<FunctionEffects>;
+  InGroup<FunctionEffects>, DefaultIgnore;
 def err_func_with_effects_no_prototype : Error<
   "'%0' function must have a prototype">;
 
@@ -11659,6 +11709,10 @@ def err_omp_dispatch_statement_call
             " to a target function or an assignment to one">;
 def err_omp_unroll_full_variable_trip_count : Error<
   "loop to be fully unrolled must have a constant trip count">;
+def err_omp_interchange_permutation_value_range : Error<
+  "permutation index must be at least 1 and at most %0">;
+def err_omp_interchange_permutation_value_repeated : Error<
+  "index %0 must appear exactly once in the permutation clause">;
 def note_omp_directive_here : Note<"'%0' directive found here">;
 def err_omp_instantiation_not_supported
     : Error<"instantiation of '%0' not supported yet">;
@@ -11939,6 +11993,122 @@ def err_coroutine_return_type : Error<
 >;
 } // end of coroutines issue category
 
+def select_contract_kind : TextSubstitution<
+  "%select{pre|post|contract_assert}0">;
+
+let CategoryName = "Contract Issue" in {
+def err_ericwf_unimplemented : Error<
+  "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
+>;
+def warn_ericwf_unimplemented : Warning<
+  "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
+>, InGroup<EricWFFixme>;
+
+def err_ericwf_fixme : Error<
+  "woops... FIXME(EricWF): %0"
+>;
+def warn_ericwf_fixme : Warning<
+  "woops... FIXME(EricWF): %0"
+>, InGroup<EricWFFixme>;
+
+def err_result_name_shadows_param : Error<
+  "declaration of result name %0 shadows parameter">;
+def err_void_result_name : Error<
+  "result name %0 cannot be used with a void return type">;
+def err_deduced_auto_result_name_without_body : Error<
+  "result name on function with deduced return type requires a body">;
+def err_result_name_not_allowed : Error<
+  "result name %0 not allowed outside of post condition specifier">;
+
+// Diagnose clang::contract_group attribute strings
+def err_contract_group_attribute_invalid_group : Error<
+  "clang::contract_group group %select{"
+     "\"%1\" cannot start with '%2'"
+    "|\"%1\" cannot contain '%2'"
+    "|\"%1\" cannot end with '%2'"
+    "|\"%1\" cannot contain empty subgroup \"%2\""
+    "|cannot be empty"
+    "|<cannot-happen-here>"
+    "}0">;
+
+
+
+def err_contract_violation : Error<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">;
+def warn_contract_violation : Warning<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">,
+    InGroup<ContractViolation>;
+
+def err_contract_requirement_failed : Error<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">;
+def warn_contract_requirement_failed : Warning<
+  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">,
+  InGroup<ContractViolation>;
+
+def err_constexpr_contract_failure : Error<
+  "contract failed during execution of constexpr function">;
+def warn_constexpr_contract_failure : Warning<
+    "contract failed during execution of constexpr function">,
+    InGroup<ContractViolation>;
+
+def err_initialization_of_constant_initialized_variable_failed : Error<
+    "initialization of constant-initialized variable failed">;
+def note_initialization_changed_contract_semantic : Note<
+    "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
+
+// Redeclaration of contract attributes
+def err_function_different_contract_seq : Error<
+  "%select{function|method}0 %select{redeclaration|out-of-line definition}0 differs in contract specifier sequence">;
+def note_contract_spec_seq_arity_mismatch : Note<
+  "previously declared %select{with additional|with fewer|without}0 contracts here%select{ (%1 vs %2)| (%1 vs %2)|}0">;
+def note_previous_contract_spec_seq : Note<
+  "previously declared %select{without|with %1}0 contracts here">;
+
+def note_mismatched_contract : Note<
+  "in contract specified here">;
+def note_previous_contracts : Note<
+  "contract previously specified %select{"
+  "<ERROR>"
+  "|<ERROR>"
+  "|as '%sub{select_contract_kind}1'"
+  "|%select{without|with}2 result name"
+  "|with a non-equivalent condition}0">;
+
+def err_contract_attr_bool_arg_not_constant : Error<
+  "argument to %0 attribute must be a boolean constant expression">;
+
+def warn_contract_always_evaluates_to : Warning<
+  "contract condition always evaluates to %select{false|true}0">,
+  InGroup<ContractViolation>;
+
+def err_contract_postcondition_parameter_type_invalid : Error<
+    "parameter %0 referenced in contract postcondition %select{cannot have an array type|cannot have a function type|must be declared const}1">;
+def note_parameter_with_name : Note<
+  "parameter %0 is declared here">;
+def note_parameter_with_name_and_type : Note<
+  "parameter %0 declared with type %1 here">;
+
+def err_lambda_implicit_capture_in_contracts_only : Error<
+         "implicit capture of local entity %0 is not allowed when used exclusively in contract assertions">;
+
+def note_lambda_implicit_capture_in_contracts_only : Note<
+  "use explicit capture list to capture %0">;
+
+def err_auto_result_name_on_non_def_decl : Error<
+   "postcondition with result name %0 cannot appear on a function declaration with deduced return type unless it is a definition">;
+   // "result name '%0' cannot appear in postcondition for a non-template function declaration with a deduced return type">;
+def note_function_return_type : Note<
+    "function return type declared here">;
+
+def note_contract_context : Note<
+  "within contract context introduced here">;
+def note_cxx_this_const_in_contract_introduced_here : Note<
+  "'this' is 'const' within contract introduced here">;
+def err_keyword_not_allowed_in_contract : Error<
+    "'%0' cannot be used inside a contract">;
+
+
+def err_lambda_decl_ref_not_modifiable_lvalue_contract : Error<
+  "cannot assign to a variable captured by reference which was captured as const because it is inside a contract">;
+} // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;
@@ -12529,6 +12699,7 @@ def err_acc_duplicate_clause_disallowed
     : Error<"OpenACC '%1' clause cannot appear more than once on a '%0' "
             "directive">;
 def note_acc_previous_clause_here : Note<"previous clause is here">;
+def note_acc_previous_expr_here : Note<"previous expression is here">;
 def err_acc_branch_in_out_compute_construct
     : Error<"invalid %select{branch|return|throw}0 %select{out of|into}1 "
             "OpenACC Compute Construct">;
@@ -12617,17 +12788,42 @@ def err_acc_loop_spec_conflict
 def err_acc_collapse_loop_count
     : Error<"OpenACC 'collapse' clause loop count must be a %select{constant "
             "expression|positive integer value, evaluated to %1}0">;
-def err_acc_invalid_in_collapse_loop
-    : Error<"%select{OpenACC '%1' construct|while loop|do loop}0 cannot appear "
-            "in intervening code of a 'loop' with a 'collapse' clause">;
-def note_acc_collapse_clause_here
-    : Note<"active 'collapse' clause defined here">;
-def err_acc_collapse_multiple_loops
+def err_acc_size_expr_value
+    : Error<
+          "OpenACC 'tile' clause size expression must be %select{an asterisk "
+          "or a constant expression|positive integer value, evaluated to %1}0">;
+def err_acc_invalid_in_loop
+    : Error<"%select{OpenACC '%2' construct|while loop|do loop}0 cannot appear "
+            "in intervening code of a 'loop' with a '%1' clause">;
+def note_acc_active_clause_here
+    : Note<"active '%0' clause defined here">;
+def err_acc_clause_multiple_loops
     : Error<"more than one for-loop in a loop associated with OpenACC 'loop' "
-            "construct with a 'collapse' clause">;
-def err_acc_collapse_insufficient_loops
-    : Error<"'collapse' clause specifies a loop count greater than the number "
+            "construct with a '%select{collapse|tile}0' clause">;
+def err_acc_insufficient_loops
+    : Error<"'%0' clause specifies a loop count greater than the number "
             "of available loops">;
+def err_acc_intervening_code
+    : Error<"inner loops must be tightly nested inside a '%0' clause on "
+            "a 'loop' construct">;
+def err_acc_gang_multiple_elt
+    : Error<"OpenACC 'gang' clause may have at most one %select{unnamed or "
+            "'num'|'dim'|'static'}0 argument">;
+def err_acc_gang_arg_invalid
+    : Error<"'%0' argument on 'gang' clause is not permitted on a%select{n "
+            "orphaned|||}1 'loop' construct %select{|associated with a "
+            "'parallel' compute construct|associated with a 'kernels' compute "
+            "construct|associated with a 'serial' compute construct}1">;
+def err_acc_gang_dim_value
+    : Error<"argument to 'gang' clause dimension must be %select{a constant "
+            "expression|1, 2, or 3: evaluated to %1}0">;
+def err_acc_gang_num_gangs_conflict
+    : Error<"'num' argument to 'gang' clause not allowed on a 'loop' construct "
+            "associated with a 'kernels' construct that has a 'num_gangs' "
+            "clause">;
+def err_acc_gang_inside_gang
+    : Error<"loop with a 'gang' clause may not exist in the region of a 'gang' "
+            "clause on a 'kernels' compute construct">;
 
 // AMDGCN builtins diagnostics
 def err_amdgcn_global_load_lds_size_invalid_value : Error<"invalid size value">;

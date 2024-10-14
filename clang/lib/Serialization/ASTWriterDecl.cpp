@@ -109,6 +109,8 @@ namespace clang {
     void VisitNonTypeTemplateParmDecl(NonTypeTemplateParmDecl *D);
     void VisitTemplateDecl(TemplateDecl *D);
     void VisitConceptDecl(ConceptDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
+    void VisitContractSpecifierDecl(ContractSpecifierDecl *D);
     void VisitImplicitConceptSpecializationDecl(
         ImplicitConceptSpecializationDecl *D);
     void VisitRequiresExprBodyDecl(RequiresExprBodyDecl *D);
@@ -614,7 +616,10 @@ void ASTDeclWriter::VisitEnumConstantDecl(EnumConstantDecl *D) {
 void ASTDeclWriter::VisitDeclaratorDecl(DeclaratorDecl *D) {
   VisitValueDecl(D);
   Record.AddSourceLocation(D->getInnerLocStart());
-  Record.push_back(D->hasExtInfo());
+  BitsPacker DeclDeclBits;
+  DeclDeclBits.addBit(D->hasExtInfo());
+  Record.push_back(DeclDeclBits);
+
   if (D->hasExtInfo()) {
     DeclaratorDecl::ExtInfo *Info = D->getExtInfo();
     Record.AddQualifierInfo(*Info);
@@ -734,6 +739,7 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   FunctionDeclBits.addBit(D->isLateTemplateParsed());
   FunctionDeclBits.addBit(D->FriendConstraintRefersToEnclosingTemplate());
   FunctionDeclBits.addBit(D->usesSEHTry());
+  FunctionDeclBits.addBit(D->hasContracts());
   Record.push_back(FunctionDeclBits);
 
   Record.AddSourceLocation(D->getEndLoc());
@@ -764,7 +770,23 @@ void ASTDeclWriter::VisitFunctionDecl(FunctionDecl *D) {
   Record.push_back(D->param_size());
   for (auto *P : D->parameters())
     Record.AddDeclRef(P);
+
+  if (D->hasContracts())
+    Record.AddDeclRef(D->getContracts());
+
   Code = serialization::DECL_FUNCTION;
+}
+
+void ASTDeclWriter::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  assert(!CSD->hasInventedPlaceholdersTypes() &&
+         "Cannot have invented placeholders on a serializable declaration");
+
+  VisitDecl(CSD);
+  Record.push_back(CSD->NumContracts);
+  for (auto *C : CSD->contracts())
+    Record.AddStmt(C);
+
+  Code = serialization::DECL_CONTRACT_SPECIFIER;
 }
 
 static void addExplicitSpecifier(ExplicitSpecifier ES,
@@ -1697,6 +1719,15 @@ void ASTDeclWriter::VisitConceptDecl(ConceptDecl *D) {
   Code = serialization::DECL_CONCEPT;
 }
 
+void ASTDeclWriter::VisitResultNameDecl(ResultNameDecl *D) {
+  VisitNamedDecl(D);
+  Record.push_back(D->isCanonicalResultName());
+  if (!D->isCanonicalResultName()) {
+    Record.AddDeclRef(D->getCanonicalResultName());
+  }
+  Code = serialization::DECL_RESULT_NAME;
+}
+
 void ASTDeclWriter::VisitImplicitConceptSpecializationDecl(
     ImplicitConceptSpecializationDecl *D) {
   Record.push_back(D->getTemplateArguments().size());
@@ -1713,14 +1744,13 @@ void ASTDeclWriter::VisitRequiresExprBodyDecl(RequiresExprBodyDecl *D) {
 void ASTDeclWriter::VisitRedeclarableTemplateDecl(RedeclarableTemplateDecl *D) {
   VisitRedeclarable(D);
 
+  Record.push_back(D->isMemberSpecialization());
+
   // Emit data to initialize CommonOrPrev before VisitTemplateDecl so that
   // getCommonPtr() can be used while this is still initializing.
-  if (D->isFirstDecl()) {
+  if (D->isFirstDecl())
     // This declaration owns the 'common' pointer, so serialize that data now.
     Record.AddDeclRef(D->getInstantiatedFromMemberTemplate());
-    if (D->getInstantiatedFromMemberTemplate())
-      Record.push_back(D->isMemberSpecialization());
-  }
 
   VisitTemplateDecl(D);
   Record.push_back(D->getIdentifierNamespace());
@@ -1806,11 +1836,10 @@ void ASTDeclWriter::VisitClassTemplatePartialSpecializationDecl(
 
   VisitClassTemplateSpecializationDecl(D);
 
+  Record.push_back(D->isMemberSpecialization());
   // These are read/set from/to the first declaration.
-  if (D->getPreviousDecl() == nullptr) {
+  if (D->isFirstDecl())
     Record.AddDeclRef(D->getInstantiatedFromMember());
-    Record.push_back(D->isMemberSpecialization());
-  }
 
   Code = serialization::DECL_CLASS_TEMPLATE_PARTIAL_SPECIALIZATION;
 }
@@ -1874,12 +1903,11 @@ void ASTDeclWriter::VisitVarTemplatePartialSpecializationDecl(
   Record.AddTemplateParameterList(D->getTemplateParameters());
 
   VisitVarTemplateSpecializationDecl(D);
+  Record.push_back(D->isMemberSpecialization());
 
   // These are read/set from/to the first declaration.
-  if (D->getPreviousDecl() == nullptr) {
+  if (D->isFirstDecl())
     Record.AddDeclRef(D->getInstantiatedFromMember());
-    Record.push_back(D->isMemberSpecialization());
-  }
 
   Code = serialization::DECL_VAR_TEMPLATE_PARTIAL_SPECIALIZATION;
 }

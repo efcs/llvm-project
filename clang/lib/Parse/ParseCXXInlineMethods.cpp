@@ -576,6 +576,10 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     LM.ExceptionSpecTokens = nullptr;
   }
 
+  if (!LM.ContractTokens.empty())
+    ParseLexedFunctionContracts(LM.ContractTokens, LM.Method,
+                                Parser::CES_Function | Parser::CES_CXXThis);
+
   InFunctionTemplateScope.Scopes.Exit();
 
   // Finish the delayed C++ method declaration.

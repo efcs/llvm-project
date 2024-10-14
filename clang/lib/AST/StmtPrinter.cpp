@@ -1309,6 +1309,10 @@ void StmtPrinter::VisitPredefinedExpr(PredefinedExpr *Node) {
   OS << PredefinedExpr::getIdentKindName(Node->getIdentKind());
 }
 
+void StmtPrinter::VisitOpenACCAsteriskSizeExpr(OpenACCAsteriskSizeExpr *Node) {
+  OS << '*';
+}
+
 void StmtPrinter::VisitCharacterLiteral(CharacterLiteral *Node) {
   CharacterLiteral::print(Node->getValue(), Node->getKind(), OS);
 }
@@ -2637,6 +2641,41 @@ void StmtPrinter::VisitDependentCoawaitExpr(DependentCoawaitExpr *S) {
 void StmtPrinter::VisitCoyieldExpr(CoyieldExpr *S) {
   OS << "co_yield ";
   PrintExpr(S->getOperand());
+}
+
+// C++ contracts
+
+void StmtPrinter::VisitContractStmt(ContractStmt *Node) {
+  const char *Keyword = [=]() {
+    switch (Node->getContractKind()) {
+    case ContractKind::Assert:
+      return "contract_assert";
+    case ContractKind::Pre:
+      return "pre";
+    case ContractKind::Post:
+      return "post";
+    }
+    llvm_unreachable("unhandled case");
+  }();
+
+  // Print the contract keyword...
+  OS << Keyword;
+
+  // Then any attributes...
+  // FIXME: We assume any attributes appear in this position rather than at the
+  // start of the statement.
+  llvm::ArrayRef<const Attr *> Attrs = Node->getAttrs();
+  for (const auto *Attr : Attrs) {
+    OS << " ";
+    Attr->printPretty(OS, Policy);
+    if (Attr == Attrs.back())
+      OS << " ";
+  }
+  OS << "(";
+  PrintExpr(Node->getCond());
+  OS << ")";
+  if (Node->getContractKind() == ContractKind::Assert)
+    OS << ";";
 }
 
 // Obj-C

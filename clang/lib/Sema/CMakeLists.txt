@@ -43,6 +43,7 @@ add_clang_library(clangSema
   SemaCodeComplete.cpp
   SemaConcept.cpp
   SemaConsumer.cpp
+  SemaContract.cpp
   SemaCoroutine.cpp
   SemaCUDA.cpp
   SemaDecl.cpp
@@ -55,6 +56,7 @@ add_clang_library(clangSema
   SemaExprMember.cpp
   SemaExprObjC.cpp
   SemaFixItUtils.cpp
+  SemaFunctionEffects.cpp
   SemaHLSL.cpp
   SemaHexagon.cpp
   SemaInit.cpp

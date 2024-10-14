@@ -81,6 +81,7 @@ IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
 // Constants for TokenKinds.def
 namespace {
 
+
 enum TokenKey : unsigned {
   KEYC99 = 0x1,
   KEYCXX = 0x2,
@@ -111,7 +112,8 @@ enum TokenKey : unsigned {
   KEYNOZOS = 0x4000000,
   KEYHLSL = 0x8000000,
   KEYFIXEDPOINT = 0x10000000,
-  KEYMAX = KEYFIXEDPOINT, // The maximum key
+  KEYCONTRACTS =  0x20000000,
+  KEYMAX = KEYCONTRACTS, // The maximum key
   KEYALLCXX = KEYCXX | KEYCXX11 | KEYCXX20,
   KEYALL = (KEYMAX | (KEYMAX - 1)) & ~KEYNOMS18 & ~KEYNOOPENCL &
            ~KEYNOZOS // KEYNOMS18, KEYNOOPENCL, KEYNOZOS are excluded.
@@ -191,6 +193,8 @@ static KeywordStatus getKeywordStatusHelper(const LangOptions &LangOpts,
     return LangOpts.ZVector ? KS_Enabled : KS_Unknown;
   case KEYCOROUTINES:
     return LangOpts.Coroutines ? KS_Enabled : KS_Unknown;
+  case KEYCONTRACTS:
+    return LangOpts.Contracts ? KS_Enabled : KS_Unknown;
   case KEYMODULES:
     return KS_Unknown;
   case KEYOPENCLCXX:
@@ -406,6 +410,9 @@ ReservedLiteralSuffixIdStatus
 IdentifierInfo::isReservedLiteralSuffixId() const {
   StringRef Name = getName();
 
+  // Note: the diag::warn_deprecated_literal_operator_id diagnostic depends on
+  // this being the first check we do, so if this order changes, we have to fix
+  // that as well.
   if (Name[0] != '_')
     return ReservedLiteralSuffixIdStatus::NotStartsWithUnderscore;
 

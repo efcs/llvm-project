@@ -1614,6 +1614,12 @@ DEF_TRAVERSE_DECL(FriendDecl, {
   }
 })
 
+DEF_TRAVERSE_DECL(ContractSpecifierDecl, {
+  for (auto *C : D->contracts()) {
+    TRY_TO(TraverseStmt(C));
+  }
+})
+
 DEF_TRAVERSE_DECL(FriendTemplateDecl, {
   if (D->getFriendType())
     TRY_TO(TraverseTypeLoc(D->getFriendType()->getTypeLoc()));
@@ -2155,6 +2161,8 @@ DEF_TRAVERSE_DECL(BindingDecl, {
     TRY_TO(TraverseStmt(D->getBinding()));
 })
 
+DEF_TRAVERSE_DECL(ResultNameDecl, {})
+
 DEF_TRAVERSE_DECL(MSPropertyDecl, { TRY_TO(TraverseDeclaratorHelper(D)); })
 
 DEF_TRAVERSE_DECL(MSGuidDecl, {})
@@ -2236,6 +2244,13 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
   if (Expr *TrailingRequiresClause = D->getTrailingRequiresClause()) {
     TRY_TO(TraverseStmt(TrailingRequiresClause));
   }
+
+  // Visit any contracts attached to the function declaration..
+#if 0 // TODO(EricWF): Enable this.
+  if (auto *Contracts = D->getContracts()) {
+    TRY_TO(TraverseDecl(Contracts));
+  }
+#endif
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
     // Constructor initializers.
@@ -2451,6 +2466,15 @@ DEF_TRAVERSE_STMT(ObjCAtThrowStmt, {})
 DEF_TRAVERSE_STMT(ObjCAtTryStmt, {})
 DEF_TRAVERSE_STMT(ObjCForCollectionStmt, {})
 DEF_TRAVERSE_STMT(ObjCAutoreleasePoolStmt, {})
+// FIXME(EricWF): This may have a declaration with a body eventually.
+// Will that need a different implementation.
+DEF_TRAVERSE_STMT(ContractStmt, {
+  if (S->hasResultName()) {
+    TRY_TO(TraverseDecl(S->getResultName()));
+  }
+  TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getCond());
+  ShouldVisitChildren = false;
+})
 
 DEF_TRAVERSE_STMT(CXXForRangeStmt, {
   if (!getDerived().shouldVisitImplicitCode()) {
@@ -2867,6 +2891,7 @@ DEF_TRAVERSE_STMT(ParenListExpr, {})
 DEF_TRAVERSE_STMT(SYCLUniqueStableNameExpr, {
   TRY_TO(TraverseTypeLoc(S->getTypeSourceInfo()->getTypeLoc()));
 })
+DEF_TRAVERSE_STMT(OpenACCAsteriskSizeExpr, {})
 DEF_TRAVERSE_STMT(PredefinedExpr, {})
 DEF_TRAVERSE_STMT(ShuffleVectorExpr, {})
 DEF_TRAVERSE_STMT(ConvertVectorExpr, {})
@@ -3343,6 +3368,14 @@ bool RecursiveASTVisitor<Derived>::VisitOMPSimdlenClause(OMPSimdlenClause *C) {
 template <typename Derived>
 bool RecursiveASTVisitor<Derived>::VisitOMPSizesClause(OMPSizesClause *C) {
   for (Expr *E : C->getSizesRefs())
+    TRY_TO(TraverseStmt(E));
+  return true;
+}
+
+template <typename Derived>
+bool RecursiveASTVisitor<Derived>::VisitOMPPermutationClause(
+    OMPPermutationClause *C) {
+  for (Expr *E : C->getArgsRefs())
     TRY_TO(TraverseStmt(E));
   return true;
 }

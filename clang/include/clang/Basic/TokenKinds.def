@@ -40,6 +40,9 @@
 #ifndef MODULES_KEYWORD
 #define MODULES_KEYWORD(X) KEYWORD(X,KEYMODULES)
 #endif
+#ifndef CONTRACTS_KEYWORD
+#define CONTRACTS_KEYWORD(X) KEYWORD(X,KEYCONTRACTS)
+#endif
 #ifndef TYPE_TRAIT
 #define TYPE_TRAIT(N,I,K) KEYWORD(I,K)
 #endif
@@ -64,6 +67,10 @@
 #ifndef EXPRESSION_TRAIT
 #define EXPRESSION_TRAIT(I,E,K) KEYWORD(I,K)
 #endif
+#ifndef TRANSFORM_TYPE_TRAIT_DEF
+#define TRANSFORM_TYPE_TRAIT_DEF(K, Trait) KEYWORD(__##Trait, KEYCXX)
+#endif
+
 #ifndef ALIAS
 #define ALIAS(X,Y,Z)
 #endif
@@ -283,6 +290,7 @@ PUNCTUATOR(greatergreatergreater, ">>>")
 //                which are heavily based on AltiVec
 //   KEYBORLAND - This is a keyword if Borland extensions are enabled
 //   KEYCOROUTINES - This is a keyword if support for C++ coroutines is enabled
+//   KEYCONTRACTS - This is a keyword if support for C++ contracts is enabled
 //   BOOLSUPPORT - This is a keyword if 'bool' is a built-in type
 //   HALFSUPPORT - This is a keyword if 'half' is a built-in type
 //   WCHARSUPPORT - This is a keyword if 'wchar_t' is a built-in type
@@ -424,6 +432,10 @@ CXX20_KEYWORD(constinit             , 0)
 CXX20_KEYWORD(concept               , 0)
 CXX20_KEYWORD(requires              , 0)
 
+// C++ contracts keywords
+CONTRACTS_KEYWORD(contract_assert)
+ALIAS("__contract_assert"        , contract_assert      , KEYCXX11)
+
 // Not a CXX20_KEYWORD because it is disabled by -fno-char8_t.
 KEYWORD(char8_t                     , CHAR8SUPPORT)
 
@@ -457,6 +469,7 @@ KEYWORD(__builtin_FUNCSIG           , KEYMS)
 KEYWORD(__builtin_LINE              , KEYALL)
 KEYWORD(__builtin_COLUMN            , KEYALL)
 KEYWORD(__builtin_source_location   , KEYCXX)
+
 
 // __builtin_types_compatible_p is a GNU C extension that we handle like a C++
 // type trait.
@@ -534,7 +547,6 @@ TYPE_TRAIT_1(__has_unique_object_representations,
 TYPE_TRAIT_2(__is_layout_compatible, IsLayoutCompatible, KEYCXX)
 TYPE_TRAIT_2(__is_pointer_interconvertible_base_of, IsPointerInterconvertibleBaseOf, KEYCXX)
 
-#define TRANSFORM_TYPE_TRAIT_DEF(_, Trait) KEYWORD(__##Trait, KEYCXX)
 #include "clang/Basic/TransformTypeTraits.def"
 
 // Clang-only C++ Type Traits

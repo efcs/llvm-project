@@ -1491,7 +1491,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                   tok::kw___private, tok::kw___global, tok::kw___local,
                   tok::kw___constant, tok::kw___generic, tok::kw_groupshared,
                   tok::kw_requires, tok::kw_noexcept) ||
-      Tok.isRegularKeywordAttribute() ||
+      isFunctionContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
       (Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 
   if (HasSpecifiers && !HasParentheses && !getLangOpts().CPlusPlus23) {
@@ -1591,6 +1591,8 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     if (HasParentheses && Tok.is(tok::kw_requires))
       ParseTrailingRequiresClause(D);
+
+    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
   }
 
   // Emit a warning if we see a CUDA host/device/global attribute
@@ -1622,13 +1624,35 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   }
 
   StmtResult Stmt(ParseCompoundStatementBody());
+
+
   BodyScope.Exit();
   TemplateParamScope.Exit();
   LambdaScope.Exit();
 
   if (!Stmt.isInvalid() && !TrailingReturnType.isInvalid() &&
-      !D.isInvalidType())
-    return Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+      !D.isInvalidType()) {
+
+    ExprResult Lambda = Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+
+    if (!Lambda.isUsable())
+      return Lambda;
+
+    auto *LE = dyn_cast_or_null<LambdaExpr>(Lambda.get());
+    if (!LE) {
+      return Lambda;
+    }
+
+    if (!D.LateParsedContracts.empty()) {
+      ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
+                                  CES_AllScopes);
+    }
+    assert(LE->getCallOperator() && "LambdaExpr has no call operator");
+    assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");
+
+
+    return Lambda;
+  }
 
   Actions.ActOnLambdaError(LambdaBeginLoc, getCurScope());
   return ExprError();

@@ -734,7 +734,8 @@ public:
   bool EvaluateAsInitializer(APValue &Result, const ASTContext &Ctx,
                              const VarDecl *VD,
                              SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitializer) const;
+                             bool IsConstantInitializer,
+                             bool EvaluateContracts = true) const;
 
   /// EvaluateWithSubstitution - Evaluate an expression as if from the context
   /// of a call to the given function with the given arguments, inside an
@@ -1235,6 +1236,17 @@ public:
   }
 };
 
+// This enum is silly, but avoids creating overload sets where many adjacent
+// arguments are all convertible to/from bool or int.
+enum class ContractConstification {
+  CC_None,
+  CC_ApplyConst,
+};
+
+constexpr ContractConstification CC_None = ContractConstification::CC_None;
+constexpr ContractConstification CC_ApplyConst =
+    ContractConstification::CC_ApplyConst;
+
 /// A reference to a declared variable, function, enum, etc.
 /// [C99 6.5.1p2]
 ///
@@ -1258,6 +1270,9 @@ public:
 ///   DeclRefExprBits.RefersToEnclosingVariableOrCapture
 ///       Specifies when this declaration reference expression (validly)
 ///       refers to an enclosed local or a captured variable.
+///   DeclRefExprBits.IsInConstificationContext
+///     Specifies when this declaration reference expression is in a context
+///     where constification is applied.
 class DeclRefExpr final
     : public Expr,
       private llvm::TrailingObjects<DeclRefExpr, NestedNameSpecifierLoc,
@@ -1480,6 +1495,16 @@ public:
       bool Set, const ASTContext &Context) {
     DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = Set;
     setDependence(computeDependence(this, Context));
+  }
+
+  void setIsConstified(bool Value) { DeclRefExprBits.IsConstified = Value; }
+  bool isConstified() const { return DeclRefExprBits.IsConstified; }
+
+  void setIsInContractContext(bool Value) {
+    DeclRefExprBits.IsInContractContext = Value;
+  }
+  bool isInContractContext() const {
+    return DeclRefExprBits.IsInContractContext;
   }
 
   static bool classof(const Stmt *T) {
@@ -2072,6 +2097,41 @@ public:
   }
 };
 
+/// This expression type represents an asterisk in an OpenACC Size-Expr, used in
+/// the 'tile' and 'gang' clauses. It is of 'int' type, but should not be
+/// evaluated.
+class OpenACCAsteriskSizeExpr final : public Expr {
+  friend class ASTStmtReader;
+  SourceLocation AsteriskLoc;
+
+  OpenACCAsteriskSizeExpr(SourceLocation AsteriskLoc, QualType IntTy)
+      : Expr(OpenACCAsteriskSizeExprClass, IntTy, VK_PRValue, OK_Ordinary),
+        AsteriskLoc(AsteriskLoc) {}
+
+  void setAsteriskLocation(SourceLocation Loc) { AsteriskLoc = Loc; }
+
+public:
+  static OpenACCAsteriskSizeExpr *Create(const ASTContext &C,
+                                         SourceLocation Loc);
+  static OpenACCAsteriskSizeExpr *CreateEmpty(const ASTContext &C);
+
+  SourceLocation getBeginLoc() const { return AsteriskLoc; }
+  SourceLocation getEndLoc() const { return AsteriskLoc; }
+  SourceLocation getLocation() const { return AsteriskLoc; }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == OpenACCAsteriskSizeExprClass;
+  }
+  // Iterators
+  child_range children() {
+    return child_range(child_iterator(), child_iterator());
+  }
+
+  const_child_range children() const {
+    return const_child_range(const_child_iterator(), const_child_iterator());
+  }
+};
+
 // This represents a use of the __builtin_sycl_unique_stable_name, which takes a
 // type-id, and at CodeGen time emits a unique string representation of the
 // type in a way that permits us to properly encode information about the SYCL
@@ -2135,11 +2195,13 @@ public:
 class ParenExpr : public Expr {
   SourceLocation L, R;
   Stmt *Val;
+
 public:
   ParenExpr(SourceLocation l, SourceLocation r, Expr *val)
       : Expr(ParenExprClass, val->getType(), val->getValueKind(),
              val->getObjectKind()),
         L(l), R(r), Val(val) {
+    ParenExprBits.ProducedByFoldExpansion = false;
     setDependence(computeDependence(this));
   }
 
@@ -2170,6 +2232,13 @@ public:
   child_range children() { return child_range(&Val, &Val+1); }
   const_child_range children() const {
     return const_child_range(&Val, &Val + 1);
+  }
+
+  bool isProducedByFoldExpansion() const {
+    return ParenExprBits.ProducedByFoldExpansion != 0;
+  }
+  void setIsProducedByFoldExpansion(bool ProducedByFoldExpansion = true) {
+    ParenExprBits.ProducedByFoldExpansion = ProducedByFoldExpansion;
   }
 };
 
@@ -4760,7 +4829,7 @@ enum class SourceLocIdentKind {
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
 /// __builtin_FUNCTION(), __builtin_FUNCSIG(), __builtin_FILE(),
-/// __builtin_FILE_NAME() or __builtin_source_location().
+/// __builtin_FILE_NAME(), __builtin_source_location(), or __builtin_source_location()2.
 class SourceLocExpr final : public Expr {
   SourceLocation BuiltinLoc, RParenLoc;
   DeclContext *ParentContext;
@@ -6369,9 +6438,9 @@ class BlockExpr : public Expr {
 protected:
   BlockDecl *TheBlock;
 public:
-  BlockExpr(BlockDecl *BD, QualType ty)
+  BlockExpr(BlockDecl *BD, QualType ty, bool ContainsUnexpandedParameterPack)
       : Expr(BlockExprClass, ty, VK_PRValue, OK_Ordinary), TheBlock(BD) {
-    setDependence(computeDependence(this));
+    setDependence(computeDependence(this, ContainsUnexpandedParameterPack));
   }
 
   /// Build an empty block expression.

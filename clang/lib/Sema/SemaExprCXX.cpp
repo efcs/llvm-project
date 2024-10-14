@@ -503,17 +503,23 @@ bool Sema::checkLiteralOperatorId(const CXXScopeSpec &SS,
     const IdentifierInfo *II = Name.Identifier;
     ReservedIdentifierStatus Status = II->isReserved(PP.getLangOpts());
     SourceLocation Loc = Name.getEndLoc();
-    if (!PP.getSourceManager().isInSystemHeader(Loc)) {
-      if (auto Hint = FixItHint::CreateReplacement(
-              Name.getSourceRange(),
-              (StringRef("operator\"\"") + II->getName()).str());
-          isReservedInAllContexts(Status)) {
-        Diag(Loc, diag::warn_reserved_extern_symbol)
-            << II << static_cast<int>(Status) << Hint;
-      } else {
-        Diag(Loc, diag::warn_deprecated_literal_operator_id) << II << Hint;
-      }
-    }
+
+    auto Hint = FixItHint::CreateReplacement(
+        Name.getSourceRange(),
+        (StringRef("operator\"\"") + II->getName()).str());
+
+    // Only emit this diagnostic if we start with an underscore, else the
+    // diagnostic for C++11 requiring a space between the quotes and the
+    // identifier conflicts with this and gets confusing. The diagnostic stating
+    // this is a reserved name should force the underscore, which gets this
+    // back.
+    if (II->isReservedLiteralSuffixId() !=
+        ReservedLiteralSuffixIdStatus::NotStartsWithUnderscore)
+      Diag(Loc, diag::warn_deprecated_literal_operator_id) << II << Hint;
+
+    if (isReservedInAllContexts(Status))
+      Diag(Loc, diag::warn_reserved_extern_symbol)
+          << II << static_cast<int>(Status) << Hint;
   }
 
   if (!SS.isValid())
@@ -1113,9 +1119,22 @@ bool Sema::CheckCXXThrowOperand(SourceLocation ThrowLoc,
   return false;
 }
 
+static QualType adjustCVQualifiersForCXXThisWithinContract(QualType ThisTy,
+                                                           ASTContext &ASTCtx) {
+  QualType ClassType = ThisTy->getPointeeType();
+  if (not ClassType.isConstQualified()) {
+    // If the 'this' object is const-qualified, we need to remove the
+    // const-qualification for the contract check.
+    ClassType.addConst();
+    return ASTCtx.getPointerType(ClassType);
+  }
+  return ThisTy;
+}
+
 static QualType adjustCVQualifiersForCXXThisWithinLambda(
     ArrayRef<FunctionScopeInfo *> FunctionScopes, QualType ThisTy,
-    DeclContext *CurSemaContext, ASTContext &ASTCtx) {
+    DeclContext *CurSemaContext, Sema &SemaRef) {
+  ASTContext &ASTCtx = SemaRef.Context;
 
   QualType ClassType = ThisTy->getPointeeType();
   LambdaScopeInfo *CurLSI = nullptr;
@@ -1174,6 +1193,7 @@ static QualType adjustCVQualifiersForCXXThisWithinLambda(
         ClassType.addConst();
       return ASTCtx.getPointerType(ClassType);
     }
+
   }
 
   // 2) We've run out of ScopeInfos but check 1. if CurDC is a lambda (which
@@ -1241,13 +1261,20 @@ QualType Sema::getCurrentThisType() {
     // per [expr.prim.general]p4.
     ThisTy = Context.getPointerType(ClassTy);
   }
+  if (!ThisTy.isNull() &&
+      currentEvaluationContext().isConstificationContext()) {
+    ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
+  }
+
+  if (!ThisTy.isNull())
+    ThisTy = adjustCXXThisTypeForContracts(ThisTy);
 
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'
   // might need to be adjusted if the lambda or any of its enclosing lambda's
   // captures '*this' by copy.
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
-                                                    CurContext, Context);
+                                                    CurContext, *this);
   return ThisTy;
 }
 
@@ -1378,6 +1405,16 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
   }
   if (!BuildAndDiagnose) return false;
 
+  auto MinConstificationContext = [&]() -> std::optional<unsigned> {
+    auto *Ent = CurrentContractEntry;
+    while (Ent) {
+      if (!Ent->Previous)
+        return Ent->FunctionIndexAtPush;
+      Ent = Ent->Previous;
+    }
+    return std::nullopt;
+  }();
+
   // If we got here, then the closure at MaxFunctionScopesIndex on the
   // FunctionScopes stack, can capture the *enclosing object*, so capture it
   // (including implicit by-reference captures in any enclosing closures).
@@ -1392,6 +1429,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
          "Only a lambda can capture the enclosing object (referred to by "
          "*this) by copy");
   QualType ThisTy = getCurrentThisType();
+
   for (int idx = MaxFunctionScopesIndex; NumCapturingClosures;
        --idx, --NumCapturingClosures) {
     CapturingScopeInfo *CSI = cast<CapturingScopeInfo>(FunctionScopes[idx]);
@@ -1399,6 +1437,15 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     // The type of the corresponding data member (not a 'this' pointer if 'by
     // copy').
     QualType CaptureType = ByCopy ? ThisTy->getPointeeType() : ThisTy;
+
+    // Or if we're capturing this by reference and there's an interviening
+    // contract, we need to capture the constified version of the 'this' object.
+    if (!ByCopy && MinConstificationContext &&
+        static_cast<unsigned>(idx) >= *MinConstificationContext ) {
+      assert(!ThisTy.isNull());
+      CaptureType =
+          Context.getPointerType(CaptureType->getPointeeType().withConst());
+    }
 
     bool isNested = NumCapturingClosures > 1;
     CSI->addThisCapture(isNested, Loc, CaptureType, ByCopy);
@@ -8429,7 +8476,8 @@ ExprResult Sema::ActOnPseudoDestructorExpr(Scope *S, Expr *Base,
   QualType ObjectType;
   QualType T;
   TypeLocBuilder TLB;
-  if (CheckArrow(*this, ObjectType, Base, OpKind, OpLoc))
+  if (CheckArrow(*this, ObjectType, Base, OpKind, OpLoc) ||
+      DS.getTypeSpecType() == DeclSpec::TST_error)
     return ExprError();
 
   switch (DS.getTypeSpecType()) {
@@ -8704,6 +8752,12 @@ static void CheckIfAnyEnclosingLambdasMustCaptureAnyPotentialCaptures(
         !IsFullExprInstantiationDependent)
       return;
 
+#if 0
+    if (auto *DRE = dyn_cast<DeclRefExpr>(VarExpr->IgnoreParenImpCasts()))
+      if (DRE->isInContractContext())
+        return;
+#endif
+      
     VarDecl *UnderlyingVar = Var->getPotentiallyDecomposedVarDecl();
     if (!UnderlyingVar)
       return;

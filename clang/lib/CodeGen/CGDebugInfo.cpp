@@ -287,7 +287,8 @@ PrintingPolicy CGDebugInfo::getPrintingPolicy() const {
     PP.SplitTemplateClosers = true;
   }
 
-  PP.SuppressInlineNamespace = false;
+  PP.SuppressInlineNamespace =
+      PrintingPolicy::SuppressInlineNamespaceMode::None;
   PP.PrintCanonicalTypes = true;
   PP.UsePreferredNames = false;
   PP.AlwaysIncludeTypeForTemplateArgument = true;
@@ -1472,15 +1473,6 @@ llvm::DIType *CGDebugInfo::CreateType(const TemplateSpecializationType *Ty,
     return AliasTy;
   }
 
-  // Disable PrintCanonicalTypes here because we want
-  // the DW_AT_name to benefit from the TypePrinter's ability
-  // to skip defaulted template arguments.
-  //
-  // FIXME: Once -gsimple-template-names is enabled by default
-  // and we attach template parameters to alias template DIEs
-  // we don't need to worry about customizing the PrintingPolicy
-  // here anymore.
-  PP.PrintCanonicalTypes = false;
   printTemplateArgumentList(OS, Ty->template_arguments(), PP,
                             TD->getTemplateParameters());
   return DBuilder.createTypedef(Src, OS.str(), getOrCreateFile(Loc),
@@ -4656,8 +4648,8 @@ void CGDebugInfo::CreateLexicalBlock(SourceLocation Loc) {
   if (!LexicalBlockStack.empty())
     Back = LexicalBlockStack.back().get();
   LexicalBlockStack.emplace_back(DBuilder.createLexicalBlock(
-      cast<llvm::DIScope>(Back), getOrCreateFile(CurLoc), getLineNumber(CurLoc),
-      getColumnNumber(CurLoc)));
+      cast_or_null<llvm::DIScope>(Back), getOrCreateFile(CurLoc),
+      getLineNumber(CurLoc), getColumnNumber(CurLoc)));
 }
 
 void CGDebugInfo::AppendAddressSpaceXDeref(
@@ -4679,9 +4671,10 @@ void CGDebugInfo::EmitLexicalBlockStart(CGBuilderTy &Builder,
   setLocation(Loc);
 
   // Emit a line table change for the current location inside the new scope.
-  Builder.SetCurrentDebugLocation(llvm::DILocation::get(
-      CGM.getLLVMContext(), getLineNumber(Loc), getColumnNumber(Loc),
-      LexicalBlockStack.back(), CurInlinedAt));
+  if (!LexicalBlockStack.empty())
+    Builder.SetCurrentDebugLocation(llvm::DILocation::get(
+        CGM.getLLVMContext(), getLineNumber(Loc), getColumnNumber(Loc),
+        LexicalBlockStack.back(), CurInlinedAt));
 
   if (DebugKind <= llvm::codegenoptions::DebugLineTablesOnly)
     return;

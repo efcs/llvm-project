@@ -231,6 +231,8 @@ condition_variable string_view
 condition_variable tuple
 condition_variable typeinfo
 condition_variable version
+contracts source_location
+contracts version
 coroutine compare
 coroutine cstddef
 coroutine cstdint

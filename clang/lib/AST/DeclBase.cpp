@@ -888,6 +888,10 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
       // tag types, so we include them in the tag namespace.
       return IDNS_Ordinary | IDNS_Tag;
 
+    // FIXME(EricWF): IDK if this is correct
+    case ResultName:
+      return IDNS_Ordinary | IDNS_Tag;
+
     case ObjCCompatibleAlias:
     case ObjCInterface:
       return IDNS_Ordinary | IDNS_Type;
@@ -986,6 +990,7 @@ unsigned Decl::getIdentifierNamespaceForKind(Kind DeclKind) {
     case LifetimeExtendedTemporary:
     case RequiresExprBody:
     case ImplicitConceptSpecialization:
+    case ContractSpecifier:
       // Never looked up by name.
       return 0;
   }
@@ -1098,6 +1103,7 @@ bool Decl::AccessDeclContextCheck() const {
       // FIXME: a ParmVarDecl can have ClassTemplateSpecialization
       // as DeclContext (?).
       isa<ParmVarDecl>(this) ||
+      isa<ResultNameDecl>(this) ||
       // FIXME: a ClassTemplateSpecialization or CXXRecordDecl can have
       // AS_none as access specifier.
       isa<CXXRecordDecl>(this) || isa<LifetimeExtendedTemporaryDecl>(this))
@@ -1166,6 +1172,10 @@ bool Decl::isFromGlobalModule() const {
 
 bool Decl::isInNamedModule() const {
   return getOwningModule() && getOwningModule()->isNamedModule();
+}
+
+bool Decl::isFromHeaderUnit() const {
+  return getOwningModule() && getOwningModule()->isHeaderUnit();
 }
 
 static Decl::Kind getKind(const Decl *D) { return D->getKind(); }

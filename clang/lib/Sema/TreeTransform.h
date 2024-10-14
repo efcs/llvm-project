@@ -1605,6 +1605,20 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultName,
+                                 ArrayRef<const Attr *> Attrs) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
+  }
+
+  DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
+                                          bool IsInvalid) {
+    return getSema().ActOnFinishContractSpecifierSequence(Stmts, IsInvalid);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -1758,6 +1772,15 @@ public:
                                    SourceLocation EndLoc) {
     return getSema().OpenMP().ActOnOpenMPSizesClause(Sizes, StartLoc, LParenLoc,
                                                      EndLoc);
+  }
+
+  /// Build a new OpenMP 'permutation' clause.
+  OMPClause *RebuildOMPPermutationClause(ArrayRef<Expr *> PermExprs,
+                                         SourceLocation StartLoc,
+                                         SourceLocation LParenLoc,
+                                         SourceLocation EndLoc) {
+    return getSema().OpenMP().ActOnOpenMPPermutationClause(PermExprs, StartLoc,
+                                                           LParenLoc, EndLoc);
   }
 
   /// Build a new OpenMP 'full' clause.
@@ -4088,6 +4111,10 @@ public:
                                          StmtResult Loop) {
     return getSema().OpenACC().ActOnEndStmtDirective(
         OpenACCDirectiveKind::Loop, BeginLoc, DirLoc, EndLoc, Clauses, Loop);
+  }
+
+  ExprResult RebuildOpenACCAsteriskSizeExpr(SourceLocation AsteriskLoc) {
+    return getSema().OpenACC().ActOnOpenACCAsteriskSizeExpr(AsteriskLoc);
   }
 
 private:
@@ -8694,6 +8721,48 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
 }
 
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+  std::optional<Sema::CXXThisScopeRAII> OptThisScope;
+  if (S->getContractKind() != ContractKind::Assert) {
+    OptThisScope.emplace(getSema(),
+                         dyn_cast_if_present<CXXRecordDecl>(
+                             getSema().getFunctionLevelDeclContext()),
+                         Qualifiers());
+  }
+
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getKeywordLoc());
+
+  StmtResult NewResultName;
+  if (S->hasResultName()) {
+    NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
+    if (NewResultName.isInvalid())
+      return StmtError();
+  }
+
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
+    return StmtError();
+
+  Cond = CondRes.get().second;
+
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), Cond,
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
+}
+
 // Objective-C Statements.
 
 template<typename Derived>
@@ -10273,6 +10342,32 @@ OMPClause *TreeTransform<Derived>::TransformOMPSizesClause(OMPSizesClause *C) {
     return C;
   return RebuildOMPSizesClause(TransformedSizes, C->getBeginLoc(),
                                C->getLParenLoc(), C->getEndLoc());
+}
+
+template <typename Derived>
+OMPClause *
+TreeTransform<Derived>::TransformOMPPermutationClause(OMPPermutationClause *C) {
+  SmallVector<Expr *> TransformedArgs;
+  TransformedArgs.reserve(C->getNumLoops());
+  bool Changed = false;
+  for (Expr *E : C->getArgsRefs()) {
+    if (!E) {
+      TransformedArgs.push_back(nullptr);
+      continue;
+    }
+
+    ExprResult T = getDerived().TransformExpr(E);
+    if (T.isInvalid())
+      return nullptr;
+    if (E != T.get())
+      Changed = true;
+    TransformedArgs.push_back(T.get());
+  }
+
+  if (!Changed && !getDerived().AlwaysRebuild())
+    return C;
+  return RebuildOMPPermutationClause(TransformedArgs, C->getBeginLoc(),
+                                     C->getLParenLoc(), C->getEndLoc());
 }
 
 template <typename Derived>
@@ -11871,6 +11966,59 @@ void OpenACCClauseTransform<Derived>::VisitCollapseClause(
       ParsedClause.getLParenLoc(), ParsedClause.isForce(),
       ParsedClause.getLoopCount(), ParsedClause.getEndLoc());
 }
+
+template <typename Derived>
+void OpenACCClauseTransform<Derived>::VisitTileClause(
+    const OpenACCTileClause &C) {
+
+  llvm::SmallVector<Expr *> TransformedExprs;
+
+  for (Expr *E : C.getSizeExprs()) {
+    ExprResult NewSizeExpr = Self.TransformExpr(E);
+
+    if (!NewSizeExpr.isUsable())
+      return;
+
+    NewSizeExpr = Self.getSema().OpenACC().ActOnIntExpr(
+        OpenACCDirectiveKind::Invalid, ParsedClause.getClauseKind(),
+        NewSizeExpr.get()->getBeginLoc(), NewSizeExpr.get());
+
+    NewSizeExpr = Self.getSema().OpenACC().CheckTileSizeExpr(NewSizeExpr.get());
+
+    if (!NewSizeExpr.isUsable())
+      return;
+    TransformedExprs.push_back(NewSizeExpr.get());
+  }
+
+  ParsedClause.setIntExprDetails(TransformedExprs);
+  NewClause = OpenACCTileClause::Create(
+      Self.getSema().getASTContext(), ParsedClause.getBeginLoc(),
+      ParsedClause.getLParenLoc(), ParsedClause.getIntExprs(),
+      ParsedClause.getEndLoc());
+}
+template <typename Derived>
+void OpenACCClauseTransform<Derived>::VisitGangClause(
+    const OpenACCGangClause &C) {
+  llvm::SmallVector<OpenACCGangKind> TransformedGangKinds;
+  llvm::SmallVector<Expr *> TransformedIntExprs;
+
+  for (unsigned I = 0; I < C.getNumExprs(); ++I) {
+    ExprResult ER = Self.TransformExpr(const_cast<Expr *>(C.getExpr(I).second));
+    if (!ER.isUsable())
+      continue;
+
+    ER = Self.getSema().OpenACC().CheckGangExpr(C.getExpr(I).first, ER.get());
+    if (!ER.isUsable())
+      continue;
+    TransformedGangKinds.push_back(C.getExpr(I).first);
+    TransformedIntExprs.push_back(ER.get());
+  }
+
+  NewClause = OpenACCGangClause::Create(
+      Self.getSema().getASTContext(), ParsedClause.getBeginLoc(),
+      ParsedClause.getLParenLoc(), TransformedGangKinds, TransformedIntExprs,
+      ParsedClause.getEndLoc());
+}
 } // namespace
 template <typename Derived>
 OpenACCClause *TreeTransform<Derived>::TransformOpenACCClause(
@@ -11955,6 +12103,15 @@ TreeTransform<Derived>::TransformOpenACCLoopConstruct(OpenACCLoopConstruct *C) {
   return getDerived().RebuildOpenACCLoopConstruct(
       C->getBeginLoc(), C->getDirectiveLoc(), C->getEndLoc(),
       TransformedClauses, Loop);
+}
+
+template <typename Derived>
+ExprResult TreeTransform<Derived>::TransformOpenACCAsteriskSizeExpr(
+    OpenACCAsteriskSizeExpr *E) {
+  if (getDerived().AlwaysRebuild())
+    return getDerived().RebuildOpenACCAsteriskSizeExpr(E->getLocation());
+  // Nothing can ever change, so there is never anything to transform.
+  return E;
 }
 
 //===----------------------------------------------------------------------===//
@@ -13864,7 +14021,7 @@ bool TreeTransform<Derived>::TransformOverloadExprDecls(OverloadExpr *Old,
     }
 
     AllEmptyPacks &= Decls.empty();
-  };
+  }
 
   // C++ [temp.res]/8.4.2:
   //   The program is ill-formed, no diagnostic required, if [...] lookup for
@@ -15618,12 +15775,14 @@ TreeTransform<Derived>::TransformCXXFoldExpr(CXXFoldExpr *E) {
       return true;
   }
 
+  if (ParenExpr *PE = dyn_cast_or_null<ParenExpr>(Result.get()))
+    PE->setIsProducedByFoldExpansion();
+
   // If we had no init and an empty pack, and we're not retaining an expansion,
   // then produce a fallback value or error.
   if (Result.isUnset())
     return getDerived().RebuildEmptyCXXFoldExpr(E->getEllipsisLoc(),
                                                 E->getOperator());
-
   return Result;
 }
 

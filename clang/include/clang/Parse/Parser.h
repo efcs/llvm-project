@@ -169,6 +169,12 @@ class Parser : public CodeCompletionHandler {
   mutable IdentifierInfo *Ident_import;
   mutable IdentifierInfo *Ident_module;
 
+  // C++2c(?) contextual keywords.
+  mutable IdentifierInfo *Ident_pre;
+  mutable IdentifierInfo *Ident___pre;
+  mutable IdentifierInfo *Ident_post;
+  mutable IdentifierInfo *Ident___post;
+
   // C++ type trait keywords that can be reverted to identifiers and still be
   // used as type traits.
   llvm::SmallDenseMap<IdentifierInfo *, tok::TokenKind> RevertibleTypeTraits;
@@ -1484,6 +1490,9 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    // The set of tokens that make up the contracts on the method.
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2111,6 +2120,50 @@ private:
 
   ExprResult ParseRequiresExpression();
   void ParseTrailingRequiresClause(Declarator &D);
+
+  //===--------------------------------------------------------------------===//
+  // C++ Contracts
+public:
+  enum ContractEnterScopeKind {
+    CES_None = 0,
+    CES_Prototype = 0x1,
+    CES_Parameters = 0x2,
+    CES_CXXThis = 0x4,
+    CES_Function = 0x8,
+    CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
+  };
+  std::optional<ContractKind> getContractKeyword(const Token &Token) const;
+  std::optional<ContractKind> getContractKeyword() const {
+    return getContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword() const {
+    return isFunctionContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).value_or(ContractKind::Assert) !=
+           ContractKind::Assert;
+  }
+
+  bool isAnyContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).has_value();
+  }
+
+private:
+  StmtResult ParseContractAssertStatement();
+
+  void ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+                                      bool EnterScope,
+                                      QualType TrailingReturnType = QualType());
+
+  StmtResult ParseFunctionContractSpecifierImpl(
+      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
+
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
+                                   ContractEnterScopeKind EnterScopeKinds);
 
   //===--------------------------------------------------------------------===//
   // C99 6.7.8: Initialization.
@@ -3234,9 +3287,12 @@ private:
   void ParseFunctionDeclarator(Declarator &D, ParsedAttributes &FirstArgAttrs,
                                BalancedDelimiterTracker &Tracker,
                                bool IsAmbiguous, bool RequiresArg = false);
+public:
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst = false);
+
+private:
   bool ParseRefQualifier(bool &RefQualifierIsLValueRef,
                          SourceLocation &RefQualifierLoc);
   bool isFunctionDeclaratorIdentifierList();
@@ -3595,6 +3651,9 @@ private:
   /// Parses the 'sizes' clause of a '#pragma omp tile' directive.
   OMPClause *ParseOpenMPSizesClause();
 
+  /// Parses the 'permutation' clause of a '#pragma omp interchange' directive.
+  OMPClause *ParseOpenMPPermutationClause();
+
   /// Parses clause without any additional arguments.
   ///
   /// \param Kind Kind of current clause.
@@ -3786,14 +3845,23 @@ private:
   OpenACCIntExprParseResult ParseOpenACCAsyncArgument(OpenACCDirectiveKind DK,
                                                       OpenACCClauseKind CK,
                                                       SourceLocation Loc);
+
   /// Parses the 'size-expr', which is an integral value, or an asterisk.
-  bool ParseOpenACCSizeExpr();
+  /// Asterisk is represented by a OpenACCAsteriskSizeExpr
+  ExprResult ParseOpenACCSizeExpr(OpenACCClauseKind CK);
   /// Parses a comma delimited list of 'size-expr's.
-  bool ParseOpenACCSizeExprList();
+  bool ParseOpenACCSizeExprList(OpenACCClauseKind CK,
+                                llvm::SmallVectorImpl<Expr *> &SizeExprs);
   /// Parses a 'gang-arg-list', used for the 'gang' clause.
-  bool ParseOpenACCGangArgList(SourceLocation GangLoc);
-  /// Parses a 'gang-arg', used for the 'gang' clause.
-  bool ParseOpenACCGangArg(SourceLocation GangLoc);
+  bool ParseOpenACCGangArgList(SourceLocation GangLoc,
+                               llvm::SmallVectorImpl<OpenACCGangKind> &GKs,
+                               llvm::SmallVectorImpl<Expr *> &IntExprs);
+
+  using OpenACCGangArgRes = std::pair<OpenACCGangKind, ExprResult>;
+  /// Parses a 'gang-arg', used for the 'gang' clause. Returns a pair of the
+  /// ExprResult (which contains the validity of the expression), plus the gang
+  /// kind for the current argument.
+  OpenACCGangArgRes ParseOpenACCGangArg(SourceLocation GangLoc);
   /// Parses a 'condition' expr, ensuring it results in a
   ExprResult ParseOpenACCConditionExpr();
 
@@ -3943,6 +4011,8 @@ private:
   bool isGNUAsmQualifier(const Token &TokAfterAsm) const;
   GNUAsmQualifiers::AQ getGNUAsmQualifier(const Token &Tok) const;
   bool parseGNUAsmQualifierListOpt(GNUAsmQualifiers &AQ);
+  ContractSpecifierDecl *ParseLexedFunctionContractsInScope(CachedTokens &Toks,
+                                                            QualType RetType);
 };
 
 }  // end namespace clang

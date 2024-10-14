@@ -47,6 +47,7 @@ void Scope::setFlags(Scope *parent, unsigned flags) {
     // transmit the parent's 'order' flag, if exists
     if (parent->getFlags() & OpenMPOrderClauseScope)
       Flags |= OpenMPOrderClauseScope;
+
   } else {
     Depth = 0;
     PrototypeDepth = 0;
@@ -113,7 +114,7 @@ bool Scope::containedInPrototypeScope() const {
 }
 
 void Scope::AddFlags(unsigned FlagsToSet) {
-  assert((FlagsToSet & ~(BreakScope | ContinueScope)) == 0 &&
+  assert((FlagsToSet & ~(BreakScope | ContinueScope | ContractAssertScope)) == 0 &&
          "Unsupported scope flags");
   if (FlagsToSet & BreakScope) {
     assert((Flags & BreakScope) == 0 && "Already set");
@@ -123,6 +124,7 @@ void Scope::AddFlags(unsigned FlagsToSet) {
     assert((Flags & ContinueScope) == 0 && "Already set");
     ContinueParent = this;
   }
+
   Flags |= FlagsToSet;
 }
 
@@ -234,6 +236,7 @@ void Scope::dumpImpl(raw_ostream &OS) const {
       {OpenACCComputeConstructScope, "OpenACCComputeConstructScope"},
       {TypeAliasScope, "TypeAliasScope"},
       {FriendScope, "FriendScope"},
+      {ContractAssertScope, "ContractAssertScope"}
   };
 
   for (auto Info : FlagInfo) {

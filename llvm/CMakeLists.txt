@@ -536,6 +536,10 @@ endif()
 
 option(LLVM_ENABLE_CRASH_DUMPS "Turn on memory dumps on crashes. Currently only implemented on Windows." OFF)
 
+set(LLVM_ENABLE_DEBUGLOC_COVERAGE_TRACKING "DISABLED" CACHE STRING
+  "Enhance Debugify's line number coverage tracking; enabling this is ABI-breaking. Can be DISABLED, or COVERAGE.")
+set_property(CACHE LLVM_ENABLE_DEBUGLOC_COVERAGE_TRACKING PROPERTY STRINGS DISABLED COVERAGE)
+
 set(WINDOWS_PREFER_FORWARD_SLASH_DEFAULT OFF)
 if (MINGW)
   # Cygwin doesn't identify itself as Windows, and thus gets path::Style::posix
@@ -826,6 +830,11 @@ option (LLVM_ENABLE_DOXYGEN "Use doxygen to generate llvm API documentation." OF
 option (LLVM_ENABLE_SPHINX "Use Sphinx to generate llvm documentation." OFF)
 option (LLVM_ENABLE_OCAMLDOC "Build OCaml bindings documentation." ON)
 option (LLVM_ENABLE_BINDINGS "Build bindings." ON)
+
+option(ERICWF_DEBUG "Enable debug output that ericwf has added and needs to remove" OFF)
+if (ERICWF_DEBUG)
+    add_compile_definitions(ERICWF_DEBUG_ENABLED)
+endif()
 
 set(LLVM_INSTALL_DOXYGEN_HTML_DIR "${CMAKE_INSTALL_DOCDIR}/llvm/doxygen-html"
     CACHE STRING "Doxygen-generated HTML documentation install directory")
@@ -1452,6 +1461,7 @@ if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
 endif()
 
+
 if (XCODE)
   # For additional targets that you would like to add schemes, specify e.g:
   #
@@ -1463,4 +1473,8 @@ if (XCODE)
   foreach(target ${LLVM_XCODE_EXTRA_TARGET_SCHEMES})
     set_target_properties(${target} PROPERTIES XCODE_GENERATE_SCHEME ON)
   endforeach()
+endif()
+
+if (ERICWF_DEBUG)
+  add_subdirectory(${LLVM_THIRD_PARTY_DIR}/ericwf-tests/ ${CMAKE_CURRENT_BINARY_DIR}/third-party/ericwf-tests)
 endif()
