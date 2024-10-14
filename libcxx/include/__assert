@@ -18,7 +18,7 @@
 #endif
 
 
-#define _LIBCPP_CONTRACT_ASSERT(group_str, expression) ([&]() { contract_assert [[clang::contract_group(group_str)]] (expression); }())
+#define _LIBCPP_CONTRACT_ASSERT(group_str, expression) ({ contract_assert [[clang::contract_group(group_str)]] (expression); static_cast<void>(0); })
 
 
 #define _LIBCPP_ASSERT(expression, message)                                                                            \

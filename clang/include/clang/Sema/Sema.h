@@ -2703,7 +2703,7 @@ public:
 
   ResultNameDecl *ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                             QualType T, SourceLocation IDLoc,
-                                            IdentifierInfo *II);
+                                            IdentifierInfo *II, unsigned FunctionScopeDepth);
 
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 

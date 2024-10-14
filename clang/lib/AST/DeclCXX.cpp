@@ -3635,9 +3635,9 @@ ResultNameDecl *ResultNameDecl::Create(ASTContext &C, DeclContext *DC,
                                        SourceLocation IdLoc, IdentifierInfo *Id,
                                        QualType T,
                                        ResultNameDecl *CanonicalResultNameDecl,
-                                       bool HasInventedPlaceholderType) {
+                                       bool HasInventedPlaceholderType, unsigned FunctionScopeDepth) {
   return new (C, DC) ResultNameDecl(DC, IdLoc, Id, T, CanonicalResultNameDecl,
-                                    HasInventedPlaceholderType);
+                                    HasInventedPlaceholderType, FunctionScopeDepth);
 }
 
 ResultNameDecl *ResultNameDecl::CreateDeserialized(ASTContext &C, GlobalDeclID ID) {

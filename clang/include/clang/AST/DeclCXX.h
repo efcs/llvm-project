@@ -4438,11 +4438,18 @@ class ResultNameDecl : public ValueDecl {
   /// return types if that function declaration is also a definition.
   bool HasInventedPlaceholderType = false;
 
+  enum : unsigned { InvalidFunctionScopeDepth = ~0U };
+
+  /// Needed for checking for structural equivalence.
+  unsigned FunctionScopeDepth = InvalidFunctionScopeDepth;
+
   ResultNameDecl(DeclContext *DC, SourceLocation IdLoc, IdentifierInfo *Id,
                  QualType T, ResultNameDecl *CanonicalDecl = nullptr,
-                 bool HasInventedPlaceholderType = false)
+                 bool HasInventedPlaceholderType = false,
+                 unsigned FunctionScopeDepth = InvalidFunctionScopeDepth)
       : ValueDecl(Decl::ResultName, DC, IdLoc, Id, T),
-        HasInventedPlaceholderType(HasInventedPlaceholderType) {}
+        HasInventedPlaceholderType(HasInventedPlaceholderType),
+        FunctionScopeDepth(FunctionScopeDepth) {}
 
   void setCanonicalResultName(ResultNameDecl *CRND) {
     assert(CRND != this &&
@@ -4458,12 +4465,17 @@ public:
   static ResultNameDecl *Create(ASTContext &C, DeclContext *DC,
                                 SourceLocation IdLoc, IdentifierInfo *Id,
                                 QualType T, ResultNameDecl *CRND = nullptr,
-                                bool HasInventedPlaceholderType = false);
+                                bool HasInventedPlaceholderType = false,
+                                unsigned FunctionScopeDepth = InvalidFunctionScopeDepth);
   static ResultNameDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
   using ValueDecl::getDeclName;
   using ValueDecl::setType;
 
+  /// A result name is "canonical" across all result names on a particular declaration,
+  /// but not "canonical" across re-declarations. The canonical result name always returns a result name attached
+  /// to the same declaration.
+  ///
   /// Returns true if this declaration is the canonical result name declaration
   /// (This is true if it doesn't reference another result name).
   bool isCanonicalResultName() const {
@@ -4479,6 +4491,16 @@ public:
   }
 
   bool hasInventedPlaceholderType() const { return HasInventedPlaceholderType; }
+
+  void setFunctionScopeDepth(unsigned Depth) {
+    this->FunctionScopeDepth = Depth;
+  }
+
+  unsigned getFunctionScopeDepth() const {
+    assert(this->FunctionScopeDepth != InvalidFunctionScopeDepth &&
+           "FunctionScopeDepth not set");
+    return FunctionScopeDepth;
+  }
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) { return K == Decl::ResultName; }

@@ -13242,7 +13242,7 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
 
   if (DRE->isConstified() || DRE->isInContractContext())
     return NCCK_Contract;
-  DRE->dumpColor();
+  //DRE->dumpColor();
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();

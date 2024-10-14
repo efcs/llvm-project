@@ -252,7 +252,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     }
 
     RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(), ReturnType,
-                                            IdLoc, Id);
+                                            IdLoc, Id, getCurScope()->getFunctionPrototypeDepth());
 
     if (!RND)
       return StmtError();

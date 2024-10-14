@@ -3900,7 +3900,7 @@ Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
 
   ResultNameDecl *NewRND =
       SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, NewType,
-                                        D->getLocation(), D->getIdentifier());
+                                        D->getLocation(), D->getIdentifier(), D->getFunctionScopeDepth());
   NewRND->setDeclContext(Owner);
 
   return NewRND;

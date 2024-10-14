@@ -207,7 +207,8 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
 ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                                 QualType RetType,
                                                 SourceLocation IDLoc,
-                                                IdentifierInfo *II) {
+                                                IdentifierInfo *II,
+                                                unsigned FunctionScopeDepth) {
   // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
 
@@ -231,7 +232,7 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
     RetType = Context.getAutoType(QualType(), AutoTypeKeyword::Auto, true,
                                   false, nullptr, {});
   auto *New = ResultNameDecl::Create(Context, CurContext, IDLoc, II, RetType,
-                                     nullptr, HasInventedPlaceholderTypes);
+                                     nullptr, HasInventedPlaceholderTypes, FunctionScopeDepth);
 
   if (IsInvalid)
     New->isInvalidDecl();
@@ -849,7 +850,6 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
 
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
-
   FunctionDecl *FD;
   bool WasTemplate = false;
   if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D)) {
@@ -952,7 +952,8 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
     QualType Replacement = Def->getReturnType();
     auto *NewRND =
         ActOnResultNameDeclarator(ContractKind::Post, nullptr, Replacement,
-                                  RND->getLocation(), RND->getIdentifier());
+                                  RND->getLocation(), RND->getIdentifier(),
+                                  RND->getFunctionScopeDepth());
     Rebuilder.transformedLocalDecl(RND, NewRND);
   }
   SmallVector<ContractStmt *> NewContracts;
@@ -1017,7 +1018,7 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
     assert(!Replacement.isNull());
     auto *NewRND =
         ActOnResultNameDeclarator(ContractKind::Post, nullptr, Replacement,
-                                  RND->getLocation(), RND->getIdentifier());
+                                  RND->getLocation(), RND->getIdentifier(), RND->getFunctionScopeDepth());
     Transformed.emplace_back(RND, NewRND);
   }
 
@@ -1641,7 +1642,7 @@ Sema::ContractScopeRAII::~ContractScopeRAII() {
 
 
 void Sema::PushContractScope(ContractKind Kind, ContractScopeOffset ScopeOffset, SourceLocation Loc) {
-  assert(!FunctionScopes.empty());
+//  assert(!FunctionScopes.empty());
 
   ContractScopeRecord Record{
          .Index = static_cast<unsigned>(ContractScopeStack.size()),
