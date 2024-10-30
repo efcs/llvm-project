@@ -1262,8 +1262,9 @@ public:
   }
 
   /// Return true if the landing pad Eh symbol has an associated call site.
-  bool hasCallSiteLandingPad(MCSymbol *Sym) {
-    return !LPadToCallSiteMap[Sym].empty();
+  bool hasCallSiteLandingPad(MCSymbol *Sym) const {
+    auto pos = LPadToCallSiteMap.find(Sym);
+    return pos != LPadToCallSiteMap.end() && !pos->second.empty();
   }
 
   bool hasAnyCallSiteLabel() const {

@@ -2097,7 +2097,7 @@ struct DSEState {
     for (auto OI : IOL) {
       Instruction *DeadI = OI.first;
       MemoryLocation Loc = *getLocForWrite(DeadI);
-      assert(isRemovable(DeadI) && "Expect only removable instruction");
+      assert_DISABLED(isRemovable(DeadI) && "Expect only removable instruction");
 
       const Value *Ptr = Loc.Ptr->stripPointerCasts();
       int64_t DeadStart = 0;

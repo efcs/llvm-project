@@ -728,7 +728,7 @@ public:
 
   StringRef getResult() { return Result; }
 
-  bool isOpMapped(StringRef Op) { return OpMap.find(Op) != OpMap.end(); }
+  bool isOpMapped(StringRef Op) const { return OpMap.find(Op) != OpMap.end(); }
   int getOpIndex(StringRef Op) { return OpMap[Op].first; }
   std::pair<int, int> &getOpData(StringRef Op) { return OpMap[Op]; }
 

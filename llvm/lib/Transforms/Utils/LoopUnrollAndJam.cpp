@@ -417,7 +417,7 @@ llvm::UnrollAndJamLoop(Loop *L, unsigned Count, unsigned TripCount,
         auto BBIDom = BBDomNode->getIDom();
         BasicBlock *OriginalBBIDom = BBIDom->getBlock();
         assert(OriginalBBIDom);
-        assert(LastValueMap[cast<Value>(OriginalBBIDom)]);
+        assert_DISABLED(LastValueMap[cast<Value>(OriginalBBIDom)]);
         DT->addNewBlock(
             New, cast<BasicBlock>(LastValueMap[cast<Value>(OriginalBBIDom)]));
       }

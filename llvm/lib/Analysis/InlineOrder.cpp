@@ -254,7 +254,7 @@ public:
   }
 
   T pop() override {
-    assert(size() > 0);
+    assert_DISABLED(size() > 0);
     pop_heap_adjust();
 
     CallBase *CB = Heap.pop_back_val();

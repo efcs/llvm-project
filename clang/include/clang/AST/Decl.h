@@ -5008,8 +5008,8 @@ void Redeclarable<decl_type>::setPreviousDecl(decl_type *PrevDecl) {
   // First one will point to this one as latest.
   First->RedeclLink.setLatest(static_cast<decl_type*>(this));
 
-  assert(!isa<NamedDecl>(static_cast<decl_type*>(this)) ||
-         cast<NamedDecl>(static_cast<decl_type*>(this))->isLinkageValid());
+  assert(!isa<NamedDecl>(static_cast<const decl_type*>(this)) ||
+         cast<NamedDecl>(static_cast<const decl_type*>(this))->isLinkageValid());
 }
 
 // Inline function definitions.

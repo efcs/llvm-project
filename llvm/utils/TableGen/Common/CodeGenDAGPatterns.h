@@ -943,6 +943,7 @@ public:
     return Args[i];
   }
   std::vector<std::string> &getArgList() { return Args; }
+  const std::vector<std::string> &getArgList() const { return Args; }
 
   CodeGenDAGPatterns &getDAGPatterns() const { return CDP; }
 

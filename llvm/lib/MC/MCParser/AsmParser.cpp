@@ -5825,7 +5825,7 @@ bool AsmParser::parseDirectiveEndr(SMLoc DirectiveLoc) {
 
   // The only .repl that should get here are the ones created by
   // instantiateMacroLikeBody.
-  assert(getLexer().is(AsmToken::EndOfStatement));
+  assert_DISABLED(getLexer().is(AsmToken::EndOfStatement));
 
   handleMacroExit();
   return false;

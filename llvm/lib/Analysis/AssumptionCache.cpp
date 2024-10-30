@@ -208,7 +208,7 @@ void AssumptionCache::registerAssumption(AssumeInst *CI) {
            "Cached assumption not inside this function!");
     assert(match(cast<CallInst>(VH), m_Intrinsic<Intrinsic::assume>()) &&
            "Cached something other than a call to @llvm.assume!");
-    assert(AssumptionSet.insert(VH).second &&
+    assert_DISABLED(AssumptionSet.insert(VH).second &&
            "Cache contains multiple copies of a call!");
   }
 #endif

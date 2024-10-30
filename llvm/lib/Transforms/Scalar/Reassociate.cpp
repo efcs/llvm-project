@@ -442,7 +442,7 @@ static bool LinearizeExprTree(Instruction *I,
       // If this is a binary operation of the right kind with only one use then
       // add its operands to the expression.
       if (BinaryOperator *BO = isReassociableOp(Op, Opcode)) {
-        assert(Visited.insert(Op).second && "Not first visit!");
+        assert_DISABLED(Visited.insert(Op).second && "Not first visit!");
         LLVM_DEBUG(dbgs() << "DIRECT ADD: " << *Op << " (" << Weight << ")\n");
         Worklist.push_back(std::make_pair(BO, Weight));
         continue;
@@ -452,7 +452,7 @@ static bool LinearizeExprTree(Instruction *I,
       LeafMap::iterator It = Leaves.find(Op);
       if (It == Leaves.end()) {
         // Not in the leaf map.  Must be the first time we saw this operand.
-        assert(Visited.insert(Op).second && "Not first visit!");
+        assert_DISABLED(Visited.insert(Op).second && "Not first visit!");
         if (!Op->hasOneUse()) {
           // This value has uses not accounted for by the expression, so it is
           // not safe to modify.  Mark it as being a leaf.

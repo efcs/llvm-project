@@ -588,7 +588,7 @@ class NeonEmitter {
   void genOverloadTypeCheckCode(raw_ostream &OS,
                                 SmallVectorImpl<Intrinsic *> &Defs);
   bool areRangeChecksCompatible(const ArrayRef<ImmCheck> ChecksA,
-                                const ArrayRef<ImmCheck> ChecksB);
+                                const ArrayRef<ImmCheck> ChecksB) const;
   void genIntrinsicRangeCheckCode(raw_ostream &OS,
                                   SmallVectorImpl<Intrinsic *> &Defs);
 
@@ -2185,7 +2185,7 @@ void NeonEmitter::genOverloadTypeCheckCode(raw_ostream &OS,
 
 inline bool
 NeonEmitter::areRangeChecksCompatible(const ArrayRef<ImmCheck> ChecksA,
-                                      const ArrayRef<ImmCheck> ChecksB) {
+                                      const ArrayRef<ImmCheck> ChecksB) const {
   // If multiple intrinsics map to the same builtin, we must ensure that the
   // intended range checks performed in SemaArm.cpp do not contradict each
   // other, as these are emitted once per-buitlin.

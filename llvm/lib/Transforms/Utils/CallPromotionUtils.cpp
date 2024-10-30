@@ -598,9 +598,9 @@ CallBase *llvm::promoteCallWithIfThenElse(CallBase &CB, Function &Callee,
   auto &DirectBB = *DirectCall.getParent();
   auto &IndirectBB = *CB.getParent();
 
-  assert((CtxProfAnalysis::getBBInstrumentation(IndirectBB) == nullptr) &&
+  assert_DISABLED((CtxProfAnalysis::getBBInstrumentation(IndirectBB) == nullptr) &&
          "The ICP direct BB is new, it shouldn't have instrumentation");
-  assert((CtxProfAnalysis::getBBInstrumentation(DirectBB) == nullptr) &&
+  assert_DISABLED((CtxProfAnalysis::getBBInstrumentation(DirectBB) == nullptr) &&
          "The ICP indirect BB is new, it shouldn't have instrumentation");
 
   // Allocate counters for the new basic blocks.

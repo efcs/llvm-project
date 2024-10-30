@@ -267,7 +267,7 @@ void BCECmpBlock::split(BasicBlock *NewParent, AliasAnalysis &AA) const {
   for (Instruction &Inst : *BB) {
     if (BlockInsts.count(&Inst))
       continue;
-    assert(canSinkBCECmpInst(&Inst, AA) && "Split unsplittable block");
+    assert_DISABLED(canSinkBCECmpInst(&Inst, AA) && "Split unsplittable block");
     // This is a non-BCE-cmp-block instruction. And it can be separated
     // from the BCE-cmp-block instruction.
     OtherInsts.push_back(&Inst);

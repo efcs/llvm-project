@@ -1114,7 +1114,7 @@ void Mapper::mapAppendingVariable(GlobalVariable &GV, Constant *InitPrefix,
 
 void Mapper::scheduleMapGlobalInitializer(GlobalVariable &GV, Constant &Init,
                                           unsigned MCID) {
-  assert(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
+  assert_DISABLED(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
   assert(MCID < MCs.size() && "Invalid mapping context");
 
   WorklistEntry WE;
@@ -1130,7 +1130,7 @@ void Mapper::scheduleMapAppendingVariable(GlobalVariable &GV,
                                           bool IsOldCtorDtor,
                                           ArrayRef<Constant *> NewMembers,
                                           unsigned MCID) {
-  assert(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
+  assert_DISABLED(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
   assert(MCID < MCs.size() && "Invalid mapping context");
 
   WorklistEntry WE;
@@ -1146,7 +1146,7 @@ void Mapper::scheduleMapAppendingVariable(GlobalVariable &GV,
 
 void Mapper::scheduleMapAliasOrIFunc(GlobalValue &GV, Constant &Target,
                                      unsigned MCID) {
-  assert(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
+  assert_DISABLED(AlreadyScheduled.insert(&GV).second && "Should not reschedule");
   assert((isa<GlobalAlias>(GV) || isa<GlobalIFunc>(GV)) &&
          "Should be alias or ifunc");
   assert(MCID < MCs.size() && "Invalid mapping context");
@@ -1160,7 +1160,7 @@ void Mapper::scheduleMapAliasOrIFunc(GlobalValue &GV, Constant &Target,
 }
 
 void Mapper::scheduleRemapFunction(Function &F, unsigned MCID) {
-  assert(AlreadyScheduled.insert(&F).second && "Should not reschedule");
+  assert_DISABLED(AlreadyScheduled.insert(&F).second && "Should not reschedule");
   assert(MCID < MCs.size() && "Invalid mapping context");
 
   WorklistEntry WE;

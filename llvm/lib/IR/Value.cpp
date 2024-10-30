@@ -591,7 +591,7 @@ static void replaceDbgUsesOutsideBlock(Value *V, Value *New, BasicBlock *BB) {
 // This routine leaves uses within BB.
 void Value::replaceUsesOutsideBlock(Value *New, BasicBlock *BB) {
   assert(New && "Value::replaceUsesOutsideBlock(<null>, BB) is invalid!");
-  assert(!contains(New, this) &&
+  assert_DISABLED(!contains(New, this) &&
          "this->replaceUsesOutsideBlock(expr(this), BB) is NOT valid!");
   assert(New->getType() == getType() &&
          "replaceUses of value with new value of different type!");

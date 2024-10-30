@@ -115,7 +115,7 @@ public:
   /// Fetch the collection of DbgRecords that "trail" after the last instruction
   /// of this block, see \ref setTrailingDbgRecords. If there are none, returns
   /// nullptr.
-  DbgMarker *getTrailingDbgRecords();
+  DbgMarker *getTrailingDbgRecords() const;
 
   /// Delete any trailing DbgRecords at the end of this block, see
   /// \ref setTrailingDbgRecords.

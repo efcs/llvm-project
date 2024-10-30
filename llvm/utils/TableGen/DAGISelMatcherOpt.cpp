@@ -424,7 +424,7 @@ static void FactorNodes(std::unique_ptr<Matcher> &InputMatcherPtr) {
     SmallVector<std::pair<const SDNodeInfo *, Matcher *>, 8> Cases;
     for (unsigned i = 0, e = OptionsToMatch.size(); i != e; ++i) {
       CheckOpcodeMatcher *COM = cast<CheckOpcodeMatcher>(OptionsToMatch[i]);
-      assert(Opcodes.insert(COM->getOpcode().getEnumName()).second &&
+      assert(const_cast<StringSet<>&>(Opcodes).insert(COM->getOpcode().getEnumName()).second &&
              "Duplicate opcodes not factored?");
       Cases.push_back(std::pair(&COM->getOpcode(), COM->takeNext()));
       delete COM;

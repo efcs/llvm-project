@@ -779,7 +779,7 @@ private:
       // have.
       TypeID = ValueList.getTypeID(ValNo);
       ResVal = getFnValueByID(ValNo, nullptr, TypeID, ConstExprInsertBB);
-      assert((!ResVal || ResVal->getType() == getTypeByID(TypeID)) &&
+      assert_DISABLED((!ResVal || ResVal->getType() == getTypeByID(TypeID)) &&
              "Incorrect type ID stored for value");
       return ResVal == nullptr;
     }
@@ -1477,7 +1477,7 @@ unsigned BitcodeReader::getVirtualTypeID(Type *Ty,
     // contained type ID, however the second one will always be the same (i1),
     // so we don't need to include it in the cache key. This asserts that the
     // contained types are indeed as expected and there are no collisions.
-    assert((ChildTypeIDs.empty() ||
+    assert_DISABLED((ChildTypeIDs.empty() ||
             ContainedTypeIDs[It->second] == ChildTypeIDs) &&
            "Incorrect cached contained type IDs");
     return It->second;
@@ -3746,7 +3746,7 @@ Error BitcodeReader::parseConstants() {
     }
     }
 
-    assert(V->getType() == getTypeByID(CurTyID) && "Incorrect result type ID");
+    assert_DISABLED(V->getType() == getTypeByID(CurTyID) && "Incorrect result type ID");
     if (Error Err = ValueList.assignValue(NextCstNo, V, CurTyID))
       return Err;
     ++NextCstNo;
@@ -3875,7 +3875,7 @@ Error BitcodeReader::rememberAndSkipFunctionBody() {
 
   // Save the current stream state.
   uint64_t CurBit = Stream.GetCurrentBitNo();
-  assert(
+  assert_DISABLED(
       (DeferredFunctionInfo[Fn] == 0 || DeferredFunctionInfo[Fn] == CurBit) &&
       "Mismatch between VST and scanned function offsets");
   DeferredFunctionInfo[Fn] = CurBit;
@@ -4872,7 +4872,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
   unsigned FTyID = FunctionTypeIDs[F];
   for (Argument &I : F->args()) {
     unsigned ArgTyID = getContainedTypeID(FTyID, ArgNo + 1);
-    assert(I.getType() == getTypeByID(ArgTyID) &&
+    assert_DISABLED(I.getType() == getTypeByID(ArgTyID) &&
            "Incorrect fully specified type for Function Argument");
     ValueList.push_back(&I, ArgTyID);
     ++ArgNo;
@@ -6836,7 +6836,7 @@ Error BitcodeReader::parseFunctionBody(Function *F) {
 
     // Non-void values get registered in the value table for future use.
     if (!I->getType()->isVoidTy()) {
-      assert(I->getType() == getTypeByID(ResTypeID) &&
+      assert_DISABLED(I->getType() == getTypeByID(ResTypeID) &&
              "Incorrect result type ID");
       if (Error Err = ValueList.assignValue(NextValueNo++, I, ResTypeID))
         return Err;

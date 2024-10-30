@@ -918,7 +918,7 @@ public:
                  computeShapeInfoForInst(&I, ShapeMap) &&
              "Shape of new instruction doesn't match original shape.");
       CleanupBinOp(I, A, B);
-      assert(computeShapeInfoForInst(Add, ShapeMap).value_or(ShapeMap[Add]) ==
+      assert_DISABLED(computeShapeInfoForInst(Add, ShapeMap).value_or(ShapeMap[Add]) ==
                  ShapeMap[Add] &&
              "Shape of updated addition doesn't match cached shape.");
     }

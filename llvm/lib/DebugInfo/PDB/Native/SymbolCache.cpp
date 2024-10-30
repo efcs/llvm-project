@@ -184,7 +184,7 @@ SymIndexId SymbolCache::findSymbolByTypeIndex(codeview::TypeIndex Index) const {
     if (!EFD)
       consumeError(EFD.takeError());
     else if (*EFD != Index) {
-      assert(!isUdtForwardRef(Types.getType(*EFD)));
+      assert_DISABLED(!isUdtForwardRef(const_cast<decltype((Types))&>(Types).getType(*EFD)));
       SymIndexId Result = findSymbolByTypeIndex(*EFD);
       // Record a mapping from ForwardRef -> SymIndex of complete type so that
       // we'll take the fast path next time.

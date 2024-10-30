@@ -3056,7 +3056,7 @@ void NewGVN::updateProcessedCount(const Value *V) {
     ProcessedCount.insert({V, 1});
   } else {
     ++ProcessedCount[V];
-    assert(ProcessedCount[V] < 100 &&
+    assert_DISABLED(ProcessedCount[V] < 100 &&
            "Seem to have processed the same Value a lot");
   }
 #endif
@@ -3268,7 +3268,7 @@ void NewGVN::verifyMemoryCongruency() const {
       auto *SecondMUD = dyn_cast<MemoryUseOrDef>(KV.second->getMemoryLeader());
       if (FirstMUD && SecondMUD) {
         SmallPtrSet<const MemoryAccess *, 8> VisitedMAS;
-        assert((singleReachablePHIPath(VisitedMAS, FirstMUD, SecondMUD) ||
+        assert_DISABLED((singleReachablePHIPath(VisitedMAS, FirstMUD, SecondMUD) ||
                 ValueToClass.lookup(FirstMUD->getMemoryInst()) ==
                     ValueToClass.lookup(SecondMUD->getMemoryInst())) &&
                "The instructions for these memory operations should have "

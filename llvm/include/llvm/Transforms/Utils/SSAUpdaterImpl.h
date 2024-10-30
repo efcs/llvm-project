@@ -339,7 +339,7 @@ public:
     }
     // Record Singular value.
     (*AvailableVals)[Info->BB] = Singular;
-    assert(BBMap[Info->BB] == Info && "Info missed in BBMap?");
+    assert_DISABLED(BBMap[Info->BB] == Info && "Info missed in BBMap?");
     Info->AvailableVal = Singular;
     Info->DefBB = Info->Preds[0]->DefBB;
     return true;

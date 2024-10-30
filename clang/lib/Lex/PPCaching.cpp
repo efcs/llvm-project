@@ -15,7 +15,7 @@
 using namespace clang;
 
 std::pair<Preprocessor::CachedTokensTy::size_type, bool>
-Preprocessor::LastBacktrackPos() {
+Preprocessor::LastBacktrackPos() const {
   assert(isBacktrackEnabled());
   auto BacktrackPos = BacktrackPositions.back();
   bool Unannotated =

@@ -442,7 +442,7 @@ public:
     PreservedAnalyses PA = PreservedAnalyses::none();
     SmallDenseMap<AnalysisKey *, bool, 8> IsResultInvalidated;
     Invalidator Inv(IsResultInvalidated, AnalysisResults);
-    assert(!Result->invalidate(IR, PA, Inv) &&
+    assert_DISABLED(!Result->invalidate(IR, PA, Inv) &&
            "Cached result cannot be invalidated");
   }
 

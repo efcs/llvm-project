@@ -232,7 +232,7 @@ public:
   virtual bool printError(SMLoc L, const Twine &Msg,
                           SMRange Range = std::nullopt) = 0;
 
-  bool hasPendingError() { return !PendingErrors.empty(); }
+  bool hasPendingError() const { return !PendingErrors.empty(); }
 
   bool printPendingErrors() {
     bool rv = !PendingErrors.empty();

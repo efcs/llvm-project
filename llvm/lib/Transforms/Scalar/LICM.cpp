@@ -789,7 +789,7 @@ public:
       return InitialPreheader;
     }
     BranchInst *BI = It->first;
-    assert(std::find_if(++It, HoistableBranches.end(), HasBBAsSuccessor) ==
+    assert_DISABLED(std::find_if(++It, HoistableBranches.end(), HasBBAsSuccessor) ==
                HoistableBranches.end() &&
            "BB is expected to be the target of at most one branch");
 

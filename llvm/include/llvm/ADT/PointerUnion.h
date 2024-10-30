@@ -226,7 +226,7 @@ bool operator<(PointerUnion<PTs...> lhs, PointerUnion<PTs...> rhs) {
 template <typename... PTs> struct CastInfoPointerUnionImpl {
   using From = PointerUnion<PTs...>;
 
-  template <typename To> static inline bool isPossible(From &F) {
+  template <typename To> static inline bool isPossible(const From &F) {
     return F.Val.getInt() == FirstIndexOfType<To, PTs...>::value;
   }
 

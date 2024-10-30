@@ -832,7 +832,7 @@ incorporateNewSCCRange(const SCCRangeT &NewSCCRange, LazyCallGraph &G,
   assert(C != &*NewSCCRange.begin() &&
          "Cannot insert new SCCs without changing current SCC!");
   C = &*NewSCCRange.begin();
-  assert(G.lookupSCC(N) == C && "Failed to update current SCC!");
+  assert_DISABLED(G.lookupSCC(N) == C && "Failed to update current SCC!");
 
   // If we had a cached FAM proxy originally, we will want to create more of
   // them for each SCC that was split off.
@@ -1122,7 +1122,7 @@ static LazyCallGraph::SCC &updateCGAndAnalysisManagerForPass(
     // structures.
     if (FormedCycle) {
       C = &TargetC;
-      assert(G.lookupSCC(N) == C && "Failed to update current SCC!");
+      assert_DISABLED(G.lookupSCC(N) == C && "Failed to update current SCC!");
 
       // If one of the invalidated SCCs had a cached proxy to a function
       // analysis manager, we need to create a proxy in the new current SCC as

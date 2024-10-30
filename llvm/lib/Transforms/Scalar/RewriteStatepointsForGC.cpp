@@ -631,8 +631,8 @@ static Value *findBaseDefiningValueCached(Value *I, DefiningValueMapTy &Cache,
                       << Cache[I]->getName() << ", is known base = "
                       << KnownBases[I] << "\n");
   }
-  assert(Cache[I] != nullptr);
-  assert(KnownBases.contains(Cache[I]) &&
+  assert_DISABLED(Cache[I] != nullptr);
+  assert_DISABLED(KnownBases.contains(Cache[I]) &&
          "Cached value must be present in known bases map");
   return Cache[I];
 }
@@ -3030,7 +3030,7 @@ bool RewriteStatepointsForGC::runOnFunction(Function &F, DominatorTree &DT,
                                             const TargetLibraryInfo &TLI) {
   assert(!F.isDeclaration() && !F.empty() &&
          "need function body to rewrite statepoints in");
-  assert(shouldRewriteStatepointsIn(F) && "mismatch in rewrite decision");
+  assert_DISABLED(shouldRewriteStatepointsIn(F) && "mismatch in rewrite decision");
 
   auto NeedsRewrite = [&TLI](Instruction &I) {
     if (const auto *Call = dyn_cast<CallBase>(&I)) {
@@ -3285,7 +3285,7 @@ static void computeLiveInValues(DominatorTree &DT, Function &F,
 
 #ifndef NDEBUG
     for (Value *Kill : Data.KillSet[&BB])
-      assert(!Data.LiveSet[&BB].count(Kill) && "live set contains kill");
+      assert_DISABLED(!Data.LiveSet[&BB].count(Kill) && "live set contains kill");
 #endif
 
     Data.LiveOut[&BB] = SetVector<Value *>();

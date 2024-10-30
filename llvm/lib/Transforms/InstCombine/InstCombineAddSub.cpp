@@ -63,7 +63,7 @@ namespace {
     void operator*=(const FAddendCoef &S);
 
     void set(short C) {
-      assert(!insaneIntVal(C) && "Insane coefficient");
+      assert_DISABLED(!insaneIntVal(C) && "Insane coefficient");
       IsFp = false; IntVal = C;
     }
 
@@ -302,7 +302,7 @@ void FAddendCoef::operator*=(const FAddendCoef &That) {
 
   if (isInt() && That.isInt()) {
     int Res = IntVal * (int)That.IntVal;
-    assert(!insaneIntVal(Res) && "Insane int value");
+    assert_DISABLED(!insaneIntVal(Res) && "Insane int value");
     IntVal = Res;
     return;
   }

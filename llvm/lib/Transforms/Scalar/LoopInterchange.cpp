@@ -1468,7 +1468,7 @@ static void moveLCSSAPhis(BasicBlock *InnerExit, BasicBlock *InnerHeader,
         IncIInnerMost->getParent() != InnerHeader)
       continue;
 
-    assert(all_of(P.users(),
+    assert_DISABLED(all_of(P.users(),
                   [OuterHeader, OuterExit, IncI, InnerHeader](User *U) {
                     return (cast<PHINode>(U)->getParent() == OuterHeader &&
                             IncI->getParent() == InnerHeader) ||

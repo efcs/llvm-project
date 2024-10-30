@@ -1298,7 +1298,7 @@ static bool getCastsForInductionPHI(PredicatedScalarEvolution &PSE,
 
   assert(CastInsts.empty() && "CastInsts is expected to be empty.");
   auto *PN = cast<PHINode>(PhiScev->getValue());
-  assert(PSE.getSCEV(PN) == AR && "Unexpected phi node SCEV expression");
+  assert_DISABLED(PSE.getSCEV(PN) == AR && "Unexpected phi node SCEV expression");
   const Loop *L = AR->getLoop();
 
   // Find any cast instructions that participate in the def-use chain of

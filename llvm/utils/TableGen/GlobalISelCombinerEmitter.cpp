@@ -2583,7 +2583,7 @@ void GICombinerEmitter::emitTestSimplePredicate(raw_ostream &OS) {
     unsigned ExpectedID = 0;
     (void)ExpectedID;
     for (const auto &ID : keys(AllCombineRules)) {
-      assert(ExpectedID++ == ID && "combine rules are not ordered!");
+      assert(const_cast<unsigned&>(ExpectedID)++ == ID && "combine rules are not ordered!");
       OS << "  " << getIsEnabledPredicateEnumName(ID) << EnumeratorSeparator;
       EnumeratorSeparator = ",\n";
     }

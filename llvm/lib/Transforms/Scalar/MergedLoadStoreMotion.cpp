@@ -109,7 +109,7 @@ public:
 
 private:
   BasicBlock *getDiamondTail(BasicBlock *BB);
-  bool isDiamondHead(BasicBlock *BB);
+  bool isDiamondHead(const BasicBlock *BB) const;
   // Routines for sinking stores
   StoreInst *canSinkFromBlock(BasicBlock *BB, StoreInst *SI);
   PHINode *getPHIOperand(BasicBlock *BB, StoreInst *S0, StoreInst *S1);
@@ -133,7 +133,7 @@ BasicBlock *MergedLoadStoreMotion::getDiamondTail(BasicBlock *BB) {
 ///
 /// True when BB is the head of a diamond (hammock)
 ///
-bool MergedLoadStoreMotion::isDiamondHead(BasicBlock *BB) {
+bool MergedLoadStoreMotion::isDiamondHead(const BasicBlock *BB) const {
   if (!BB)
     return false;
   auto *BI = dyn_cast<BranchInst>(BB->getTerminator());

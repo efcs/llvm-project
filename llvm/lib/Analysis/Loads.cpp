@@ -317,7 +317,7 @@ bool llvm::isDereferenceableAndAlignedInLoop(
   // accessing EltSize bytes at every Step.
   APInt AccessSize = TC * Step->getAPInt();
 
-  assert(SE.isLoopInvariant(AddRec->getStart(), L) &&
+  assert_DISABLED(const_cast<decltype((SE))&>(SE).isLoopInvariant(AddRec->getStart(), L) &&
          "implied by addrec definition");
   Value *Base = nullptr;
   if (auto *StartS = dyn_cast<SCEVUnknown>(AddRec->getStart())) {

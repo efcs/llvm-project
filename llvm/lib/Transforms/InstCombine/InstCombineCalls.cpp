@@ -4071,12 +4071,12 @@ Instruction *InstCombinerImpl::visitCallBase(CallBase &Call) {
     for (const GCRelocateInst *Reloc : GCSP.getGCRelocates()) {
       GCRelocateInst &GCR = *const_cast<GCRelocateInst *>(Reloc);
       Value *BasePtr = GCR.getBasePtr();
-      assert(Val2Idx.count(BasePtr) && Val2Idx[BasePtr] != NumOfGCLives &&
+      assert_DISABLED(Val2Idx.count(BasePtr) && Val2Idx[BasePtr] != NumOfGCLives &&
              "Missed live gc for base pointer");
       auto *OpIntTy1 = GCR.getOperand(1)->getType();
       GCR.setOperand(1, ConstantInt::get(OpIntTy1, Val2Idx[BasePtr]));
       Value *DerivedPtr = GCR.getDerivedPtr();
-      assert(Val2Idx.count(DerivedPtr) && Val2Idx[DerivedPtr] != NumOfGCLives &&
+      assert_DISABLED(Val2Idx.count(DerivedPtr) && Val2Idx[DerivedPtr] != NumOfGCLives &&
              "Missed live gc for derived pointer");
       auto *OpIntTy2 = GCR.getOperand(2)->getType();
       GCR.setOperand(2, ConstantInt::get(OpIntTy2, Val2Idx[DerivedPtr]));

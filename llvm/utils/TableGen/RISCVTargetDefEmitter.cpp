@@ -218,7 +218,8 @@ static void emitRISCVExtensionBitmask(const RecordKeeper &RK, raw_ostream &OS) {
   });
 
 #ifndef NDEBUG
-  llvm::DenseSet<std::pair<uint64_t, uint64_t>> Seen;
+  using SeenType = llvm::DenseSet<std::pair<uint64_t, uint64_t>> ;
+  SeenType Seen;
 #endif
 
   OS << "#ifdef GET_RISCVExtensionBitmaskTable_IMPL\n";
@@ -231,7 +232,7 @@ static void emitRISCVExtensionBitmask(const RecordKeeper &RK, raw_ostream &OS) {
     ExtName.consume_front("experimental-");
 
 #ifndef NDEBUG
-    assert(Seen.insert(std::make_pair(GroupIDVal, BitPosVal)).second &&
+    assert(const_cast<SeenType&>(Seen).insert(std::make_pair(GroupIDVal, BitPosVal)).second &&
            "duplicated bitmask");
 #endif
 

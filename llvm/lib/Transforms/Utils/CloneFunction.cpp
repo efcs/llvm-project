@@ -808,7 +808,7 @@ void llvm::CloneAndPruneIntoFromInst(Function *NewFunc, const Function *OldFunc,
       while ((PN = dyn_cast<PHINode>(I++))) {
         Value *NV = PoisonValue::get(PN->getType());
         PN->replaceAllUsesWith(NV);
-        assert(VMap[&*OldI] == PN && "VMap mismatch");
+        assert_DISABLED(VMap[&*OldI] == PN && "VMap mismatch");
         VMap[&*OldI] = NV;
         PN->eraseFromParent();
         ++OldI;

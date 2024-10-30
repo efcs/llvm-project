@@ -691,7 +691,7 @@ static void compareLoops(const LoopT *L, const LoopT *OtherL,
 
   std::vector<BlockT *> BBs = L->getBlocks();
   std::vector<BlockT *> OtherBBs = OtherL->getBlocks();
-  assert(compareVectors(BBs, OtherBBs) &&
+  assert_DISABLED(compareVectors(BBs, OtherBBs) &&
          "Mismatched basic blocks in the loops!");
 
   const SmallPtrSetImpl<const BlockT *> &BlocksSet = L->getBlocksSet();

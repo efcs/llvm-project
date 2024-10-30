@@ -233,8 +233,12 @@ public:
                                         SourceLocation RAngleLoc,
                                         Expr *RequiresClause)
       : FixedSizeStorageOwner(
-            (assert(N == Params.size()),
-             assert(HasRequiresClause == (RequiresClause != nullptr)),
+            ([&]() {
+               ((void)Params);
+               ((void)RequiresClause);
+               assert(N == Params.size());
+               assert(HasRequiresClause == (RequiresClause != nullptr));
+             }(),
              new (static_cast<void *>(&storage)) TemplateParameterList(C,
                  TemplateLoc, LAngleLoc, Params, RAngleLoc, RequiresClause))) {}
 };

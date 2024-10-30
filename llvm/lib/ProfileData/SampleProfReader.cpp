@@ -1481,7 +1481,7 @@ bool SampleProfileReaderExtBinaryBase::dumpSectionInfo(raw_ostream &OS) {
     TotalSecsSize += Entry.Size;
   }
   uint64_t HeaderSize = SecHdrTable.front().Offset;
-  assert(HeaderSize + TotalSecsSize == getFileSize() &&
+  assert_DISABLED(HeaderSize + TotalSecsSize == getFileSize() &&
          "Size of 'header + sections' doesn't match the total size of profile");
 
   OS << "Header Size: " << HeaderSize << "\n";

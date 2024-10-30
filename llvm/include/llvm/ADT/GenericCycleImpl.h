@@ -126,13 +126,13 @@ template <typename ContextT> void GenericCycle<ContextT>::verifyCycle() const {
   assert(!Blocks.empty() && "Cycle cannot be empty.");
   DenseSet<BlockT *> Blocks;
   for (BlockT *BB : blocks()) {
-    assert(Blocks.insert(BB).second); // duplicates in block list?
+    assert_DISABLED(Blocks.insert(BB).second); // duplicates in block list?
   }
   assert(!Entries.empty() && "Cycle must have one or more entries.");
 
   DenseSet<BlockT *> Entries;
   for (BlockT *Entry : entries()) {
-    assert(Entries.insert(Entry).second); // duplicate entry?
+    assert_DISABLED(Entries.insert(Entry).second); // duplicate entry?
     assert(contains(Entry));
   }
 
@@ -577,7 +577,7 @@ void GenericCycleInfo<ContextT>::verifyCycleNest(bool VerifyFull) const {
   for (CycleT *TopCycle : toplevel_cycles()) {
     for (CycleT *Cycle : depth_first(TopCycle)) {
       BlockT *Header = Cycle->getHeader();
-      assert(CycleHeaders.insert(Header).second);
+      assert_DISABLED(const_cast<decltype((CycleHeaders))>(CycleHeaders).insert(Header).second);
       if (VerifyFull)
         Cycle->verifyCycle();
       else

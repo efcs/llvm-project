@@ -463,7 +463,7 @@ CallInst *IRBuilderBase::CreateLifetimeStart(Value *Ptr, ConstantInt *Size) {
   if (!Size)
     Size = getInt64(-1);
   else
-    assert(Size->getType() == getInt64Ty() &&
+    assert(Size->getType() == const_cast<IRBuilderBase*>(this)->getInt64Ty() &&
            "lifetime.start requires the size to be an i64");
   Value *Ops[] = { Size, Ptr };
   return CreateIntrinsic(Intrinsic::lifetime_start, {Ptr->getType()}, Ops);
@@ -475,7 +475,7 @@ CallInst *IRBuilderBase::CreateLifetimeEnd(Value *Ptr, ConstantInt *Size) {
   if (!Size)
     Size = getInt64(-1);
   else
-    assert(Size->getType() == getInt64Ty() &&
+    assert_DISABLED(Size->getType() == getInt64Ty() &&
            "lifetime.end requires the size to be an i64");
   Value *Ops[] = { Size, Ptr };
   return CreateIntrinsic(Intrinsic::lifetime_end, {Ptr->getType()}, Ops);
@@ -488,7 +488,7 @@ CallInst *IRBuilderBase::CreateInvariantStart(Value *Ptr, ConstantInt *Size) {
   if (!Size)
     Size = getInt64(-1);
   else
-    assert(Size->getType() == getInt64Ty() &&
+    assert_DISABLED(Size->getType() == getInt64Ty() &&
            "invariant.start requires the size to be an i64");
 
   Value *Ops[] = {Size, Ptr};
@@ -520,7 +520,7 @@ CallInst *IRBuilderBase::CreateThreadLocalAddress(Value *Ptr) {
 CallInst *
 IRBuilderBase::CreateAssumption(Value *Cond,
                                 ArrayRef<OperandBundleDef> OpBundles) {
-  assert(Cond->getType() == getInt1Ty() &&
+  assert_DISABLED(Cond->getType() == getInt1Ty() &&
          "an assumption condition must be of type i1");
 
   Value *Ops[] = { Cond };

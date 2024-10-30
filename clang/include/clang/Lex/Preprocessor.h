@@ -1717,7 +1717,7 @@ public:
   void EnableBacktrackAtThisPos(bool Unannotated = false);
 
 private:
-  std::pair<CachedTokensTy::size_type, bool> LastBacktrackPos();
+  std::pair<CachedTokensTy::size_type, bool> LastBacktrackPos() const;
 
   CachedTokensTy PopUnannotatedBacktrackTokens();
 

@@ -444,7 +444,7 @@ checkClobberSanity(const MemoryAccess *Start, MemoryAccess *ClobberAt,
         if (MD == Start)
           continue;
 
-        assert(!instructionClobbersQuery(MD, MAP.second, Query.Inst, AA) &&
+        assert(!instructionClobbersQuery(MD, MAP.second, Query.Inst, const_cast<decltype((AA))&>(AA)) &&
                "Found clobber before reaching ClobberAt!");
         continue;
       }

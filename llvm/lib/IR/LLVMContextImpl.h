@@ -1721,7 +1721,7 @@ public:
     TrailingDbgRecords[B] = M;
   }
 
-  DbgMarker *getTrailingDbgRecords(BasicBlock *B) {
+  DbgMarker *getTrailingDbgRecords(const BasicBlock *B) const {
     return TrailingDbgRecords.lookup(B);
   }
 

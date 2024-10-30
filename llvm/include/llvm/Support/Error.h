@@ -243,6 +243,11 @@ public:
     return getPtr() != nullptr;
   }
 
+  explicit operator bool() const {
+      // FIXME(EricWF): This is a terrible hack.
+      return getPtr() != nullptr;
+  }
+
   /// Check whether one error is a subclass of another.
   template <typename ErrT> bool isA() const {
     return getPtr() && getPtr()->isA(ErrT::classID());
@@ -571,6 +576,11 @@ public:
 #if LLVM_ENABLE_ABI_BREAKING_CHECKS
     Unchecked = HasError;
 #endif
+    return !HasError;
+  }
+
+  explicit operator bool() const {
+    // FIXME(EricWF): this is a terrible hack
     return !HasError;
   }
 

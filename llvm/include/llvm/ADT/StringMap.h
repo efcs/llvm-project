@@ -454,6 +454,10 @@ public:
     return LHS.Ptr == RHS.Ptr;
   }
 
+  friend bool operator!=(const DerivedTy &LHS, const DerivedTy &RHS) {
+    return LHS.Ptr != RHS.Ptr;
+  }
+
   DerivedTy &operator++() { // Preincrement
     ++Ptr;
     AdvancePastEmptyBuckets();
@@ -489,6 +493,7 @@ public:
   const StringMapEntry<ValueTy> &operator*() const {
     return *static_cast<const StringMapEntry<ValueTy> *>(*this->Ptr);
   }
+
 };
 
 template <typename ValueTy>
@@ -509,6 +514,9 @@ public:
 
   operator StringMapConstIterator<ValueTy>() const {
     return StringMapConstIterator<ValueTy>(this->Ptr, true);
+  }
+  operator base() const {
+    return *this;
   }
 };
 

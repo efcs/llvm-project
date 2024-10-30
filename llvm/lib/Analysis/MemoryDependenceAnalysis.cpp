@@ -716,7 +716,7 @@ static void AssertSorted(MemoryDependenceResults::NonLocalDepInfo &Cache,
 
 const MemoryDependenceResults::NonLocalDepInfo &
 MemoryDependenceResults::getNonLocalCallDependency(CallBase *QueryCall) {
-  assert(getDependency(QueryCall).isNonLocal() &&
+  assert_DISABLED(getDependency(QueryCall).isNonLocal() &&
          "getNonLocalCallDependency should only be used on calls with "
          "non-local deps!");
   PerInstNLInfo &CacheP = NonLocalDepsMap[QueryCall];

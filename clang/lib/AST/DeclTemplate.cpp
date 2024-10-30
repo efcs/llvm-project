@@ -377,7 +377,7 @@ void RedeclarableTemplateDecl::addSpecializationImpl(
   if (InsertPos) {
 #ifndef NDEBUG
     void *CorrectInsertPos;
-    assert(!findSpecializationImpl(Specializations,
+    assert_DISABLED(!findSpecializationImpl(Specializations,
                                    CorrectInsertPos,
                                    SETraits::getTemplateArgs(Entry)) &&
            InsertPos == CorrectInsertPos &&

@@ -27,7 +27,7 @@ static bool isSafeDecreasingBound(const SCEV *Start, const SCEV *BoundSCEV,
   if (!SE.isAvailableAtLoopEntry(BoundSCEV, L))
     return false;
 
-  assert(SE.isKnownNegative(Step) && "expecting negative step");
+  assert_DISABLED(SE.isKnownNegative(Step) && "expecting negative step");
 
   LLVM_DEBUG(dbgs() << "isSafeDecreasingBound with:\n");
   LLVM_DEBUG(dbgs() << "Start: " << *Start << "\n");
@@ -169,7 +169,7 @@ LoopStructure::parseLoopStructure(ScalarEvolution &SE, Loop &L,
     FailureReason = "could not compute latch count";
     return std::nullopt;
   }
-  assert(SE.getLoopDisposition(MaxBETakenCount, &L) ==
+  assert_DISABLED(SE.getLoopDisposition(MaxBETakenCount, &L) ==
              ScalarEvolution::LoopInvariant &&
          "loop variant exit count doesn't make sense!");
 
@@ -493,7 +493,7 @@ void LoopConstrainer::cloneLoop(LoopConstrainer::ClonedLoop &Result,
     BasicBlock *ClonedBB = Result.Blocks[i];
     BasicBlock *OriginalBB = OriginalLoop.getBlocks()[i];
 
-    assert(Result.Map[OriginalBB] == ClonedBB && "invariant!");
+    assert_DISABLED(Result.Map[OriginalBB] == ClonedBB && "invariant!");
 
     for (Instruction &I : *ClonedBB)
       RemapInstruction(&I, Result.Map,

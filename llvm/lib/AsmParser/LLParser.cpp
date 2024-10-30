@@ -1033,7 +1033,10 @@ bool LLParser::parseStandaloneMetadata() {
     ToReplace->replaceAllUsesWith(Init);
     ForwardRefMDNodes.erase(FI);
 
-    assert(NumberedMetadata[MetadataID] == Init && "Tracking VH didn't work");
+    assert([&]() {
+      auto pos = NumberedMetadata.find(MetadataID);
+      return pos != NumberedMetadata.end() && pos->second == Init; }()
+      && "Tracking VH didn't work");
   } else {
     if (NumberedMetadata.count(MetadataID))
       return tokError("Metadata id is already used");

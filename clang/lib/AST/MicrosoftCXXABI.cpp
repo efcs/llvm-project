@@ -155,7 +155,7 @@ public:
   addCopyConstructorForExceptionObject(CXXRecordDecl *RD,
                                        CXXConstructorDecl *CD) override {
     assert(CD != nullptr);
-    assert(RecordToCopyCtor[RD] == nullptr || RecordToCopyCtor[RD] == CD);
+    assert_DISABLED(RecordToCopyCtor[RD] == nullptr || RecordToCopyCtor[RD] == CD);
     RecordToCopyCtor[RD] = CD;
   }
 

@@ -1158,7 +1158,7 @@ void BasicBlock::setTrailingDbgRecords(DbgMarker *foo) {
   getContext().pImpl->setTrailingDbgRecords(this, foo);
 }
 
-DbgMarker *BasicBlock::getTrailingDbgRecords() {
+DbgMarker *BasicBlock::getTrailingDbgRecords() const {
   return getContext().pImpl->getTrailingDbgRecords(this);
 }
 

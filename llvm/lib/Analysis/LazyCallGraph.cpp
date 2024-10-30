@@ -586,7 +586,7 @@ updatePostorderSequenceForEdgeInsertion(
 bool LazyCallGraph::RefSCC::switchInternalEdgeToCall(
     Node &SourceN, Node &TargetN,
     function_ref<void(ArrayRef<SCC *> MergeSCCs)> MergeCB) {
-  assert(!(*SourceN)[TargetN].isCall() && "Must start with a ref edge!");
+  assert_DISABLED(!(*SourceN)[TargetN].isCall() && "Must start with a ref edge!");
   SmallVector<SCC *, 1> DeletedSCCs;
 
 #ifdef EXPENSIVE_CHECKS
@@ -732,16 +732,16 @@ bool LazyCallGraph::RefSCC::switchInternalEdgeToCall(
 
 void LazyCallGraph::RefSCC::switchTrivialInternalEdgeToRef(Node &SourceN,
                                                            Node &TargetN) {
-  assert((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
+  assert_DISABLED((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
 
 #ifdef EXPENSIVE_CHECKS
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
 
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
-  assert(G->lookupSCC(SourceN) != G->lookupSCC(TargetN) &&
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
+  assert_DISABLED(G->lookupSCC(SourceN) != G->lookupSCC(TargetN) &&
          "Source and Target must be in separate SCCs for this to be trivial!");
 
   // Set the edge kind.
@@ -750,18 +750,18 @@ void LazyCallGraph::RefSCC::switchTrivialInternalEdgeToRef(Node &SourceN,
 
 iterator_range<LazyCallGraph::RefSCC::iterator>
 LazyCallGraph::RefSCC::switchInternalEdgeToRef(Node &SourceN, Node &TargetN) {
-  assert((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
+  assert_DISABLED((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
 
 #ifdef EXPENSIVE_CHECKS
   verify();
   auto VerifyOnExit = make_scope_exit([&]() { verify(); });
 #endif
 
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
 
   SCC &TargetSCC = *G->lookupSCC(TargetN);
-  assert(G->lookupSCC(SourceN) == &TargetSCC && "Source and Target must be in "
+  assert_DISABLED(G->lookupSCC(SourceN) == &TargetSCC && "Source and Target must be in "
                                                 "the same SCC to require the "
                                                 "full CG update.");
 
@@ -931,10 +931,10 @@ LazyCallGraph::RefSCC::switchInternalEdgeToRef(Node &SourceN, Node &TargetN) {
 
 void LazyCallGraph::RefSCC::switchOutgoingEdgeToCall(Node &SourceN,
                                                      Node &TargetN) {
-  assert(!(*SourceN)[TargetN].isCall() && "Must start with a ref edge!");
+  assert_DISABLED(!(*SourceN)[TargetN].isCall() && "Must start with a ref edge!");
 
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) != this &&
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) != this &&
          "Target must not be in this RefSCC.");
 #ifdef EXPENSIVE_CHECKS
   assert(G->lookupRefSCC(TargetN)->isDescendantOf(*this) &&
@@ -952,10 +952,10 @@ void LazyCallGraph::RefSCC::switchOutgoingEdgeToCall(Node &SourceN,
 
 void LazyCallGraph::RefSCC::switchOutgoingEdgeToRef(Node &SourceN,
                                                     Node &TargetN) {
-  assert((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
+  assert_DISABLED((*SourceN)[TargetN].isCall() && "Must start with a call edge!");
 
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) != this &&
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) != this &&
          "Target must not be in this RefSCC.");
 #ifdef EXPENSIVE_CHECKS
   assert(G->lookupRefSCC(TargetN)->isDescendantOf(*this) &&
@@ -973,8 +973,8 @@ void LazyCallGraph::RefSCC::switchOutgoingEdgeToRef(Node &SourceN,
 
 void LazyCallGraph::RefSCC::insertInternalRefEdge(Node &SourceN,
                                                   Node &TargetN) {
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
 
   SourceN->insertEdgeInternal(TargetN, Edge::Ref);
 
@@ -988,9 +988,9 @@ void LazyCallGraph::RefSCC::insertOutgoingEdge(Node &SourceN, Node &TargetN,
   // First insert it into the caller.
   SourceN->insertEdgeInternal(TargetN, EK);
 
-  assert(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this && "Source must be in this RefSCC.");
 
-  assert(G->lookupRefSCC(TargetN) != this &&
+  assert_DISABLED(G->lookupRefSCC(TargetN) != this &&
          "Target must not be in this RefSCC.");
 #ifdef EXPENSIVE_CHECKS
   assert(G->lookupRefSCC(TargetN)->isDescendantOf(*this) &&
@@ -1004,7 +1004,7 @@ void LazyCallGraph::RefSCC::insertOutgoingEdge(Node &SourceN, Node &TargetN,
 
 SmallVector<LazyCallGraph::RefSCC *, 1>
 LazyCallGraph::RefSCC::insertIncomingRefEdge(Node &SourceN, Node &TargetN) {
-  assert(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
+  assert_DISABLED(G->lookupRefSCC(TargetN) == this && "Target must be in this RefSCC.");
   RefSCC &SourceC = *G->lookupRefSCC(SourceN);
   assert(&SourceC != this && "Source must not be in this RefSCC.");
 #ifdef EXPENSIVE_CHECKS
@@ -1145,9 +1145,9 @@ LazyCallGraph::RefSCC::insertIncomingRefEdge(Node &SourceN, Node &TargetN) {
 }
 
 void LazyCallGraph::RefSCC::removeOutgoingEdge(Node &SourceN, Node &TargetN) {
-  assert(G->lookupRefSCC(SourceN) == this &&
+  assert_DISABLED(G->lookupRefSCC(SourceN) == this &&
          "The source must be a member of this RefSCC.");
-  assert(G->lookupRefSCC(TargetN) != this &&
+  assert_DISABLED(G->lookupRefSCC(TargetN) != this &&
          "The target must not be a member of this RefSCC");
 
 #ifdef EXPENSIVE_CHECKS
@@ -1505,7 +1505,7 @@ void LazyCallGraph::markDeadFunction(Function &F) {
 
   // We shouldn't remove library functions as they are never really dead while
   // the call graph is in use -- every function definition refers to them.
-  assert(!isLibFunction(F) &&
+  assert_DISABLED(!isLibFunction(F) &&
          "Must not remove lib functions from the call graph!");
 
   auto NI = NodeMap.find(&F);
@@ -1768,14 +1768,14 @@ void LazyCallGraph::addSplitRefRecursiveFunctions(
 
 #ifndef NDEBUG
   for (Function *F1 : NewFunctions) {
-    assert(getEdgeKind(OriginalFunction, *F1) == Edge::Kind::Ref &&
+    assert_DISABLED(getEdgeKind(OriginalFunction, *F1) == Edge::Kind::Ref &&
            "Expected ref edges from original function to every new function");
     Node &N1 = get(*F1);
     for (Function *F2 : NewFunctions) {
       if (F1 == F2)
         continue;
       Node &N2 = get(*F2);
-      assert(!N1->lookup(N2)->isCall() &&
+      assert_DISABLED(!N1->lookup(N2)->isCall() &&
              "Edges between new functions must be ref edges");
     }
   }

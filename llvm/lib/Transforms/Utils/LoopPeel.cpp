@@ -218,13 +218,13 @@ PhiAnalyzer::PeelCounter PhiAnalyzer::calculate(const Value &V) {
   if (const PHINode *Phi = dyn_cast<PHINode>(&V)) {
     if (Phi->getParent() != L.getHeader()) {
       // Phi is not in header block so Unknown.
-      assert(IterationsToInvariance[&V] == Unknown && "unexpected value saved");
+      assert_DISABLED(IterationsToInvariance[&V] == Unknown && "unexpected value saved");
       return Unknown;
     }
     // We need to analyze the input from the back edge and add 1.
     Value *Input = Phi->getIncomingValueForBlock(L.getLoopLatch());
     PeelCounter Iterations = calculate(*Input);
-    assert(IterationsToInvariance[Input] == Iterations &&
+    assert_DISABLED(IterationsToInvariance[Input] == Iterations &&
            "unexpected value saved");
     return (IterationsToInvariance[Phi] = addOne(Iterations));
   }
@@ -246,7 +246,7 @@ PhiAnalyzer::PeelCounter PhiAnalyzer::calculate(const Value &V) {
   // TODO: handle more expressions
 
   // Everything else is Unknown.
-  assert(IterationsToInvariance[&V] == Unknown && "unexpected value saved");
+  assert_DISABLED(IterationsToInvariance[&V] == Unknown && "unexpected value saved");
   return Unknown;
 }
 

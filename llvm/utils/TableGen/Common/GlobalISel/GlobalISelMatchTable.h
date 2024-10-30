@@ -2348,7 +2348,7 @@ private:
   std::vector<StringRef> UnsetFlags;
 
   /// True if the instruction can be built solely by mutating the opcode.
-  bool canMutate(RuleMatcher &Rule, const InstructionMatcher *Insn) const;
+  bool canMutate(const RuleMatcher &Rule, const InstructionMatcher *Insn) const;
 
 public:
   BuildMIAction(unsigned InsnID, const CodeGenInstruction *I)

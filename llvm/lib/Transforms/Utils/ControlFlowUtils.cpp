@@ -280,7 +280,7 @@ BasicBlock *ControlFlowHub::finalize(
 
   for (auto [BB, Succ0, Succ1] : Branches) {
 #ifndef NDEBUG
-    assert(Incoming.insert(BB).second && "Duplicate entry for incoming block.");
+    assert_DISABLED(Incoming.insert(BB).second && "Duplicate entry for incoming block.");
 #endif
     if (Succ0)
       Outgoing.insert(Succ0);

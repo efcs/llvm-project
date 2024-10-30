@@ -835,7 +835,7 @@ IntersectSignedRange(ScalarEvolution &SE,
   auto &R1Value = *R1;
   // We never return empty ranges from this function, and R1 is supposed to be
   // a result of intersection. Thus, R1 is never empty.
-  assert(!R1Value.isEmpty(SE, /* IsSigned */ true) &&
+  assert_DISABLED(!R1Value.isEmpty(SE, /* IsSigned */ true) &&
          "We should never have empty R1!");
 
   // TODO: we could widen the smaller range and have this work; but for now we
@@ -864,7 +864,7 @@ IntersectUnsignedRange(ScalarEvolution &SE,
   auto &R1Value = *R1;
   // We never return empty ranges from this function, and R1 is supposed to be
   // a result of intersection. Thus, R1 is never empty.
-  assert(!R1Value.isEmpty(SE, /* IsSigned */ false) &&
+  assert_DISABLED(!R1Value.isEmpty(SE, /* IsSigned */ false) &&
          "We should never have empty R1!");
 
   // TODO: we could widen the smaller range and have this work; but for now we

@@ -2134,7 +2134,7 @@ void CustomOperandRenderer::emitRenderOpcodes(MatchTable &Table,
 
 //===- BuildMIAction ------------------------------------------------------===//
 
-bool BuildMIAction::canMutate(RuleMatcher &Rule,
+bool BuildMIAction::canMutate(const RuleMatcher &Rule,
                               const InstructionMatcher *Insn) const {
   if (!Insn || Insn->hasVariadicMatcher())
     return false;

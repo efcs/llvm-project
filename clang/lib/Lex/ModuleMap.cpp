@@ -935,7 +935,7 @@ Module *ModuleMap::createModuleUnitWithKind(SourceLocation Loc, StringRef Name,
 Module *ModuleMap::createModuleForInterfaceUnit(SourceLocation Loc,
                                                 StringRef Name) {
   assert(LangOpts.CurrentModule == Name && "module name mismatch");
-  assert(!Modules[Name] && "redefining existing module");
+  assert_DISABLED(!Modules[Name] && "redefining existing module");
 
   auto *Result =
       createModuleUnitWithKind(Loc, Name, Module::ModuleInterfaceUnit);
@@ -954,14 +954,14 @@ Module *ModuleMap::createModuleForImplementationUnit(SourceLocation Loc,
                                                      StringRef Name) {
   assert(LangOpts.CurrentModule == Name && "module name mismatch");
   // The interface for this implementation must exist and be loaded.
-  assert(Modules[Name] && Modules[Name]->Kind == Module::ModuleInterfaceUnit &&
+  assert_DISABLED(Modules[Name] && Modules[Name]->Kind == Module::ModuleInterfaceUnit &&
          "creating implementation module without an interface");
 
   // Create an entry in the modules map to own the implementation unit module.
   // User module names must not start with a period (so that this cannot clash
   // with any legal user-defined module name).
   StringRef IName = ".ImplementationUnit";
-  assert(!Modules[IName] && "multiple implementation units?");
+  assert_DISABLED(!Modules[IName] && "multiple implementation units?");
 
   auto *Result =
       createModuleUnitWithKind(Loc, Name, Module::ModuleImplementationUnit);
@@ -977,7 +977,7 @@ Module *ModuleMap::createModuleForImplementationUnit(SourceLocation Loc,
 Module *ModuleMap::createHeaderUnit(SourceLocation Loc, StringRef Name,
                                     Module::Header H) {
   assert(LangOpts.CurrentModule == Name && "module name mismatch");
-  assert(!Modules[Name] && "redefining existing module");
+  assert_DISABLED(!Modules[Name] && "redefining existing module");
 
   auto *Result = new (ModulesAlloc.Allocate())
       Module(ModuleConstructorTag{}, Name, Loc, nullptr, /*IsFramework=*/false,

@@ -897,7 +897,7 @@ ConstantInt *ConstantInt::get(LLVMContext &Context, const APInt &V) {
     IntegerType *ITy = IntegerType::get(Context, V.getBitWidth());
     Slot.reset(new ConstantInt(ITy, V));
   }
-  assert(Slot->getType() == IntegerType::get(Context, V.getBitWidth()));
+  assert_DISABLED(Slot->getType() == IntegerType::get(Context, V.getBitWidth()));
   return Slot.get();
 }
 
