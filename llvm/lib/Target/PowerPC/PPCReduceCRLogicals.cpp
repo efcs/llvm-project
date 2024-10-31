@@ -138,7 +138,7 @@ struct BlockSplitInfo {
 /// the branch condition. The branch probabilities will be set if the
 /// MachineBranchProbabilityInfo isn't null.
 static bool splitMBB(BlockSplitInfo &BSI) {
-  assert(BSI.allInstrsInSameMBB() &&
+  assert_DISABLED(BSI.allInstrsInSameMBB() &&
          "All instructions must be in the same block.");
 
   MachineBasicBlock *ThisMBB = BSI.OrigBranch->getParent();

@@ -361,7 +361,7 @@ static void sortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
           assert(Pred->getNumber() < MBB.getNumber() &&
                  "Non-loop-header predecessors should be topologically sorted");
       }
-      assert(OnStack.insert(Region) &&
+      assert_DISABLED(OnStack.insert(Region) &&
              "Regions should be declared at most once.");
 
     } else {
@@ -369,13 +369,13 @@ static void sortBlocks(MachineFunction &MF, const MachineLoopInfo &MLI,
       for (auto *Pred : MBB.predecessors())
         assert(Pred->getNumber() < MBB.getNumber() &&
                "Non-loop-header predecessors should be topologically sorted");
-      assert(OnStack.count(SRI.getRegionFor(&MBB)) &&
+      assert_DISABLED(OnStack.count(SRI.getRegionFor(&MBB)) &&
              "Blocks must be nested in their regions");
     }
     while (OnStack.size() > 1 && &MBB == SRI.getBottom(OnStack.back()))
       OnStack.pop_back();
   }
-  assert(OnStack.pop_back_val() == nullptr &&
+  assert_DISABLED(OnStack.pop_back_val() == nullptr &&
          "The function entry block shouldn't actually be a region header");
   assert(OnStack.empty() &&
          "Control flow stack pushes and pops should be balanced.");

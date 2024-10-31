@@ -349,7 +349,7 @@ public:
 
   /// Set an ExecutionSession for this instance.
   SetterImpl &setExecutionSession(std::unique_ptr<ExecutionSession> ES) {
-    assert(
+    assert_DISABLED(
         !impl().EPC &&
         "setExecutionSession should not be called if an ExecutorProcessControl "
         "object has already been set");

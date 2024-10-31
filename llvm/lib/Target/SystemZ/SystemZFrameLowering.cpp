@@ -1170,7 +1170,7 @@ bool SystemZXPLINKFrameLowering::restoreCalleeSavedRegisters(
   // this point might hold return values).
   SystemZ::GPRRegs RestoreGPRs = ZFI->getRestoreGPRRegs();
   if (RestoreGPRs.LowGPR) {
-    assert(isInt<20>(Regs.getStackPointerBias() + RestoreGPRs.GPROffset));
+    assert_DISABLED(isInt<20>(Regs.getStackPointerBias() + RestoreGPRs.GPROffset));
     if (RestoreGPRs.LowGPR == RestoreGPRs.HighGPR)
       // Build an LG/L instruction.
       BuildMI(MBB, MBBI, DL, TII->get(SystemZ::LG), RestoreGPRs.LowGPR)

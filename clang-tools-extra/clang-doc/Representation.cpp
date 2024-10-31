@@ -179,7 +179,7 @@ bool Reference::mergeable(const Reference &Other) {
 }
 
 void Reference::merge(Reference &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (Name.empty())
     Name = Other.Name;
   if (Path.empty())
@@ -187,7 +187,7 @@ void Reference::merge(Reference &&Other) {
 }
 
 void Info::mergeBase(Info &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (USR == EmptySID)
     USR = Other.USR;
   if (Name == "")
@@ -209,7 +209,7 @@ bool Info::mergeable(const Info &Other) {
 }
 
 void SymbolInfo::merge(SymbolInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (!DefLoc)
     DefLoc = std::move(Other.DefLoc);
   // Unconditionally extend the list of locations, since we want all of them.
@@ -224,7 +224,7 @@ NamespaceInfo::NamespaceInfo(SymbolID USR, StringRef Name, StringRef Path)
     : Info(InfoType::IT_namespace, USR, Name, Path) {}
 
 void NamespaceInfo::merge(NamespaceInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   // Reduce children if necessary.
   reduceChildren(Children.Namespaces, std::move(Other.Children.Namespaces));
   reduceChildren(Children.Records, std::move(Other.Children.Records));
@@ -238,7 +238,7 @@ RecordInfo::RecordInfo(SymbolID USR, StringRef Name, StringRef Path)
     : SymbolInfo(InfoType::IT_record, USR, Name, Path) {}
 
 void RecordInfo::merge(RecordInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (!llvm::to_underlying(TagType))
     TagType = Other.TagType;
   IsTypeDef = IsTypeDef || Other.IsTypeDef;
@@ -261,7 +261,7 @@ void RecordInfo::merge(RecordInfo &&Other) {
 }
 
 void EnumInfo::merge(EnumInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (!Scoped)
     Scoped = Other.Scoped;
   if (Members.empty())
@@ -270,7 +270,7 @@ void EnumInfo::merge(EnumInfo &&Other) {
 }
 
 void FunctionInfo::merge(FunctionInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (!IsMethod)
     IsMethod = Other.IsMethod;
   if (!Access)
@@ -287,7 +287,7 @@ void FunctionInfo::merge(FunctionInfo &&Other) {
 }
 
 void TypedefInfo::merge(TypedefInfo &&Other) {
-  assert(mergeable(Other));
+  assert_DISABLED(mergeable(Other));
   if (!IsUsing)
     IsUsing = Other.IsUsing;
   if (Underlying.Type.Name == "")

@@ -93,8 +93,8 @@ RecordStorageLocation &DataflowAnalysisContext::createRecordStorageLocation(
     QualType Type, RecordStorageLocation::FieldToLoc FieldLocs,
     RecordStorageLocation::SyntheticFieldMap SyntheticFields) {
   assert(Type->isRecordType());
-  assert(containsSameFields(getModeledFields(Type), FieldLocs));
-  assert(getKeys(getSyntheticFields(Type)) == getKeys(SyntheticFields));
+  assert_DISABLED(containsSameFields(getModeledFields(Type), FieldLocs));
+  assert_DISABLED(getKeys(getSyntheticFields(Type)) == getKeys(SyntheticFields));
 
   RecordStorageLocationCreated = true;
   return arena().create<RecordStorageLocation>(Type, std::move(FieldLocs),

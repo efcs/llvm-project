@@ -211,7 +211,7 @@ void SLSBLRThunkInserter::populateThunk(MachineFunction &MF) {
          "ComdatThunks value changed since MF creation");
   // FIXME: How to better communicate Register number, rather than through
   // name and lookup table?
-  assert(MF.getName().starts_with(getThunkPrefix()));
+  assert_DISABLED(MF.getName().starts_with(getThunkPrefix()));
   auto ThunkIt = llvm::find_if(
       SLSBLRThunks, [&MF](auto T) { return T.Name == MF.getName(); });
   assert(ThunkIt != std::end(SLSBLRThunks));

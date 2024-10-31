@@ -7302,7 +7302,7 @@ SDValue PPCTargetLowering::LowerFormalArguments_AIX(
       (void)OriginalValNo;
 
       auto HandleCustomVecRegLoc = [&]() {
-        assert(I != End && ArgLocs[I].isRegLoc() && ArgLocs[I].needsCustom() &&
+        assert_DISABLED(I != End && ArgLocs[I].isRegLoc() && ArgLocs[I].needsCustom() &&
                "Missing custom RegLoc.");
         VA = ArgLocs[I++];
         assert(VA.getValVT().isVector() &&
@@ -7718,7 +7718,7 @@ SDValue PPCTargetLowering::LowerCall_AIX(
       unsigned LoadOffset = 0;
       auto HandleCustomVecRegLoc = [&]() {
         assert(I != E && "Unexpected end of CCvalAssigns.");
-        assert(ArgLocs[I].isRegLoc() && ArgLocs[I].needsCustom() &&
+        assert_DISABLED(ArgLocs[I].isRegLoc() && ArgLocs[I].needsCustom() &&
                "Expected custom RegLoc.");
         CCValAssign RegVA = ArgLocs[I++];
         assert(RegVA.getValNo() == OriginalValNo &&

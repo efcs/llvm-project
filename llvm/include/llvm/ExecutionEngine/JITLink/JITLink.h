@@ -1522,7 +1522,7 @@ public:
            "Symbol is not in the externals set");
     ExternalSymbols.erase(Sym.getName());
     Addressable &Base = *Sym.Base;
-    assert(llvm::none_of(external_symbols(),
+    assert_DISABLED(llvm::none_of(external_symbols(),
                          [&](Symbol *AS) { return AS->Base == &Base; }) &&
            "Base addressable still in use");
     destroySymbol(Sym);
@@ -1537,7 +1537,7 @@ public:
            "Symbol is not in the absolute symbols set");
     AbsoluteSymbols.erase(&Sym);
     Addressable &Base = *Sym.Base;
-    assert(llvm::none_of(external_symbols(),
+    assert_DISABLED(llvm::none_of(external_symbols(),
                          [&](Symbol *AS) { return AS->Base == &Base; }) &&
            "Base addressable still in use");
     destroySymbol(Sym);

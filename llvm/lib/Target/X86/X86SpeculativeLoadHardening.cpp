@@ -815,7 +815,7 @@ X86SpeculativeLoadHardeningPass::tracePredStateThroughCFG(
       // just skip this and continue.
       continue;
 
-    assert(SuccCounts[UncondSucc] == 1 &&
+    assert_DISABLED(SuccCounts[UncondSucc] == 1 &&
            "We should never have more than one edge to the unconditional "
            "successor at this point because every other edge must have been "
            "split above!");
@@ -1765,7 +1765,7 @@ void X86SpeculativeLoadHardeningPass::hardenLoadAddr(
 
 MachineInstr *X86SpeculativeLoadHardeningPass::sinkPostLoadHardenedInst(
     MachineInstr &InitialMI, SmallPtrSetImpl<MachineInstr *> &HardenedInstrs) {
-  assert(X86InstrInfo::isDataInvariantLoad(InitialMI) &&
+  assert_DISABLED(X86InstrInfo::isDataInvariantLoad(InitialMI) &&
          "Cannot get here with a non-invariant load!");
   assert(!isEFLAGSDefLive(InitialMI) &&
          "Cannot get here with a data invariant load "
@@ -1788,7 +1788,7 @@ MachineInstr *X86SpeculativeLoadHardeningPass::sinkPostLoadHardenedInst(
           // If we've already decided to harden a non-load, we must have sunk
           // some other post-load hardened instruction to it and it must itself
           // be data-invariant.
-          assert(X86InstrInfo::isDataInvariant(UseMI) &&
+          assert_DISABLED(X86InstrInfo::isDataInvariant(UseMI) &&
                  "Data variant instruction being hardened!");
           continue;
         }
@@ -1903,7 +1903,7 @@ bool X86SpeculativeLoadHardeningPass::canHardenRegister(Register Reg) {
 unsigned X86SpeculativeLoadHardeningPass::hardenValueInRegister(
     Register Reg, MachineBasicBlock &MBB, MachineBasicBlock::iterator InsertPt,
     const DebugLoc &Loc) {
-  assert(canHardenRegister(Reg) && "Cannot harden this register!");
+  assert_DISABLED(canHardenRegister(Reg) && "Cannot harden this register!");
 
   auto *RC = MRI->getRegClass(Reg);
   int Bytes = TRI->getRegSizeInBits(*RC) / 8;

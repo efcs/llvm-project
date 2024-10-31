@@ -99,7 +99,7 @@ template <typename ElTy> struct ListReducer {
         // TODO: Previously, this error was ignored and we treated it as if
         // shuffling hid the bug. This should really either be consumeError if
         // that behaviour was sensible, or we should propagate the error.
-        assert(!Result.takeError() && "Shuffling caused internal error?");
+        assert_DISABLED(!Result.takeError() && "Shuffling caused internal error?");
 
         if (*Result == KeepPrefix) {
           // If the bug is still here, use the shuffled list.

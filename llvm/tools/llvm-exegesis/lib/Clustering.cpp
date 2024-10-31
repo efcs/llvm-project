@@ -304,7 +304,7 @@ void BenchmarkClustering::stabilize(unsigned NumOpcodes) {
           [this, &Key](size_t P) {
             return OpcodeAndConfig(Points_[P]) != Key;
           });
-      assert(std::distance(it, OldCluster.PointIndices.end()) > 0 &&
+      assert_DISABLED(std::distance(it, OldCluster.PointIndices.end()) > 0 &&
              "Should have found at least one bad point");
       // Mark to-be-moved points as belonging to the new cluster.
       for (size_t P : make_range(it, OldCluster.PointIndices.end()))

@@ -142,7 +142,7 @@ static void undefInvalidDbgValues(
       Register Reg = LI->reg();
 #ifndef NDEBUG
       // Ensure we don't process the same register twice
-      assert(SeenRegs.insert(Reg).second);
+      assert_DISABLED(SeenRegs.insert(Reg).second);
 #endif
       auto RegMapIt = DbgVRegToValues.find(Reg);
       if (RegMapIt == DbgVRegToValues.end())

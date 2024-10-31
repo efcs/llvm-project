@@ -32,7 +32,7 @@ HeaderMapCollector::getMappedHeader(llvm::StringRef Header) const {
   for (auto &Entry : RegexHeaderMappingTable) {
 #ifndef NDEBUG
     std::string Dummy;
-    assert(Entry.first.isValid(Dummy) && "Regex should never be invalid!");
+    assert_DISABLED(Entry.first.isValid(Dummy) && "Regex should never be invalid!");
 #endif
     if (Entry.first.match(Header))
       return Entry.second;

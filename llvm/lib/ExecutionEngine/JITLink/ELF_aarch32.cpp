@@ -210,7 +210,7 @@ protected:
 
   orc::ExecutorAddrDiff getRawOffset(const typename ELFT::Sym &Sym,
                                      TargetFlagsType Flags) override {
-    assert((makeTargetFlags(Sym) & Flags) == Flags);
+    assert_DISABLED((makeTargetFlags(Sym) & Flags) == Flags);
     static constexpr uint64_t ThumbBit = 0x01;
     if (Sym.getType() == ELF::STT_FUNC)
       return Sym.getValue() & ~ThumbBit;

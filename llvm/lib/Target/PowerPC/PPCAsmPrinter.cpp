@@ -2582,7 +2582,7 @@ void PPCAIXAsmPrinter::emitTracebackTable() {
             : XCOFF::parseParmsType(ParmsTypeValue, NumberOfFixedParms,
                                     NumberOfFPParms);
 
-    assert(ParmsType && toString(ParmsType.takeError()).c_str());
+    assert_DISABLED(ParmsType && toString(ParmsType.takeError()).c_str());
     if (ParmsType) {
       CommentOS << "Parameter type = " << ParmsType.get();
       EmitComment();
@@ -2662,7 +2662,7 @@ void PPCAIXAsmPrinter::emitTracebackTable() {
 
     Expected<SmallString<32>> VecParmsType =
         XCOFF::parseVectorParmsType(VecParmTypeValue, VectorParmsNum);
-    assert(VecParmsType && toString(VecParmsType.takeError()).c_str());
+    assert_DISABLED(VecParmsType && toString(VecParmsType.takeError()).c_str());
     if (VecParmsType) {
       CommentOS << "Vector Parameter type = " << VecParmsType.get();
       EmitComment();

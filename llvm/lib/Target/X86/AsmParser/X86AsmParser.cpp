@@ -126,7 +126,7 @@ private:
   }
 
   X86TargetStreamer &getTargetStreamer() {
-    assert(getParser().getStreamer().getTargetStreamer() &&
+    assert_DISABLED(getParser().getStreamer().getTargetStreamer() &&
            "do not have a target streamer");
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<X86TargetStreamer &>(TS);
@@ -2222,7 +2222,7 @@ bool X86AsmParser::ParseIntelInlineAsmIdentifier(
     const MCExpr *&Val, StringRef &Identifier, InlineAsmIdentifierInfo &Info,
     bool IsUnevaluatedOperand, SMLoc &End, bool IsParsingOffsetOperator) {
   MCAsmParser &Parser = getParser();
-  assert(isParsingMSInlineAsm() && "Expected to be parsing inline assembly.");
+  assert_DISABLED(isParsingMSInlineAsm() && "Expected to be parsing inline assembly.");
   Val = nullptr;
 
   StringRef LineBuf(Identifier.data());

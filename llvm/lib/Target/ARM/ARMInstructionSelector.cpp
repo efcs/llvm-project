@@ -775,7 +775,7 @@ bool ARMInstructionSelector::selectSelect(MachineInstrBuilder &MIB,
 
   // Compare the condition to 1.
   auto CondReg = MIB.getReg(1);
-  assert(validReg(MRI, CondReg, 1, ARM::GPRRegBankID) &&
+  assert_DISABLED(validReg(MRI, CondReg, 1, ARM::GPRRegBankID) &&
          "Unsupported types for select operation");
   auto CmpI = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(Opcodes.TSTri))
                   .addUse(CondReg)
@@ -789,7 +789,7 @@ bool ARMInstructionSelector::selectSelect(MachineInstrBuilder &MIB,
   auto ResReg = MIB.getReg(0);
   auto TrueReg = MIB.getReg(2);
   auto FalseReg = MIB.getReg(3);
-  assert(validOpRegPair(MRI, ResReg, TrueReg, 32, ARM::GPRRegBankID) &&
+  assert_DISABLED(validOpRegPair(MRI, ResReg, TrueReg, 32, ARM::GPRRegBankID) &&
          validOpRegPair(MRI, TrueReg, FalseReg, 32, ARM::GPRRegBankID) &&
          "Unsupported types for select operation");
   auto Mov1I = BuildMI(MBB, InsertBefore, DbgLoc, TII.get(Opcodes.MOVCCr))

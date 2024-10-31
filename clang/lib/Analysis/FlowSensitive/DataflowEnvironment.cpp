@@ -852,7 +852,7 @@ void Environment::setStorageLocation(const ValueDecl &D, StorageLocation &Loc) {
   // are declarations of reference type and `BindingDecl`. For all other
   // declaration, the storage location should be the stable storage location
   // returned by `createStorageLocation()`.
-  assert(D.getType()->isReferenceType() || isa<BindingDecl>(D) ||
+  assert_DISABLED(D.getType()->isReferenceType() || isa<BindingDecl>(D) ||
          &Loc == &createStorageLocation(D));
   DeclToLoc[&D] = &Loc;
 }

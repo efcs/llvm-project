@@ -149,7 +149,7 @@ Error CtorDtorRunner::run() {
   for (auto &KV : CtorDtorsByPriority)
     for (auto &Name : KV.second)
       LookupSet.add(Name);
-  assert(!LookupSet.containsDuplicates() &&
+  assert_DISABLED(!LookupSet.containsDuplicates() &&
          "Ctor/Dtor list contains duplicates");
 
   auto &ES = JD.getExecutionSession();

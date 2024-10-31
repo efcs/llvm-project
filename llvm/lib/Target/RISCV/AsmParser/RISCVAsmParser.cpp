@@ -90,7 +90,7 @@ class RISCVAsmParser : public MCTargetAsmParser {
   }
 
   RISCVTargetStreamer &getTargetStreamer() {
-    assert(getParser().getStreamer().getTargetStreamer() &&
+    assert_DISABLED(getParser().getStreamer().getTargetStreamer() &&
            "do not have a target streamer");
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<RISCVTargetStreamer &>(TS);

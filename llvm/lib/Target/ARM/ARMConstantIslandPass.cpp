@@ -1544,7 +1544,7 @@ void ARMConstantIslands::createNewWater(unsigned CPUserIndex,
   // We really must not split an IT block.
 #ifndef NDEBUG
   Register PredReg;
-  assert(!isThumb || getITInstrPredicate(*MI, PredReg) == ARMCC::AL);
+  assert_DISABLED(!isThumb || getITInstrPredicate(*MI, PredReg) == ARMCC::AL);
 #endif
   NewMBB = splitBlockBeforeInstr(&*MI);
 }

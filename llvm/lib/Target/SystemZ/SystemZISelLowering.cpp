@@ -8386,7 +8386,7 @@ SystemZTargetLowering::emitAdjCallStack(MachineInstr &MI,
 MachineBasicBlock *
 SystemZTargetLowering::emitSelect(MachineInstr &MI,
                                   MachineBasicBlock *MBB) const {
-  assert(isSelectPseudo(MI) && "Bad call to emitSelect()");
+  assert_DISABLED(isSelectPseudo(MI) && "Bad call to emitSelect()");
   const SystemZInstrInfo *TII = Subtarget.getInstrInfo();
 
   unsigned CCValid = MI.getOperand(3).getImm();

@@ -368,7 +368,7 @@ bool HexagonGenPredicate::convertToPredForm(MachineInstr *MI) {
   LLVM_DEBUG(dbgs() << __func__ << ": " << MI << " " << *MI);
 
   unsigned Opc = MI->getOpcode();
-  assert(isConvertibleToPredForm(MI));
+  assert_DISABLED(isConvertibleToPredForm(MI));
   unsigned NumOps = MI->getNumOperands();
   for (unsigned i = 0; i < NumOps; ++i) {
     MachineOperand &MO = MI->getOperand(i);

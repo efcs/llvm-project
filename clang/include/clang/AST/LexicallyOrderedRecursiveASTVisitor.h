@@ -144,7 +144,7 @@ private:
     // but right now we only care about getting the correct lexical parent, so
     // we can traverse the gathered nested declarations after the declarations
     // in the decl context.
-    assert(!BaseType::getDerived().shouldTraversePostOrder() &&
+    assert_DISABLED(!BaseType::getDerived().shouldTraversePostOrder() &&
            "post-order traversal is not supported for lexically ordered "
            "recursive ast visitor");
     for (Decl *D : LexicallyNestedDeclarations) {

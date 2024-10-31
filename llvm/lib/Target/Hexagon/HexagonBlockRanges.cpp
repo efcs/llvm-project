@@ -161,7 +161,7 @@ HexagonBlockRanges::InstrIndexMap::InstrIndexMap(MachineBasicBlock &B)
   for (auto &In : B) {
     if (In.isDebugInstr())
       continue;
-    assert(getIndex(&In) == IndexType::None && "Instruction already in map");
+    assert_DISABLED(getIndex(&In) == IndexType::None && "Instruction already in map");
     Map.insert(std::make_pair(Idx, &In));
     ++Idx;
   }

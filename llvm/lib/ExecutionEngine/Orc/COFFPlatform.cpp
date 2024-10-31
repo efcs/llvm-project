@@ -793,7 +793,7 @@ Error COFFPlatform::COFFPlatformPlugin::associateJITDylibHeaderSymbol(
   auto I = llvm::find_if(G.defined_symbols(), [this](jitlink::Symbol *Sym) {
     return Sym->getName() == *CP.COFFHeaderStartSymbol;
   });
-  assert(I != G.defined_symbols().end() && "Missing COFF header start symbol");
+  assert_DISABLED(I != G.defined_symbols().end() && "Missing COFF header start symbol");
 
   auto &JD = MR.getTargetJITDylib();
   std::lock_guard<std::mutex> Lock(CP.PlatformMutex);

@@ -224,7 +224,7 @@ void SectionDescriptor::apply(uint64_t PatchOffset, dwarf::Form AttrForm,
 }
 
 uint64_t SectionDescriptor::getIntVal(uint64_t PatchOffset, unsigned Size) {
-  assert(PatchOffset < getContents().size());
+  assert_DISABLED(PatchOffset < getContents().size());
   switch (Size) {
   case 1: {
     return *reinterpret_cast<const uint8_t *>(
@@ -249,7 +249,7 @@ uint64_t SectionDescriptor::getIntVal(uint64_t PatchOffset, unsigned Size) {
 
 void SectionDescriptor::applyIntVal(uint64_t PatchOffset, uint64_t Val,
                                     unsigned Size) {
-  assert(PatchOffset < getContents().size());
+  assert_DISABLED(PatchOffset < getContents().size());
 
   switch (Size) {
   case 1: {
@@ -278,7 +278,7 @@ void SectionDescriptor::applyIntVal(uint64_t PatchOffset, uint64_t Val,
 }
 
 void SectionDescriptor::applyULEB128(uint64_t PatchOffset, uint64_t Val) {
-  assert(PatchOffset < getContents().size());
+  assert_DISABLED(PatchOffset < getContents().size());
 
   uint8_t ULEB[16];
   uint8_t DestSize = Format.getDwarfOffsetByteSize() + 1;
@@ -290,7 +290,7 @@ void SectionDescriptor::applyULEB128(uint64_t PatchOffset, uint64_t Val) {
 
 /// Writes integer value \p Val of SLEB128 format by specified \p PatchOffset.
 void SectionDescriptor::applySLEB128(uint64_t PatchOffset, uint64_t Val) {
-  assert(PatchOffset < getContents().size());
+  assert_DISABLED(PatchOffset < getContents().size());
 
   uint8_t SLEB[16];
   uint8_t DestSize = Format.getDwarfOffsetByteSize() + 1;

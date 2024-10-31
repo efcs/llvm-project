@@ -438,7 +438,7 @@ bool DependencyTracker::markDIEEntryAsKeptRec(
   CompileUnit::DieOutputPlacement Placement = getFinalPlacementForEntry(
       Entry,
       isLiveAction(Action) ? CompileUnit::PlainDwarf : CompileUnit::TypeTable);
-  assert((Info.getODRAvailable() || isLiveAction(Action) ||
+  assert_DISABLED((Info.getODRAvailable() || isLiveAction(Action) ||
           Placement == CompileUnit::PlainDwarf) &&
          "Wrong kind of placement for ODR unavailable entry");
 

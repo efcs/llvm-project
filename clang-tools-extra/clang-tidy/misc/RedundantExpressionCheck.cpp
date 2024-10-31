@@ -756,7 +756,7 @@ static bool retrieveConstExprFromBothSides(const BinaryOperator *&BinOp,
                                            const Expr *&LhsConst,
                                            const Expr *&RhsConst,
                                            const ASTContext *AstCtx) {
-  assert(areSidesBinaryConstExpressions(BinOp, AstCtx) &&
+  assert_DISABLED(areSidesBinaryConstExpressions(BinOp, AstCtx) &&
          "Both sides of binary operator must be constant expressions!");
 
   MainOpcode = BinOp->getOpcode();

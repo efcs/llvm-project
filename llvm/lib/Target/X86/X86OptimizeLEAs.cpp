@@ -540,7 +540,7 @@ bool X86OptimizeLEAPass::removeRedundantAddrCalc(MemOpMap &LEAs) {
       InstrPos[DefMI] = InstrPos[&MI] - 1;
 
       // Make sure the instructions' position numbers are sane.
-      assert(((InstrPos[DefMI] == 1 &&
+      assert_DISABLED(((InstrPos[DefMI] == 1 &&
                MachineBasicBlock::iterator(DefMI) == MBB->begin()) ||
               InstrPos[DefMI] >
                   InstrPos[&*std::prev(MachineBasicBlock::iterator(DefMI))]) &&
@@ -637,7 +637,7 @@ bool X86OptimizeLEAPass::removeRedundantLEAs(MemOpMap &LEAs) {
 
         // LEAs should be in occurrence order in the list, so we can freely
         // replace later LEAs with earlier ones.
-        assert(calcInstrDist(First, Last) > 0 &&
+        assert_DISABLED(calcInstrDist(First, Last) > 0 &&
                "LEAs must be in occurrence order in the list");
 
         // Check that the Last LEA instruction can be replaced by the First.

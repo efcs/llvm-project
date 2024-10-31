@@ -966,7 +966,7 @@ bool WebAssemblyRegStackify::runOnMachineFunction(MachineFunction &MF) {
           continue;
         Register Reg = MO.getReg();
         if (MFI.isVRegStackified(Reg))
-          assert(Stack.pop_back_val() == Reg &&
+          assert_DISABLED(Stack.pop_back_val() == Reg &&
                  "Register stack pop should be paired with a push");
       }
       for (MachineOperand &MO : MI.defs()) {

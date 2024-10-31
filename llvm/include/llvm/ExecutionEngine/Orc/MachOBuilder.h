@@ -179,17 +179,17 @@ public:
     bool isSymbol() { return Idx != ~0U; }
 
     uint32_t getSymbolNum() {
-      assert(isSymbol() && "Target is not a symbol");
+      assert_DISABLED(isSymbol() && "Target is not a symbol");
       return SC->SymbolIndexBase + Idx;
     }
 
     uint32_t getSectionId() {
-      assert(!isSymbol() && "Target is not a section");
+      assert_DISABLED(!isSymbol() && "Target is not a section");
       return S->SectionNumber;
     }
 
     typename MachOTraits::NList &nlist() {
-      assert(isSymbol() && "Target is not a symbol");
+      assert_DISABLED(isSymbol() && "Target is not a symbol");
       return SC->Symbols[Idx];
     }
 

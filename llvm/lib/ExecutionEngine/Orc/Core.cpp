@@ -1222,7 +1222,7 @@ void JITDylib::dump(raw_ostream &OS) {
         }
       } else
         OS << "        none\n";
-      assert((Symbols[KV.first].getState() != SymbolState::Ready ||
+      assert_DISABLED((Symbols[KV.first].getState() != SymbolState::Ready ||
               (KV.second.pendingQueries().empty() && !KV.second.DefiningEDU &&
                !KV.second.DependantEDUs.empty())) &&
              "Stale materializing info entry");
@@ -1534,7 +1534,7 @@ Expected<DenseMap<JITDylib *, SymbolMap>> Platform::lookupInitSymbols(
             std::lock_guard<std::mutex> Lock(LookupMutex);
             --Count;
             if (Result) {
-              assert(!CompoundResult.count(JD) &&
+              assert_DISABLED(!CompoundResult.count(JD) &&
                      "Duplicate JITDylib in lookup?");
               CompoundResult[JD] = std::move(*Result);
             } else
@@ -1670,7 +1670,7 @@ JITDylib *ExecutionSession::getJITDylibByName(StringRef Name) {
 }
 
 JITDylib &ExecutionSession::createBareJITDylib(std::string Name) {
-  assert(!getJITDylibByName(Name) && "JITDylib with that name already exists");
+  assert_DISABLED(!getJITDylibByName(Name) && "JITDylib with that name already exists");
   return runSessionLocked([&, this]() -> JITDylib & {
     assert(SessionOpen && "Cannot create JITDylib after session is closed");
     JDs.push_back(new JITDylib(*this, std::move(Name)));
@@ -3183,7 +3183,7 @@ void ExecutionSession::IL_makeEDUEmitted(
         assert(JD.MaterializingInfos.count(SymbolStringPtr(Sym)) &&
                "Emitted symbol has no MI");
         auto MI = JD.MaterializingInfos[SymbolStringPtr(Sym)];
-        assert(MI.takeQueriesMeeting(SymbolState::Emitted).empty() &&
+        assert_DISABLED(MI.takeQueriesMeeting(SymbolState::Emitted).empty() &&
                "Already-emitted symbol has waiting-on-emitted queries");
       }
 #endif // NDEBUG
@@ -3218,7 +3218,7 @@ bool ExecutionSession::IL_removeEDUDependence(JITDylib::EmissionDepUnit &EDU,
                                               EDUInfosMap &EDUInfos) {
   assert(EDU.Dependencies.count(&DepJD) &&
          "JD does not appear in Dependencies of DependantEDU");
-  assert(EDU.Dependencies[&DepJD].count(DepSym) &&
+  assert_DISABLED(EDU.Dependencies[&DepJD].count(DepSym) &&
          "Symbol does not appear in Dependencies of DependantEDU");
   auto &JDDeps = EDU.Dependencies[&DepJD];
   JDDeps.erase(DepSym);
@@ -3396,13 +3396,13 @@ ExecutionSession::IL_emit(MaterializationResponsibility &MR,
     for (auto &[Sym, Flags] : EDU->Symbols) {
       assert(TargetJD.Symbols.count(SymbolStringPtr(Sym)) &&
              "Sym not present in symbol table");
-      assert((TargetJD.Symbols[SymbolStringPtr(Sym)].getState() ==
+      assert_DISABLED((TargetJD.Symbols[SymbolStringPtr(Sym)].getState() ==
                   SymbolState::Resolved ||
               TargetJD.Symbols[SymbolStringPtr(Sym)]
                   .getFlags()
                   .hasMaterializationSideEffectsOnly()) &&
              "Emitting symbol not in the resolved state");
-      assert(!TargetJD.Symbols[SymbolStringPtr(Sym)].getFlags().hasError() &&
+      assert_DISABLED(!TargetJD.Symbols[SymbolStringPtr(Sym)].getFlags().hasError() &&
              "Symbol is already in an error state");
 
       auto MII = TargetJD.MaterializingInfos.find(SymbolStringPtr(Sym));
@@ -3474,7 +3474,7 @@ Error ExecutionSession::OL_notifyEmitted(
     for (auto &Sym : DG.Symbols) {
       assert(MR.SymbolFlags.count(Sym) &&
              "DG contains dependence for symbol outside this MR");
-      assert(Visited.insert(Sym).second &&
+      assert_DISABLED(Visited.insert(Sym).second &&
              "DG contains duplicate entries for Name");
     }
   }

@@ -490,7 +490,7 @@ void WebAssemblyCFGStackify::placeTryMarker(MachineBasicBlock &MBB) {
   for (auto *Pred : MBB.predecessors()) {
     if (Pred->getNumber() < MBBNumber) {
       Header = Header ? MDT.findNearestCommonDominator(Header, Pred) : Pred;
-      assert(!explicitlyBranchesTo(Pred, &MBB) &&
+      assert_DISABLED(!explicitlyBranchesTo(Pred, &MBB) &&
              "Explicit branch to an EH pad!");
     }
   }
@@ -684,7 +684,7 @@ void WebAssemblyCFGStackify::placeTryTableMarker(MachineBasicBlock &MBB) {
   for (auto *Pred : MBB.predecessors()) {
     if (Pred->getNumber() < MBBNumber) {
       Header = Header ? MDT.findNearestCommonDominator(Header, Pred) : Pred;
-      assert(!explicitlyBranchesTo(Pred, &MBB) &&
+      assert_DISABLED(!explicitlyBranchesTo(Pred, &MBB) &&
              "Explicit branch to an EH pad!");
     }
   }

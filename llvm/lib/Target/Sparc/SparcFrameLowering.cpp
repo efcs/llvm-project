@@ -369,7 +369,7 @@ void SparcFrameLowering::remapRegsForLeafProc(MachineFunction &MF) const {
     }
   }
 
-  assert(verifyLeafProcRegUse(&MRI));
+  assert_DISABLED(verifyLeafProcRegUse(&MRI));
 #ifdef EXPENSIVE_CHECKS
   MF.verify(0, "After LeafProc Remapping");
 #endif

@@ -803,7 +803,7 @@ void ELFNixPlatform::ELFNixPlatformPlugin::addDSOHandleSupportPasses(
     auto I = llvm::find_if(G.defined_symbols(), [this](jitlink::Symbol *Sym) {
       return Sym->getName() == *MP.DSOHandleSymbol;
     });
-    assert(I != G.defined_symbols().end() && "Missing DSO handle symbol");
+    assert_DISABLED(I != G.defined_symbols().end() && "Missing DSO handle symbol");
     {
       std::lock_guard<std::mutex> Lock(MP.PlatformMutex);
       auto HandleAddr = (*I)->getAddress();

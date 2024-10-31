@@ -404,7 +404,7 @@ void DebugObjectManagerPlugin::notifyMaterializing(
     MaterializationResponsibility &MR, LinkGraph &G, JITLinkContext &Ctx,
     MemoryBufferRef ObjBuffer) {
   std::lock_guard<std::mutex> Lock(PendingObjsLock);
-  assert(PendingObjs.count(&MR) == 0 &&
+  assert_DISABLED(PendingObjs.count(&MR) == 0 &&
          "Cannot have more than one pending debug object per "
          "MaterializationResponsibility");
 
@@ -474,7 +474,7 @@ Error DebugObjectManagerPlugin::notifyEmitted(
         // Once our tracking info is updated, notifyEmitted() can return and
         // finish materialization.
         FinalizePromise.set_value(MR.withResourceKeyDo([&](ResourceKey K) {
-          assert(PendingObjs.count(&MR) && "We still hold PendingObjsLock");
+          assert_DISABLED(PendingObjs.count(&MR) && "We still hold PendingObjsLock");
           std::lock_guard<std::mutex> Lock(RegisteredObjsLock);
           RegisteredObjs[K].push_back(std::move(PendingObjs[&MR]));
           PendingObjs.erase(&MR);

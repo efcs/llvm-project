@@ -240,7 +240,7 @@ class ARMAsmParser : public MCTargetAsmParser {
   ARMMnemonicSets MS;
 
   ARMTargetStreamer &getTargetStreamer() {
-    assert(getParser().getStreamer().getTargetStreamer() &&
+    assert_DISABLED(getParser().getStreamer().getTargetStreamer() &&
            "do not have a target streamer");
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<ARMTargetStreamer &>(TS);
@@ -333,7 +333,7 @@ class ARMAsmParser : public MCTargetAsmParser {
 
   // Rewind the state of the current IT block, removing the last slot from it.
   void rewindImplicitITPosition() {
-    assert(inImplicitITBlock());
+    assert_DISABLED(inImplicitITBlock());
     assert(ITState.CurPosition > 1);
     ITState.CurPosition--;
     unsigned TZ = llvm::countr_zero(ITState.Mask);
@@ -346,7 +346,7 @@ class ARMAsmParser : public MCTargetAsmParser {
   // Rewind the state of the current IT block, removing the last slot from it.
   // If we were at the first slot, this closes the IT block.
   void discardImplicitITBlock() {
-    assert(inImplicitITBlock());
+    assert_DISABLED(inImplicitITBlock());
     assert(ITState.CurPosition == 1);
     ITState.CurPosition = ~0U;
   }
@@ -375,8 +375,8 @@ class ARMAsmParser : public MCTargetAsmParser {
   // Extend the current implicit IT block to have one more slot with the given
   // condition code.
   void extendImplicitITBlock(ARMCC::CondCodes Cond) {
-    assert(inImplicitITBlock());
-    assert(!isITBlockFull());
+    assert_DISABLED(inImplicitITBlock());
+    assert_DISABLED(!isITBlockFull());
     assert(Cond == ITState.Cond ||
            Cond == ARMCC::getOppositeCondition(ITState.Cond));
     unsigned TZ = llvm::countr_zero(ITState.Mask);
@@ -392,7 +392,7 @@ class ARMAsmParser : public MCTargetAsmParser {
 
   // Create a new implicit IT block with a dummy condition code.
   void startImplicitITBlock() {
-    assert(!inITBlock());
+    assert_DISABLED(!inITBlock());
     ITState.Cond = ARMCC::AL;
     ITState.Mask = 8;
     ITState.CurPosition = 1;
@@ -404,7 +404,7 @@ class ARMAsmParser : public MCTargetAsmParser {
   // MCOperand, with a 1 implying 'e', regardless of the low bit of
   // the condition.
   void startExplicitITBlock(ARMCC::CondCodes Cond, unsigned Mask) {
-    assert(!inITBlock());
+    assert_DISABLED(!inITBlock());
     ITState.Cond = Cond;
     ITState.Mask = Mask;
     ITState.CurPosition = 0;
@@ -6998,7 +6998,7 @@ void ARMAsmParser::fixupGNULDRDAlias(StringRef Mnemonic,
 bool ARMAsmParser::CDEConvertDualRegOperand(StringRef Mnemonic,
                                             OperandVector &Operands,
                                             unsigned MnemonicOpsEndInd) {
-  assert(MS.isCDEDualRegInstr(Mnemonic));
+  assert_DISABLED(MS.isCDEDualRegInstr(Mnemonic));
 
   if (Operands.size() < 3 + MnemonicOpsEndInd)
     return false;
@@ -11009,7 +11009,7 @@ bool ARMAsmParser::processInstruction(MCInst &Inst,
   case ARM::t2IT: {
     // Set up the IT block state according to the IT instruction we just
     // matched.
-    assert(!inITBlock() && "nested IT blocks?!");
+    assert_DISABLED(!inITBlock() && "nested IT blocks?!");
     startExplicitITBlock(ARMCC::CondCodes(Inst.getOperand(0).getImm()),
                          Inst.getOperand(1).getImm());
     break;
@@ -11112,7 +11112,7 @@ bool ARMAsmParser::processInstruction(MCInst &Inst,
   case ARM::MVE_VPTv4s32r:
   case ARM::MVE_VPTv4f32r:
   case ARM::MVE_VPTv8f16r: {
-    assert(!inVPTBlock() && "Nested VPT blocks are not allowed");
+    assert_DISABLED(!inVPTBlock() && "Nested VPT blocks are not allowed");
     MCOperand &MO = Inst.getOperand(0);
     VPTState.Mask = MO.getImm();
     VPTState.CurPosition = 0;

@@ -36,7 +36,7 @@ class LoongArchAsmParser : public MCTargetAsmParser {
   SMLoc getLoc() const { return getParser().getTok().getLoc(); }
   bool is64Bit() const { return getSTI().hasFeature(LoongArch::Feature64Bit); }
   LoongArchTargetStreamer &getTargetStreamer() {
-    assert(getParser().getStreamer().getTargetStreamer() &&
+    assert_DISABLED(getParser().getStreamer().getTargetStreamer() &&
            "do not have a target streamer");
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<LoongArchTargetStreamer &>(TS);

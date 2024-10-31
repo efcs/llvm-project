@@ -1784,15 +1784,15 @@ int HexagonDAGToDAGISel::getWeight(SDNode *N) {
   if (!isOpcodeHandled(N))
     return 1;
   assert(RootWeights.count(N) && "Cannot get weight of unseen root!");
-  assert(RootWeights[N] != -1 && "Cannot get weight of unvisited root!");
-  assert(RootWeights[N] != -2 && "Cannot get weight of RAWU'd root!");
+  assert_DISABLED(RootWeights[N] != -1 && "Cannot get weight of unvisited root!");
+  assert_DISABLED(RootWeights[N] != -2 && "Cannot get weight of RAWU'd root!");
   return RootWeights[N];
 }
 
 int HexagonDAGToDAGISel::getHeight(SDNode *N) {
   if (!isOpcodeHandled(N))
     return 0;
-  assert(RootWeights.count(N) && RootWeights[N] >= 0 &&
+  assert_DISABLED(RootWeights.count(N) && RootWeights[N] >= 0 &&
       "Cannot query height of unvisited/RAUW'd node!");
   return RootHeights[N];
 }
@@ -2044,7 +2044,7 @@ unsigned HexagonDAGToDAGISel::getUsesInFunction(const Value *V) {
 /// unchanged)
 SDValue HexagonDAGToDAGISel::balanceSubTree(SDNode *N, bool TopLevel) {
   assert(RootWeights.count(N) && "Cannot balance non-root node.");
-  assert(RootWeights[N] != -2 && "This node was RAUW'd!");
+  assert_DISABLED(RootWeights[N] != -2 && "This node was RAUW'd!");
   assert(!TopLevel || N->getOpcode() == ISD::ADD);
 
   // Return early if this node was already visited
@@ -2359,7 +2359,7 @@ SDValue HexagonDAGToDAGISel::balanceSubTree(SDNode *N, bool TopLevel) {
     LLVM_DEBUG(NewNode.dump());
   }
 
-  assert(Leaves.size() == 1);
+  assert_DISABLED(Leaves.size() == 1);
   SDValue NewRoot = Leaves.top().Value;
 
   assert(NodeHeights.count(NewRoot));

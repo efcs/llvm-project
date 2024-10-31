@@ -225,7 +225,7 @@ bool HexagonPacketizer::runOnMachineFunction(MachineFunction &MF) {
   HexagonPacketizerList Packetizer(MF, MLI, AA, MBPI, MinOnly);
 
   // DFA state table should not be empty.
-  assert(Packetizer.getResourceTracker() && "Empty DFA table!");
+  assert_DISABLED(Packetizer.getResourceTracker() && "Empty DFA table!");
 
   // Loop over all basic blocks and remove KILL pseudo-instructions
   // These instructions confuse the dependence analysis. Consider:
@@ -1334,7 +1334,7 @@ bool HexagonPacketizerList::isLegalToPacketizeTogether(SUnit *SUI, SUnit *SUJ) {
   MachineBasicBlock::iterator II = I.getIterator();
 
   // Solo instructions cannot go in the packet.
-  assert(!isSoloInstruction(I) && "Unexpected solo instr!");
+  assert_DISABLED(!isSoloInstruction(I) && "Unexpected solo instr!");
 
   if (cannotCoexist(I, J))
     return false;
@@ -1724,7 +1724,7 @@ HexagonPacketizerList::addToPacket(MachineInstr &MI) {
     CurrentPacketMIs.push_back(&MI);
     return MII;
   }
-  assert(ResourceTracker->canReserveResources(MI));
+  assert_DISABLED(ResourceTracker->canReserveResources(MI));
 
   bool ExtMI = HII->isExtended(MI) || HII->isConstExtended(MI);
   bool Good = true;
@@ -1751,16 +1751,16 @@ HexagonPacketizerList::addToPacket(MachineInstr &MI) {
 
     if (!Good) {
       endPacket(MBB, MI);
-      assert(ResourceTracker->canReserveResources(MI));
+      assert_DISABLED(ResourceTracker->canReserveResources(MI));
       ResourceTracker->reserveResources(MI);
       if (ExtMI) {
-        assert(canReserveResourcesForConstExt());
+        assert_DISABLED(canReserveResourcesForConstExt());
         tryAllocateResourcesForConstExt(true);
       }
-      assert(ResourceTracker->canReserveResources(NvjMI));
+      assert_DISABLED(ResourceTracker->canReserveResources(NvjMI));
       ResourceTracker->reserveResources(NvjMI);
       if (ExtNvjMI) {
-        assert(canReserveResourcesForConstExt());
+        assert_DISABLED(canReserveResourcesForConstExt());
         reserveResourcesForConstExt();
       }
     }

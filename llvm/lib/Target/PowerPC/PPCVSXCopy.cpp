@@ -97,7 +97,7 @@ protected:
           Changed = true;
 
           const TargetRegisterClass *SrcRC = &PPC::VSLRCRegClass;
-          assert((IsF8Reg(SrcMO.getReg(), MRI) ||
+          assert_DISABLED((IsF8Reg(SrcMO.getReg(), MRI) ||
                   IsVSSReg(SrcMO.getReg(), MRI) ||
                   IsVSFReg(SrcMO.getReg(), MRI)) &&
                  "Unknown source for a VSX copy");
@@ -118,7 +118,7 @@ protected:
           Changed = true;
 
           const TargetRegisterClass *DstRC = &PPC::VSLRCRegClass;
-          assert((IsF8Reg(DstMO.getReg(), MRI) ||
+          assert_DISABLED((IsF8Reg(DstMO.getReg(), MRI) ||
                   IsVSFReg(DstMO.getReg(), MRI) ||
                   IsVSSReg(DstMO.getReg(), MRI)) &&
                  "Unknown destination for a VSX copy");

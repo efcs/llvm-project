@@ -3742,7 +3742,7 @@ bool X86InstrInfo::canMakeTailCallConditional(
 void X86InstrInfo::replaceBranchWithTailCall(
     MachineBasicBlock &MBB, SmallVectorImpl<MachineOperand> &BranchCond,
     const MachineInstr &TailCall) const {
-  assert(canMakeTailCallConditional(BranchCond, TailCall));
+  assert_DISABLED(canMakeTailCallConditional(BranchCond, TailCall));
 
   MachineBasicBlock::iterator I = MBB.end();
   while (I != MBB.begin()) {

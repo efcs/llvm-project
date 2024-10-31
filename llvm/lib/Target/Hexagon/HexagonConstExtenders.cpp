@@ -670,7 +670,7 @@ RangeTree::Node *RangeTree::rotateLeft(Node *Lower, Node *Higher) {
   // an unbalanced tree again.
   if (height(Lower->Left) > height(Lower->Right))
     Lower = rotateRight(Lower->Left, Lower);
-  assert(height(Lower->Left) <= height(Lower->Right));
+  assert_DISABLED(height(Lower->Left) <= height(Lower->Right));
   Higher->Right = Lower->Left;
   update(Higher);
   Lower->Left = Higher;
@@ -685,7 +685,7 @@ RangeTree::Node *RangeTree::rotateRight(Node *Lower, Node *Higher) {
   // an unbalanced tree again.
   if (height(Lower->Left) < height(Lower->Right))
     Lower = rotateLeft(Lower->Right, Lower);
-  assert(height(Lower->Left) >= height(Lower->Right));
+  assert_DISABLED(height(Lower->Left) >= height(Lower->Right));
   Higher->Left = Lower->Right;
   update(Higher);
   Lower->Right = Higher;

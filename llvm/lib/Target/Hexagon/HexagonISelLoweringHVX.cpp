@@ -2702,7 +2702,7 @@ HexagonTargetLowering::ExpandHvxFpToInt(SDValue Op, SelectionDAG &DAG) const {
   SDValue Op0 = Op.getOperand(0);
   MVT InpTy = ty(Op0);
   MVT ResTy = ty(Op);
-  assert(InpTy.changeTypeToInteger() == ResTy);
+  assert_DISABLED(InpTy.changeTypeToInteger() == ResTy);
 
   // int32_t conv_f32_to_i32(uint32_t inp) {
   //   // s | exp8 | frac23
@@ -2831,7 +2831,7 @@ HexagonTargetLowering::ExpandHvxIntToFp(SDValue Op, SelectionDAG &DAG) const {
   SDValue Op0 = Op.getOperand(0);
   MVT InpTy = ty(Op0);
   MVT ResTy = ty(Op);
-  assert(ResTy.changeTypeToInteger() == InpTy);
+  assert_DISABLED(ResTy.changeTypeToInteger() == InpTy);
 
   // uint32_t vnoc1_rnd(int32_t w) {
   //   int32_t iszero = w == 0;

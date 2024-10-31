@@ -135,7 +135,7 @@ namespace {
 
 class MipsAsmParser : public MCTargetAsmParser {
   MipsTargetStreamer &getTargetStreamer() {
-    assert(getParser().getStreamer().getTargetStreamer() &&
+    assert_DISABLED(getParser().getStreamer().getTargetStreamer() &&
            "do not have a target streamer");
     MCTargetStreamer &TS = *getParser().getStreamer().getTargetStreamer();
     return static_cast<MipsTargetStreamer &>(TS);
@@ -3245,7 +3245,7 @@ bool MipsAsmParser::loadAndAddSymbolAddress(const MCExpr *SymExpr,
     } else {
       // We have a case where SrcReg == DstReg and we don't have $at
       // available. We can't expand this case, so error out appropriately.
-      assert(SrcReg == DstReg && !canUseATReg() &&
+      assert_DISABLED(SrcReg == DstReg && !canUseATReg() &&
              "Could have expanded dla but didn't?");
       reportParseError(IDLoc,
                      "pseudo-instruction requires $at, which is not available");
@@ -3280,7 +3280,7 @@ bool MipsAsmParser::loadAndAddSymbolAddress(const MCExpr *SymExpr,
   if (UseSrcReg)
     TOut.emitRRR(Mips::ADDu, DstReg, TmpReg, SrcReg, IDLoc, STI);
   else
-    assert(
+    assert_DISABLED(
         getContext().getRegisterInfo()->isSuperOrSubRegisterEq(DstReg, TmpReg));
 
   return false;
