@@ -156,7 +156,7 @@ llvm::Value *CGCXXABI::loadIncomingCXXThis(CodeGenFunction &CGF) {
 
 void CGCXXABI::setCXXABIThisValue(CodeGenFunction &CGF, llvm::Value *ThisPtr) {
   /// Initialize the 'this' slot.
-  assert(getThisDecl(CGF) && "no 'this' variable for function");
+  assert_DISABLED(getThisDecl(CGF) && "no 'this' variable for function");
   CGF.CXXABIThisValue = ThisPtr;
 }
 

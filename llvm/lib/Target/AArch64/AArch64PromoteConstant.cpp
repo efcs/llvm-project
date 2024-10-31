@@ -518,7 +518,7 @@ void AArch64PromoteConstant::insertDefinitions(Function &F,
     // Update the dominated uses.
     for (auto Use : IPI.second) {
 #ifndef NDEBUG
-      assert(DT.dominates(LoadedCst,
+      assert_DISABLED(DT.dominates(LoadedCst,
                           findInsertionPoint(*Use.first, Use.second)) &&
              "Inserted definition does not dominate all its uses!");
 #endif

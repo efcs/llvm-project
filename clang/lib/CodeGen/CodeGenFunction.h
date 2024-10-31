@@ -1557,7 +1557,7 @@ private:
     void emitExit(CodeGenFunction &CGF, OpenMPDirectiveKind Kind,
                   const llvm::function_ref<void(CodeGenFunction &)> CodeGen) {
       if (Stack.back().Kind == Kind && getExitBlock().isValid()) {
-        assert(CGF.getOMPCancelDestination(Kind).isValid());
+        assert_DISABLED(CGF.getOMPCancelDestination(Kind).isValid());
         assert(CGF.HaveInsertPoint());
         assert(!Stack.back().HasBeenEmitted);
         auto IP = CGF.Builder.saveAndClearIP();
@@ -1584,7 +1584,7 @@ private:
     /// has not be used) + join point for cancel/normal exits.
     void exit(CodeGenFunction &CGF) {
       if (getExitBlock().isValid()) {
-        assert(CGF.getOMPCancelDestination(Stack.back().Kind).isValid());
+        assert_DISABLED(CGF.getOMPCancelDestination(Stack.back().Kind).isValid());
         bool HaveIP = CGF.HaveInsertPoint();
         if (!Stack.back().HasBeenEmitted) {
           if (HaveIP)

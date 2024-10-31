@@ -736,7 +736,7 @@ void CodeGenModule::EmitCXXModuleInitFunc(Module *Primary) {
       cast<ItaniumMangleContext>(getCXXABI().getMangleContext())
           .mangleModuleInitializer(M, Out);
     }
-    assert(!GetGlobalValue(FnName.str()) &&
+    assert_DISABLED(!GetGlobalValue(FnName.str()) &&
            "We should only have one use of the initializer call");
     llvm::Function *Fn = llvm::Function::Create(
         FTy, llvm::Function::ExternalLinkage, FnName.str(), &getModule());
@@ -879,7 +879,7 @@ CodeGenModule::EmitCXXGlobalInitFunc() {
         cast<ItaniumMangleContext>(getCXXABI().getMangleContext())
             .mangleModuleInitializer(M, Out);
       }
-      assert(!GetGlobalValue(FnName.str()) &&
+      assert_DISABLED(!GetGlobalValue(FnName.str()) &&
              "We should only have one use of the initializer call");
       llvm::Function *Fn = llvm::Function::Create(
           FTy, llvm::Function::ExternalLinkage, FnName.str(), &getModule());

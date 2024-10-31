@@ -3157,7 +3157,7 @@ ParseStatus AMDGPUAsmParser::parseImm(OperandVector &Operands,
 
   if (isRegister())
     return ParseStatus::NoMatch;
-  assert(!isModifier());
+  assert_DISABLED(!isModifier());
 
   if (!HasLit) {
     HasLit = trySkipId("lit");

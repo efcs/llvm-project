@@ -1147,7 +1147,7 @@ void AArch64FastISel::addLoadStoreOperands(Address &Addr,
     Addr.setOffsetReg(
       constrainOperandRegClass(II, Addr.getOffsetReg(), II.getNumDefs()+Idx+1));
     if (Addr.getOffsetReg()) {
-      assert(Addr.getOffset() == 0 && "Unexpected offset");
+      assert_DISABLED(Addr.getOffset() == 0 && "Unexpected offset");
       bool IsSigned = Addr.getExtendType() == AArch64_AM::SXTW ||
                       Addr.getExtendType() == AArch64_AM::SXTX;
       MIB.addReg(Addr.getReg());

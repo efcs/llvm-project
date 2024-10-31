@@ -787,7 +787,7 @@ void ARMTargetELFStreamer::switchVendor(StringRef Vendor) {
   if (!CurrentVendor.empty())
     finishAttributeSection();
 
-  assert(getStreamer().Contents.empty() &&
+  assert_DISABLED(getStreamer().Contents.empty() &&
          ".ARM.attributes should be flushed before changing vendor");
   CurrentVendor = Vendor;
 

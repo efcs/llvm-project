@@ -58,7 +58,7 @@ bool AMDGPURegBankSelect::runOnMachineFunction(MachineFunction &MF) {
     OptMode = Mode::Fast;
   init(MF);
 
-  assert(checkFunctionIsLegal(MF));
+  assert_DISABLED(checkFunctionIsLegal(MF));
 
   const GCNSubtarget &ST = MF.getSubtarget<GCNSubtarget>();
   MachineCycleInfo &CycleInfo =

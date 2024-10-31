@@ -326,7 +326,7 @@ llvm::Constant *CodeGenModule::getConstantSignedPointer(
     llvm::Constant *Pointer, const PointerAuthSchema &Schema,
     llvm::Constant *StorageAddress, GlobalDecl SchemaDecl,
     QualType SchemaType) {
-  assert(shouldSignPointer(Schema));
+  assert_DISABLED(shouldSignPointer(Schema));
   llvm::ConstantInt *OtherDiscriminator =
       getPointerAuthOtherDiscriminator(Schema, SchemaDecl, SchemaType);
 

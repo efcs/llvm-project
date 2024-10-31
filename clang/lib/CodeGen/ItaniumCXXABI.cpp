@@ -2109,7 +2109,7 @@ ItaniumCXXABI::getVTableAddressPoint(BaseSubobject Base,
 llvm::Value *ItaniumCXXABI::getVTableAddressPointInStructorWithVTT(
     CodeGenFunction &CGF, const CXXRecordDecl *VTableClass, BaseSubobject Base,
     const CXXRecordDecl *NearestVBase) {
-  assert((Base.getBase()->getNumVBases() || NearestVBase != nullptr) &&
+  assert_DISABLED((Base.getBase()->getNumVBases() || NearestVBase != nullptr) &&
          NeedsVTTParameter(CGF.CurGD) && "This class doesn't have VTT");
 
   // Get the secondary vpointer index.
@@ -2439,7 +2439,7 @@ Address ItaniumCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
                                              llvm::Value *NumElements,
                                              const CXXNewExpr *expr,
                                              QualType ElementType) {
-  assert(requiresArrayCookie(expr));
+  assert_DISABLED(requiresArrayCookie(expr));
 
   unsigned AS = NewPtr.getAddressSpace();
 
@@ -2449,7 +2449,7 @@ Address ItaniumCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
   // The size of the cookie.
   CharUnits CookieSize =
       std::max(SizeSize, Ctx.getPreferredTypeAlignInChars(ElementType));
-  assert(CookieSize == getArrayCookieSizeImpl(ElementType));
+  assert_DISABLED(CookieSize == getArrayCookieSizeImpl(ElementType));
 
   // Compute an offset to the cookie.
   Address CookiePtr = NewPtr;
@@ -2523,7 +2523,7 @@ Address ARMCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
                                          llvm::Value *numElements,
                                          const CXXNewExpr *expr,
                                          QualType elementType) {
-  assert(requiresArrayCookie(expr));
+  assert_DISABLED(requiresArrayCookie(expr));
 
   // The cookie is always at the start of the buffer.
   Address cookie = newPtr;

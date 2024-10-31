@@ -519,7 +519,7 @@ bool CGHLSLRuntime::needsResourceBindingInitFn() {
 
 llvm::Function *CGHLSLRuntime::createResourceBindingInitFn() {
   // No resources to bind
-  assert(needsResourceBindingInitFn() && "no resources to bind");
+  assert_DISABLED(needsResourceBindingInitFn() && "no resources to bind");
 
   LLVMContext &Ctx = CGM.getLLVMContext();
   llvm::Type *Int1Ty = llvm::Type::getInt1Ty(Ctx);

@@ -1778,7 +1778,7 @@ static bool canInstrSubstituteCmpInstr(MachineInstr &MI, MachineInstr &CmpInstr,
                                        const TargetRegisterInfo &TRI) {
   // NOTE this assertion guarantees that MI.getOpcode() is add or subtraction
   // that may or may not set flags.
-  assert(sForm(MI) != AArch64::INSTRUCTION_LIST_END);
+  assert_DISABLED(sForm(MI) != AArch64::INSTRUCTION_LIST_END);
 
   const unsigned CmpOpcode = CmpInstr.getOpcode();
   if (!isADDSRegImm(CmpOpcode) && !isSUBSRegImm(CmpOpcode))

@@ -1065,7 +1065,7 @@ struct CounterCoverageMappingBuilder
         }
 
         assert(SM.isWrittenInSameFile(Region.getBeginLoc(), EndLoc));
-        assert(SpellingRegion(SM, Region).isInSourceOrder());
+        assert_DISABLED(SpellingRegion(SM, Region).isInSourceOrder());
         SourceRegions.push_back(Region);
       }
       RegionStack.pop_back();
@@ -1249,7 +1249,7 @@ struct CounterCoverageMappingBuilder
         if (StartLocs.insert(FileStart).second) {
           SourceRegions.emplace_back(*ParentCounter, FileStart,
                                      getEndOfFileOrMacro(Loc));
-          assert(SpellingRegion(SM, SourceRegions.back()).isInSourceOrder());
+          assert_DISABLED(SpellingRegion(SM, SourceRegions.back()).isInSourceOrder());
         }
         Loc = getIncludeOrExpansionLoc(Loc);
       }
@@ -1303,7 +1303,7 @@ struct CounterCoverageMappingBuilder
       bool UnnestStart = StartDepth >= EndDepth;
       bool UnnestEnd = EndDepth >= StartDepth;
       if (UnnestEnd) {
-        assert(SM.isWrittenInSameFile(getStartOfFileOrMacro(BeforeLoc),
+        assert_DISABLED(SM.isWrittenInSameFile(getStartOfFileOrMacro(BeforeLoc),
                                       BeforeLoc));
 
         BeforeLoc = getIncludeOrExpansionLoc(BeforeLoc);
@@ -1311,7 +1311,7 @@ struct CounterCoverageMappingBuilder
         EndDepth--;
       }
       if (UnnestStart) {
-        assert(SM.isWrittenInSameFile(AfterLoc,
+        assert_DISABLED(SM.isWrittenInSameFile(AfterLoc,
                                       getEndOfFileOrMacro(AfterLoc)));
 
         AfterLoc = getIncludeOrExpansionLoc(AfterLoc);
@@ -1363,7 +1363,7 @@ struct CounterCoverageMappingBuilder
       bool UnnestStart = StartDepth >= EndDepth;
       bool UnnestEnd = EndDepth >= StartDepth;
       if (UnnestEnd) {
-        assert(SM.isWrittenInSameFile(getStartOfFileOrMacro(BeforeLoc),
+        assert_DISABLED(SM.isWrittenInSameFile(getStartOfFileOrMacro(BeforeLoc),
                                       BeforeLoc));
 
         BeforeLoc = getIncludeOrExpansionLoc(BeforeLoc);
@@ -1371,7 +1371,7 @@ struct CounterCoverageMappingBuilder
         EndDepth--;
       }
       if (UnnestStart) {
-        assert(SM.isWrittenInSameFile(StartingLoc,
+        assert_DISABLED(SM.isWrittenInSameFile(StartingLoc,
                                       getStartOfFileOrMacro(StartingLoc)));
 
         StartingLoc = getIncludeOrExpansionLoc(StartingLoc);

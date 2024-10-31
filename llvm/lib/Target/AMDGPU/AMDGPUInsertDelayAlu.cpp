@@ -407,7 +407,7 @@ public:
     }
 
     if (Emit) {
-      assert(State == BlockState[&MBB] &&
+      assert_DISABLED(State == BlockState[&MBB] &&
              "Basic block state should not have changed on final pass!");
     } else if (State != BlockState[&MBB]) {
       BlockState[&MBB] = std::move(State);

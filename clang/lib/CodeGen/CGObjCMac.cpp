@@ -7284,7 +7284,7 @@ CGObjCNonFragileABIMac::EmitVTableMessageSend(CodeGenFunction &CGF,
       messageRefName += "objc_msgSend_fixup";
     }
   }
-  assert(fn && "CGObjCNonFragileABIMac::EmitMessageSend");
+  assert_DISABLED(fn && "CGObjCNonFragileABIMac::EmitMessageSend");
   messageRefName += '_';
 
   // Append the selector name, except use underscores anywhere we

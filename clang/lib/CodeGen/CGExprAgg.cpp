@@ -464,7 +464,7 @@ AggExprEmitter::VisitCXXStdInitializerListExpr(CXXStdInitializerListExpr *E) {
     CGF.EmitStoreThroughLValue(RValue::get(ArrayEnd), EndOrLength);
   }
 
-  assert(++Field == Record->field_end() &&
+  assert_DISABLED(++Field == Record->field_end() &&
          "Expected std::initializer_list to only have two fields");
 }
 

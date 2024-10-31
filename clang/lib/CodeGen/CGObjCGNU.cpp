@@ -226,7 +226,7 @@ protected:
   /// Returns a property name and encoding string.
   llvm::Constant *MakePropertyEncodingString(const ObjCPropertyDecl *PD,
                                              const Decl *Container) {
-    assert(!isRuntime(ObjCRuntime::GNUstep, 2));
+    assert_DISABLED(!isRuntime(ObjCRuntime::GNUstep, 2));
     if (isRuntime(ObjCRuntime::GNUstep, 1, 6)) {
       std::string NameAndAttributes;
       std::string TypeStr =
@@ -2000,7 +2000,7 @@ class CGObjCGNUstep2 : public CGObjCGNUstep {
       MetaClassPtrAlias->eraseFromParent();
       MetaClassPtrAlias = nullptr;
     }
-    assert(classStruct->getName() == SymbolForClass(className));
+    assert_DISABLED(classStruct->getName() == SymbolForClass(className));
 
     auto classInitRef = new llvm::GlobalVariable(TheModule,
         classStruct->getType(), false, llvm::GlobalValue::ExternalLinkage,

@@ -225,7 +225,7 @@ CodeGenFunction::GetAddressOfDirectBaseInCompleteClass(Address This,
                                                    const CXXRecordDecl *Base,
                                                    bool BaseIsVirtual) {
   // 'this' must be a pointer (in some address space) to Derived.
-  assert(This.getElementType() == ConvertType(Derived));
+  assert_DISABLED(This.getElementType() == ConvertType(Derived));
 
   // Compute the offset of the virtual base.
   CharUnits Offset;

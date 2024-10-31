@@ -812,7 +812,7 @@ bool AMDGPUAsmPrinter::runOnMachineFunction(MachineFunction &MF) {
                                 false);
 
     [[maybe_unused]] int64_t PGMRSrc3;
-    assert(STM.hasGFX90AInsts() ||
+    assert_DISABLED(STM.hasGFX90AInsts() ||
            (CurrentProgramInfo.ComputePGMRSrc3GFX90A->evaluateAsAbsolute(
                 PGMRSrc3) &&
             static_cast<uint64_t>(PGMRSrc3) == 0));

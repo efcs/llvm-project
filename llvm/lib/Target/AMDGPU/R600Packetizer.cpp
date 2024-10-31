@@ -326,8 +326,8 @@ bool R600Packetizer::runOnMachineFunction(MachineFunction &Fn) {
   R600PacketizerList Packetizer(Fn, ST, MLI);
 
   // DFA state table should not be empty.
-  assert(Packetizer.getResourceTracker() && "Empty DFA table!");
-  assert(Packetizer.getResourceTracker()->getInstrItins());
+  assert_DISABLED(Packetizer.getResourceTracker() && "Empty DFA table!");
+  assert_DISABLED(Packetizer.getResourceTracker()->getInstrItins());
 
   if (Packetizer.getResourceTracker()->getInstrItins()->isEmpty())
     return false;

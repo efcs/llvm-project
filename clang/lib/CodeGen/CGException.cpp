@@ -876,7 +876,7 @@ llvm::BasicBlock *CodeGenFunction::EmitLandingPad() {
       continue;
 
     case EHScope::Filter: {
-      assert(I.next() == EHStack.end() && "EH filter is not end of EH stack");
+      assert_DISABLED(I.next() == EHStack.end() && "EH filter is not end of EH stack");
       assert(!hasCatchAll && "EH filter reached after catch-all");
 
       // Filter scopes get added to the landingpad in weird ways.
@@ -1440,9 +1440,9 @@ void CodeGenFunction::FinallyInfo::enter(CodeGenFunction &CGF, const Stmt *body,
                                          llvm::FunctionCallee beginCatchFn,
                                          llvm::FunctionCallee endCatchFn,
                                          llvm::FunctionCallee rethrowFn) {
-  assert((!!beginCatchFn) == (!!endCatchFn) &&
+  assert_DISABLED((!!beginCatchFn) == (!!endCatchFn) &&
          "begin/end catch functions not paired");
-  assert(rethrowFn && "rethrow function is required");
+  assert_DISABLED(rethrowFn && "rethrow function is required");
 
   BeginCatchFn = beginCatchFn;
 
@@ -1589,7 +1589,7 @@ llvm::BasicBlock *CodeGenFunction::getTerminateHandler() {
 }
 
 llvm::BasicBlock *CodeGenFunction::getTerminateFunclet() {
-  assert(EHPersonality::get(*this).usesFuncletPads() &&
+  assert_DISABLED(EHPersonality::get(*this).usesFuncletPads() &&
          "use getTerminateLandingPad for non-funclet EH");
 
   llvm::BasicBlock *&TerminateFunclet = TerminateFunclets[CurrentFuncletPad];

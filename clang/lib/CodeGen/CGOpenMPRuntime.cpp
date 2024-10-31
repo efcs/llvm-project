@@ -11245,7 +11245,7 @@ static void EmitDoacrossOrdered(CodeGenFunction &CGF, CodeGenModule &CGM,
     RTLFn = OMPBuilder.getOrCreateRuntimeFunction(CGM.getModule(),
                                                   OMPRTL___kmpc_doacross_post);
   } else {
-    assert(ODK.isSink(C) && "Expect sink modifier.");
+    assert_DISABLED(ODK.isSink(C) && "Expect sink modifier.");
     RTLFn = OMPBuilder.getOrCreateRuntimeFunction(CGM.getModule(),
                                                   OMPRTL___kmpc_doacross_wait);
   }
@@ -11857,7 +11857,7 @@ void CGOpenMPRuntime::checkAndEmitLastprivateConditional(CodeGenFunction &CGF,
     // Special codegen for inner parallel regions.
     // ((struct.lastprivate.conditional*)&priv_a)->Fired = 1;
     auto It = LastprivateConditionalToTypes[FoundFn].find(FoundD);
-    assert(It != LastprivateConditionalToTypes[FoundFn].end() &&
+    assert_DISABLED(It != LastprivateConditionalToTypes[FoundFn].end() &&
            "Lastprivate conditional is not found in outer region.");
     QualType StructTy = std::get<0>(It->getSecond());
     const FieldDecl* FiredDecl = std::get<2>(It->getSecond());

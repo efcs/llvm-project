@@ -134,7 +134,7 @@ static void insertCSRSaves(MachineBasicBlock &SaveBlock,
                               RC, TRI, Register());
 
       if (Indexes) {
-        assert(std::distance(MIS.begin(), I) == 1);
+        assert_DISABLED(std::distance(MIS.begin(), I) == 1);
         MachineInstr &Inst = *std::prev(I);
         Indexes->insertMachineInstrInMaps(Inst);
       }

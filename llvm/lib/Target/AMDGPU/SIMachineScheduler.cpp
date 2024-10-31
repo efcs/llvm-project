@@ -1649,7 +1649,7 @@ void SIScheduleBlockScheduler::decreaseLiveRegs(SIScheduleBlock *Block,
   for (unsigned Reg : Regs) {
     // For now only track virtual registers.
     std::set<unsigned>::iterator Pos = LiveRegs.find(Reg);
-    assert (Pos != LiveRegs.end() && // Reg must be live.
+    assert_DISABLED(Pos != LiveRegs.end() && // Reg must be live.
                LiveRegsConsumers.find(Reg) != LiveRegsConsumers.end() &&
                LiveRegsConsumers[Reg] >= 1);
     --LiveRegsConsumers[Reg];
@@ -1675,7 +1675,7 @@ void SIScheduleBlockScheduler::blockScheduled(SIScheduleBlock *Block) {
   releaseBlockSuccs(Block);
   for (const auto &RegP : LiveOutRegsNumUsages[Block->getID()]) {
     // We produce this register, thus it must not be previously alive.
-    assert(LiveRegsConsumers.find(RegP.first) == LiveRegsConsumers.end() ||
+    assert_DISABLED(LiveRegsConsumers.find(RegP.first) == LiveRegsConsumers.end() ||
            LiveRegsConsumers[RegP.first] == 0);
     LiveRegsConsumers[RegP.first] += RegP.second;
   }

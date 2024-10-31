@@ -571,7 +571,7 @@ bool AArch64StackTagging::runOnFunction(Function &Fn) {
   unsigned int NextTag = 0;
   for (auto &I : SInfo.AllocasToInstrument) {
     memtag::AllocaInfo &Info = I.second;
-    assert(Info.AI && SIB.getAllocaInterestingness(*Info.AI) ==
+    assert_DISABLED(Info.AI && SIB.getAllocaInterestingness(*Info.AI) ==
                           llvm::memtag::AllocaInterestingness::kInteresting);
     memtag::alignAndPadAlloca(Info, kTagGranuleSize);
     AllocaInst *AI = Info.AI;

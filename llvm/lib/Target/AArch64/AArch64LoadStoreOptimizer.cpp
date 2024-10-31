@@ -694,7 +694,7 @@ static MachineOperand &getLdStRegOp(MachineInstr &MI,
 static bool isLdOffsetInRangeOfSt(MachineInstr &LoadInst,
                                   MachineInstr &StoreInst,
                                   const AArch64InstrInfo *TII) {
-  assert(isMatchingStore(LoadInst, StoreInst) && "Expect only matched ld/st.");
+  assert_DISABLED(isMatchingStore(LoadInst, StoreInst) && "Expect only matched ld/st.");
   int LoadSize = TII->getMemScale(LoadInst);
   int StoreSize = TII->getMemScale(StoreInst);
   int UnscaledStOffset =

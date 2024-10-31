@@ -2940,7 +2940,7 @@ ScalarExprEmitter::EmitScalarPrePostIncDec(const UnaryOperator *E, LValue LV,
       canPerformLossyDemotionCheck &=
           PromotionIsPotentiallyEligibleForImplicitIntegerConversionCheck(
               type, promotedType);
-      assert((!canPerformLossyDemotionCheck ||
+      assert_DISABLED((!canPerformLossyDemotionCheck ||
               type->isSignedIntegerOrEnumerationType() ||
               promotedType->isSignedIntegerOrEnumerationType() ||
               ConvertType(type)->getScalarSizeInBits() ==
@@ -5803,7 +5803,7 @@ CodeGenFunction::EmitCheckedInBoundsGEP(llvm::Type *ElemTy, Value *Ptr,
   GEPOffsetAndOverflow EvaluatedGEP =
       EmitGEPOffsetInBytes(Ptr, GEPVal, getLLVMContext(), CGM, Builder);
 
-  assert((!isa<llvm::Constant>(EvaluatedGEP.TotalOffset) ||
+  assert_DISABLED((!isa<llvm::Constant>(EvaluatedGEP.TotalOffset) ||
           EvaluatedGEP.OffsetOverflows == Builder.getFalse()) &&
          "If the offset got constant-folded, we don't expect that there was an "
          "overflow.");

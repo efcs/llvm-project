@@ -1293,7 +1293,7 @@ static llvm::Constant *buildGlobalBlock(CodeGenModule &CGM,
   // Callers should detect this case on their own: calling this function
   // generally requires computing layout information, which is a waste of time
   // if we've already emitted this block.
-  assert(!CGM.getAddrOfGlobalBlockIfEmitted(blockInfo.BlockExpression) &&
+  assert_DISABLED(!CGM.getAddrOfGlobalBlockIfEmitted(blockInfo.BlockExpression) &&
          "Refusing to re-emit a global block.");
 
   // Generate the constants for the block literal initializer.

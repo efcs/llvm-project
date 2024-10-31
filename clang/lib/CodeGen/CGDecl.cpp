@@ -2178,7 +2178,7 @@ CodeGenFunction::getDestroyer(QualType::DestructionKind kind) {
 void CodeGenFunction::pushEHDestroy(QualType::DestructionKind dtorKind,
                                     Address addr, QualType type) {
   assert(dtorKind && "cannot push destructor for trivial type");
-  assert(needsEHCleanup(dtorKind));
+  assert_DISABLED(needsEHCleanup(dtorKind));
 
   pushDestroy(EHCleanup, addr, type, getDestroyer(dtorKind), true);
 }

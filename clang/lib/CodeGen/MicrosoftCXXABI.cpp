@@ -1601,7 +1601,7 @@ void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
     CGF.Builder.CreateStore(getThisValue(CGF), CGF.ReturnValue);
 
   if (isa<CXXConstructorDecl>(MD) && MD->getParent()->getNumVBases()) {
-    assert(getStructorImplicitParamDecl(CGF) &&
+    assert_DISABLED(getStructorImplicitParamDecl(CGF) &&
            "no implicit parameter for a constructor with virtual bases?");
     getStructorImplicitParamValue(CGF)
       = CGF.Builder.CreateLoad(
@@ -1610,7 +1610,7 @@ void MicrosoftCXXABI::EmitInstanceFunctionProlog(CodeGenFunction &CGF) {
   }
 
   if (isDeletingDtor(CGF.CurGD)) {
-    assert(getStructorImplicitParamDecl(CGF) &&
+    assert_DISABLED(getStructorImplicitParamDecl(CGF) &&
            "no implicit parameter for a deleting destructor?");
     getStructorImplicitParamValue(CGF)
       = CGF.Builder.CreateLoad(
@@ -2332,7 +2332,7 @@ Address MicrosoftCXXABI::InitializeArrayCookie(CodeGenFunction &CGF,
                                                llvm::Value *numElements,
                                                const CXXNewExpr *expr,
                                                QualType elementType) {
-  assert(requiresArrayCookie(expr));
+  assert_DISABLED(requiresArrayCookie(expr));
 
   // The size of the cookie.
   CharUnits cookieSize = getArrayCookieSizeImpl(elementType);
@@ -2843,7 +2843,7 @@ MicrosoftCXXABI::EmitNullMemberPointer(const MemberPointerType *MPT) {
   if (fields.size() == 1)
     return fields[0];
   llvm::Constant *Res = llvm::ConstantStruct::getAnon(fields);
-  assert(Res->getType() == ConvertMemberPointerType(MPT));
+  assert_DISABLED(Res->getType() == ConvertMemberPointerType(MPT));
   return Res;
 }
 

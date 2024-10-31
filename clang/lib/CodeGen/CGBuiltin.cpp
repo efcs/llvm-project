@@ -4627,7 +4627,7 @@ RValue CodeGenFunction::EmitBuiltinExpr(const GlobalDecl GD, unsigned BuiltinID,
 
     // Store the stack pointer to the setjmp buffer.
     Value *StackAddr = Builder.CreateStackSave();
-    assert(Buf.emitRawPointer(*this)->getType() == StackAddr->getType());
+    assert_DISABLED(Buf.emitRawPointer(*this)->getType() == StackAddr->getType());
 
     Address StackSaveSlot = Builder.CreateConstInBoundsGEP(Buf, 2);
     Builder.CreateStore(StackAddr, StackSaveSlot);

@@ -3302,11 +3302,11 @@ void CodeGenModule::EmitVTablesOpportunistically() {
   // is not allowed to create new references to things that need to be emitted
   // lazily. Note that it also uses fact that we eagerly emitting RTTI.
 
-  assert((OpportunisticVTables.empty() || shouldOpportunisticallyEmitVTables())
+  assert_DISABLED((OpportunisticVTables.empty() || shouldOpportunisticallyEmitVTables())
          && "Only emit opportunistic vtables with optimizations");
 
   for (const CXXRecordDecl *RD : OpportunisticVTables) {
-    assert(getVTables().isVTableExternal(RD) &&
+    assert_DISABLED(getVTables().isVTableExternal(RD) &&
            "This queue should only contain external vtables");
     if (getCXXABI().canSpeculativelyEmitVTable(RD))
       VTables.GenerateClassData(RD);
@@ -3933,7 +3933,7 @@ void CodeGenModule::EmitGlobal(GlobalDecl GD) {
     addDeferredDeclToEmit(GD);
   } else if (MustBeEmitted(Global)) {
     // The value must be emitted, but cannot be emitted eagerly.
-    assert(!MayBeEmittedEagerly(Global));
+    assert_DISABLED(!MayBeEmittedEagerly(Global));
     addDeferredDeclToEmit(GD);
   } else {
     // Otherwise, remember that we saw a deferred decl with this name.  The

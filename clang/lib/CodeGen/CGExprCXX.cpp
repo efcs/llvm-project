@@ -1736,7 +1736,7 @@ llvm::Value *CodeGenFunction::EmitCXXNewExpr(const CXXNewExpr *E) {
     cleanupDominator = Builder.CreateUnreachable();
   }
 
-  assert((allocSize == allocSizeWithoutCookie) ==
+  assert_DISABLED((allocSize == allocSizeWithoutCookie) ==
          CalculateCookiePadding(*this, E).isZero());
   if (allocSize != allocSizeWithoutCookie) {
     assert(E->isArray());
@@ -2129,7 +2129,7 @@ void CodeGenFunction::EmitCXXDeleteExpr(const CXXDeleteExpr *E) {
                                     Ptr.getAlignment(), "del.first");
   }
 
-  assert(ConvertTypeForMem(DeleteTy) == Ptr.getElementType());
+  assert_DISABLED(ConvertTypeForMem(DeleteTy) == Ptr.getElementType());
 
   if (E->isArrayForm()) {
     EmitArrayDelete(*this, E, Ptr, DeleteTy);

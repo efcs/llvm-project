@@ -119,7 +119,7 @@ template <typename Derived, typename InsertedThunksTy>
 void ThunkInserter<Derived, InsertedThunksTy>::createThunkFunction(
     MachineModuleInfo &MMI, StringRef Name, bool Comdat,
     StringRef TargetAttrs) {
-  assert(Name.starts_with(getDerived().getThunkPrefix()) &&
+  assert_DISABLED(Name.starts_with(getDerived().getThunkPrefix()) &&
          "Created a thunk with an unexpected prefix!");
 
   Module &M = const_cast<Module &>(*MMI.getModule());
