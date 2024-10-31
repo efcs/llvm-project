@@ -2942,7 +2942,7 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case STMT_REF_PTR:
       IsStmtReference = true;
-      assert(StmtEntries.contains(Record[0]) &&
+      assert_DISABLED(StmtEntries.contains(Record[0]) &&
              "No stmt was recorded for this offset reference!");
       S = StmtEntries[Record.readInt()];
       break;
@@ -3483,16 +3483,16 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     }
 
     case STMT_OMP_UNROLL_DIRECTIVE: {
-      assert(Record[ASTStmtReader::NumStmtFields] == 1 && "Unroll directive accepts only a single loop");
+      assert_DISABLED(Record[ASTStmtReader::NumStmtFields] == 1 && "Unroll directive accepts only a single loop");
       unsigned NumClauses = Record[ASTStmtReader::NumStmtFields + 1];
       S = OMPUnrollDirective::CreateEmpty(Context, NumClauses);
       break;
     }
 
     case STMT_OMP_REVERSE_DIRECTIVE: {
-      assert(Record[ASTStmtReader::NumStmtFields] == 1 &&
+      assert_DISABLED(Record[ASTStmtReader::NumStmtFields] == 1 &&
              "Reverse directive accepts only a single loop");
-      assert(Record[ASTStmtReader::NumStmtFields + 1] == 0 &&
+      assert_DISABLED(Record[ASTStmtReader::NumStmtFields + 1] == 0 &&
              "Reverse directive has no clauses");
       S = OMPReverseDirective::CreateEmpty(Context);
       break;

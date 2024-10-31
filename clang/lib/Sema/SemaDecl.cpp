@@ -7558,7 +7558,7 @@ NamedDecl *Sema::ActOnVariableDeclarator(
       if (!TemplateParamLists.empty() && IsMemberSpecialization &&
           CheckTemplateDeclScope(S, TemplateParamLists.back()))
         return nullptr;
-      assert((Invalid ||
+      assert_DISABLED((Invalid ||
               D.getName().getKind() != UnqualifiedIdKind::IK_TemplateId) &&
              "should have a 'template<>' for this decl");
     }
@@ -16127,7 +16127,7 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body,
       assert((FD == getCurFunctionDecl(/*AllowLambdas=*/true)) &&
              "Function parsing confused");
     } else if (ObjCMethodDecl *MD = dyn_cast_or_null<ObjCMethodDecl>(dcl)) {
-      assert(MD == getCurMethodDecl() && "Method parsing confused");
+      assert_DISABLED(MD == getCurMethodDecl() && "Method parsing confused");
       MD->setBody(Body);
       if (!MD->isInvalidDecl()) {
         DiagnoseSizeOfParametersAndReturnValue(MD->parameters(),

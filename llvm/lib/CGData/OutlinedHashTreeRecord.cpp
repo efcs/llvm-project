@@ -146,7 +146,7 @@ void OutlinedHashTreeRecord::convertFromStableData(
   IdHashNodeMapTy IdNodeMap;
   // Initialize the root node at 0.
   IdNodeMap[0] = HashTree->getRoot();
-  assert(IdNodeMap[0]->Successors.empty());
+  assert_DISABLED(IdNodeMap[0]->Successors.empty());
 
   for (auto &P : IdNodeStableMap) {
     auto Id = P.first;

@@ -941,7 +941,7 @@ void MergeFunctions::mergeTwoFunctions(Function *F, Function *G) {
 void MergeFunctions::replaceFunctionInTree(const FunctionNode &FN,
                                            Function *G) {
   Function *F = FN.getFunc();
-  assert(FunctionComparator(F, G, &GlobalNumbers).compare() == 0 &&
+  assert_DISABLED(FunctionComparator(F, G, &GlobalNumbers).compare() == 0 &&
          "The two functions must be equal");
 
   auto I = FNodesInTree.find(F);

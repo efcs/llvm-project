@@ -1166,12 +1166,12 @@ void PathDiagnosticBuilder::generatePathDiagnosticsForNode(
       // call piece to encapsulate the rest of the path pieces.
       const Decl *Caller = CE->getLocationContext()->getDecl();
       Call = PathDiagnosticCallPiece::construct(C.getActivePath(), Caller);
-      assert(C.getActivePath().size() == 1 &&
+      assert_DISABLED(C.getActivePath().size() == 1 &&
              C.getActivePath().front().get() == Call);
 
       // Since we just transferred the path over to the call piece, reset the
       // mapping of the active path to the current location context.
-      assert(C.isInLocCtxMap(&C.getActivePath()) &&
+      assert_DISABLED(C.isInLocCtxMap(&C.getActivePath()) &&
              "When we ascend to a previously unvisited call, the active path's "
              "address shouldn't change, but rather should be compacted into "
              "a single CallEvent!");

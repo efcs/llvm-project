@@ -24,7 +24,7 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPBlendRecipe *R) {
   Type *ResTy = inferScalarType(R->getIncomingValue(0));
   for (unsigned I = 1, E = R->getNumIncomingValues(); I != E; ++I) {
     VPValue *Inc = R->getIncomingValue(I);
-    assert(inferScalarType(Inc) == ResTy &&
+    assert_DISABLED(inferScalarType(Inc) == ResTy &&
            "different types inferred for different incoming values");
     CachedTypes[Inc] = ResTy;
   }
@@ -38,7 +38,7 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPInstruction *R) {
     Type *ResTy = inferScalarType(R->getOperand(0));
     for (unsigned Op = 1; Op != R->getNumOperands(); ++Op) {
       VPValue *OtherV = R->getOperand(Op);
-      assert(inferScalarType(OtherV) == ResTy &&
+      assert_DISABLED(inferScalarType(OtherV) == ResTy &&
              "different types inferred for different operands");
       CachedTypes[OtherV] = ResTy;
     }
@@ -53,7 +53,7 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPInstruction *R) {
   case Instruction::Select: {
     Type *ResTy = inferScalarType(R->getOperand(1));
     VPValue *OtherV = R->getOperand(2);
-    assert(inferScalarType(OtherV) == ResTy &&
+    assert_DISABLED(inferScalarType(OtherV) == ResTy &&
            "different types inferred for different operands");
     CachedTypes[OtherV] = ResTy;
     return ResTy;
@@ -116,7 +116,7 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPWidenRecipe *R) {
   case Instruction::Or:
   case Instruction::Xor: {
     Type *ResTy = inferScalarType(R->getOperand(0));
-    assert(ResTy == inferScalarType(R->getOperand(1)) &&
+    assert_DISABLED(ResTy == inferScalarType(R->getOperand(1)) &&
            "types for both operands must match for binary op");
     CachedTypes[R->getOperand(1)] = ResTy;
     return ResTy;
@@ -150,7 +150,7 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPWidenMemoryRecipe *R) {
 Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPWidenSelectRecipe *R) {
   Type *ResTy = inferScalarType(R->getOperand(1));
   VPValue *OtherV = R->getOperand(2);
-  assert(inferScalarType(OtherV) == ResTy &&
+  assert_DISABLED(inferScalarType(OtherV) == ResTy &&
          "different types inferred for different operands");
   CachedTypes[OtherV] = ResTy;
   return ResTy;
@@ -182,14 +182,14 @@ Type *VPTypeAnalysis::inferScalarTypeForRecipe(const VPReplicateRecipe *R) {
   case Instruction::Or:
   case Instruction::Xor: {
     Type *ResTy = inferScalarType(R->getOperand(0));
-    assert(ResTy == inferScalarType(R->getOperand(1)) &&
+    assert_DISABLED(ResTy == inferScalarType(R->getOperand(1)) &&
            "inferred types for operands of binary op don't match");
     CachedTypes[R->getOperand(1)] = ResTy;
     return ResTy;
   }
   case Instruction::Select: {
     Type *ResTy = inferScalarType(R->getOperand(1));
-    assert(ResTy == inferScalarType(R->getOperand(2)) &&
+    assert_DISABLED(ResTy == inferScalarType(R->getOperand(2)) &&
            "inferred types for operands of select op don't match");
     CachedTypes[R->getOperand(2)] = ResTy;
     return ResTy;

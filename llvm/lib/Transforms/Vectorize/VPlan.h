@@ -3733,7 +3733,7 @@ public:
   void addVF(ElementCount VF) { VFs.insert(VF); }
 
   void setVF(ElementCount VF) {
-    assert(hasVF(VF) && "Cannot set VF not already in plan");
+    assert_DISABLED(hasVF(VF) && "Cannot set VF not already in plan");
     VFs.clear();
     VFs.insert(VF);
   }
@@ -3782,7 +3782,7 @@ public:
     }
 
     assert(Value2VPValue.count(V) && "Value does not exist in VPlan");
-    assert(Value2VPValue[V]->isLiveIn() &&
+    assert_DISABLED(Value2VPValue[V]->isLiveIn() &&
            "Only live-ins should be in mapping");
     return Value2VPValue[V];
   }

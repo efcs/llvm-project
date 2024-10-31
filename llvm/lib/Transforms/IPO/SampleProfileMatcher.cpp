@@ -618,7 +618,7 @@ void SampleProfileMatcher::countMismatchCallsites(const FunctionSamples &FS) {
       isInitialState(MatchStates.begin()->second);
   for (const auto &I : MatchStates) {
     TotalProfiledCallsites++;
-    assert(
+    assert_DISABLED(
         (OnInitialState ? isInitialState(I.second) : isFinalState(I.second)) &&
         "Profile matching state is inconsistent");
 

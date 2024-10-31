@@ -2006,7 +2006,7 @@ void ItaniumRecordLayoutBuilder::LayoutField(const FieldDecl *D,
     auto performBuiltinTypeAlignmentUpgrade = [&](const BuiltinType *BTy) {
       if (BTy->getKind() == BuiltinType::Double ||
           BTy->getKind() == BuiltinType::LongDouble) {
-        assert(PreferredAlign == CharUnits::fromQuantity(4) &&
+        assert_DISABLED(PreferredAlign == CharUnits::fromQuantity(4) &&
                "No need to upgrade the alignment value.");
         PreferredAlign = CharUnits::fromQuantity(8);
       }

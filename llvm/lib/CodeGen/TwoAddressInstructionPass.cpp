@@ -857,12 +857,12 @@ void TwoAddressInstructionImpl::scanUses(Register DstReg) {
       unsigned FromReg = VirtRegPairs.pop_back_val();
       bool isNew = DstRegMap.insert(std::make_pair(FromReg, ToReg)).second;
       if (!isNew)
-        assert(DstRegMap[FromReg] == ToReg &&"Can't map to two dst registers!");
+        assert_DISABLED(DstRegMap[FromReg] == ToReg &&"Can't map to two dst registers!");
       ToReg = FromReg;
     }
     bool isNew = DstRegMap.insert(std::make_pair(DstReg, ToReg)).second;
     if (!isNew)
-      assert(DstRegMap[DstReg] == ToReg && "Can't map to two dst registers!");
+      assert_DISABLED(DstRegMap[DstReg] == ToReg && "Can't map to two dst registers!");
   }
 }
 
@@ -892,7 +892,7 @@ void TwoAddressInstructionImpl::processCopy(MachineInstr *MI) {
   } else if (!IsDstPhys && IsSrcPhys) {
     bool isNew = SrcRegMap.insert(std::make_pair(DstReg, SrcReg)).second;
     if (!isNew)
-      assert(SrcRegMap[DstReg] == SrcReg &&
+      assert_DISABLED(SrcRegMap[DstReg] == SrcReg &&
              "Can't map to two src physical registers!");
 
     scanUses(DstReg);

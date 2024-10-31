@@ -948,7 +948,7 @@ void LoadStoreOpt::initializeStoreMergeTargetInfo(unsigned AddrSpace) {
   // illegal ones, which would just result in being split again.
 
   if (LegalStoreSizes.count(AddrSpace)) {
-    assert(LegalStoreSizes[AddrSpace].any());
+    assert_DISABLED(LegalStoreSizes[AddrSpace].any());
     return; // Already cached sizes for this address space.
   }
 

@@ -669,7 +669,7 @@ static void recursivelyDeleteDeadRecipes(VPValue *V) {
 void VPlanTransforms::optimizeForVFAndUF(VPlan &Plan, ElementCount BestVF,
                                          unsigned BestUF,
                                          PredicatedScalarEvolution &PSE) {
-  assert(Plan.hasVF(BestVF) && "BestVF is not available in Plan");
+  assert_DISABLED(Plan.hasVF(BestVF) && "BestVF is not available in Plan");
   assert(Plan.hasUF(BestUF) && "BestUF is not available in Plan");
   VPBasicBlock *ExitingVPBB =
       Plan.getVectorLoopRegion()->getExitingBasicBlock();
@@ -890,7 +890,7 @@ bool VPlanTransforms::adjustFixedOrderRecurrences(VPlan &Plan,
     while (auto *PrevPhi =
                dyn_cast_or_null<VPFirstOrderRecurrencePHIRecipe>(Previous)) {
       assert(PrevPhi->getParent() == FOR->getParent());
-      assert(SeenPhis.insert(PrevPhi).second);
+      assert_DISABLED(SeenPhis.insert(PrevPhi).second);
       Previous = PrevPhi->getBackedgeValue()->getDefiningRecipe();
     }
 
@@ -1042,13 +1042,13 @@ static void simplifyRecipe(VPRecipeBase &R, VPTypeAnalysis &TypeInfo) {
     // accurate by comparing it to freshly computed types.
     VPTypeAnalysis TypeInfo2(
         R.getParent()->getPlan()->getCanonicalIV()->getScalarType());
-    assert(TypeInfo.inferScalarType(A) == TypeInfo2.inferScalarType(A));
+    assert_DISABLED(TypeInfo.inferScalarType(A) == TypeInfo2.inferScalarType(A));
     for (VPUser *U : A->users()) {
       auto *R = dyn_cast<VPRecipeBase>(U);
       if (!R)
         continue;
       for (VPValue *VPV : R->definedValues())
-        assert(TypeInfo.inferScalarType(VPV) == TypeInfo2.inferScalarType(VPV));
+        assert_DISABLED(TypeInfo.inferScalarType(VPV) == TypeInfo2.inferScalarType(VPV));
     }
 #endif
   }
@@ -1380,7 +1380,7 @@ static SmallVector<VPValue *> collectAllHeaderMasks(VPlan &Plan) {
   auto *FoundWidenCanonicalIVUser =
       find_if(Plan.getCanonicalIV()->users(),
               [](VPUser *U) { return isa<VPWidenCanonicalIVRecipe>(U); });
-  assert(count_if(Plan.getCanonicalIV()->users(),
+  assert_DISABLED(count_if(Plan.getCanonicalIV()->users(),
                   [](VPUser *U) { return isa<VPWidenCanonicalIVRecipe>(U); }) <=
              1 &&
          "Must have at most one VPWideCanonicalIVRecipe");

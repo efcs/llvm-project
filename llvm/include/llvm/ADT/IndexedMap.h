@@ -45,7 +45,7 @@ template <typename T, typename ToIndexT = identity<unsigned>>
     explicit IndexedMap(const T& val) : nullVal_(val) {}
 
     typename StorageT::reference operator[](IndexT n) {
-      assert(toIndex_(n) < storage_.size() && "index out of bounds!");
+      assert_DISABLED(toIndex_(n) < storage_.size() && "index out of bounds!");
       return storage_[toIndex_(n)];
     }
 

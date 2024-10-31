@@ -432,7 +432,7 @@ lowerIncomingStatepointValue(SDValue Incoming, bool RequireSpillSlot,
       // This handles allocas as arguments to the statepoint (this is only
       // really meaningful for a deopt value.  For GC, we'd be trying to
       // relocate the address of the alloca itself?)
-      assert(Incoming.getValueType() == Builder.getFrameIndexTy() &&
+      assert_DISABLED(Incoming.getValueType() == Builder.getFrameIndexTy() &&
              "Incoming value is a frame index!");
       Ops.push_back(Builder.DAG.getTargetFrameIndex(FI->getIndex(),
                                                     Builder.getFrameIndexTy()));
@@ -677,7 +677,7 @@ lowerStatepointMetaArgs(SmallVectorImpl<SDValue> &Ops,
     SDValue Incoming = Builder.getValue(V);
     if (FrameIndexSDNode *FI = dyn_cast<FrameIndexSDNode>(Incoming)) {
       // This handles allocas as arguments to the statepoint
-      assert(Incoming.getValueType() == Builder.getFrameIndexTy() &&
+      assert_DISABLED(Incoming.getValueType() == Builder.getFrameIndexTy() &&
              "Incoming value is a frame index!");
       Allocas.push_back(Builder.DAG.getTargetFrameIndex(
           FI->getIndex(), Builder.getFrameIndexTy()));

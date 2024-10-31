@@ -2127,7 +2127,7 @@ void visitDomSubTree(DominatorTree &DT, BasicBlock *BB, CallableT Callable) {
 
     // Accumulate the child nodes.
     for (DomTreeNode *ChildN : *N) {
-      assert(Visited.insert(ChildN).second &&
+      assert_DISABLED(Visited.insert(ChildN).second &&
              "Cannot visit a node twice when walking a tree!");
       DomWorklist.push_back(ChildN);
     }

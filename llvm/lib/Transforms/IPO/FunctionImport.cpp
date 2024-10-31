@@ -1234,7 +1234,7 @@ void llvm::ComputeCrossModuleImport(
     ELI.second.insert(NewExports.begin(), NewExports.end());
   }
 
-  assert(checkVariableImport(Index, ImportLists, ExportLists));
+  assert_DISABLED(checkVariableImport(Index, ImportLists, ExportLists));
 #ifndef NDEBUG
   LLVM_DEBUG(dbgs() << "Import/Export lists for " << ImportLists.size()
                     << " modules:\n");

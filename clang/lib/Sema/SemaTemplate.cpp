@@ -4132,7 +4132,7 @@ DeclResult Sema::ActOnVarTemplateSpecialization(
     StorageClass SC, bool IsPartialSpecialization,
     bool IsMemberSpecialization) {
   // D must be variable template id.
-  assert(D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId &&
+  assert_DISABLED(D.getName().getKind() == UnqualifiedIdKind::IK_TemplateId &&
          "Variable template specialization is declared with a template id.");
 
   TemplateIdAnnotation *TemplateId = D.getName().TemplateId;

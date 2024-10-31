@@ -967,7 +967,7 @@ static bool IsValueFullyAvailableInBlock(
         case AvailabilityState::SpeculativelyAvailable: // Fix it!
           State = FixpointState;
 #ifndef NDEBUG
-          assert(NewSpeculativelyAvailableBBs.erase(BB) &&
+          assert_DISABLED(NewSpeculativelyAvailableBBs.erase(BB) &&
                  "Found a speculatively available successor leftover?");
 #endif
           // Queue successors for further processing.

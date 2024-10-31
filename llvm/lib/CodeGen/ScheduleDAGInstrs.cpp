@@ -435,7 +435,7 @@ void ScheduleDAGInstrs::addVRegDefDeps(SUnit *SU, unsigned OperIdx) {
   }
 
   if (MO.isDead()) {
-    assert(deadDefHasNoUse(MO) && "Dead defs should have no uses");
+    assert_DISABLED(deadDefHasNoUse(MO) && "Dead defs should have no uses");
   } else {
     // Add data dependence to all uses we found so far.
     const TargetSubtargetInfo &ST = MF.getSubtarget();

@@ -1227,7 +1227,7 @@ public:
 #endif
 
   bool isLoser() {
-    assert(isValid() && "invalid cost");
+    assert_DISABLED(isValid() && "invalid cost");
     return C.NumRegs == ~0u;
   }
 
@@ -1563,7 +1563,7 @@ void Cost::RateFormula(const Formula &F,
 
   // If we don't count instruction cost exit here.
   if (!InsnsCost) {
-    assert(isValid() && "invalid cost");
+    assert_DISABLED(isValid() && "invalid cost");
     return;
   }
 
@@ -1600,7 +1600,7 @@ void Cost::RateFormula(const Formula &F,
   // BaseAdds adds instructions for unfolded registers.
   if (LU.Kind != LSRUse::ICmpZero)
     C.Insns += C.NumBaseAdds - PrevNumBaseAdds;
-  assert(isValid() && "invalid cost");
+  assert_DISABLED(isValid() && "invalid cost");
 }
 
 /// Set this cost to a losing value.
@@ -6706,7 +6706,7 @@ static unsigned numLLVMArgOps(SmallVectorImpl<uint64_t> &Expr) {
 template <typename T>
 static void updateDVIWithLocation(T &DbgVal, Value *Location,
                                   SmallVectorImpl<uint64_t> &Ops) {
-  assert(numLLVMArgOps(Ops) == 0 && "Expected expression that does not "
+  assert_DISABLED(numLLVMArgOps(Ops) == 0 && "Expected expression that does not "
                                     "contain any DW_OP_llvm_arg operands.");
   DbgVal.setRawLocation(ValueAsMetadata::get(Location));
   DbgVal.setExpression(DIExpression::get(DbgVal.getContext(), Ops));
@@ -6718,7 +6718,7 @@ template <typename T>
 static void updateDVIWithLocations(T &DbgVal,
                                    SmallVectorImpl<Value *> &Locations,
                                    SmallVectorImpl<uint64_t> &Ops) {
-  assert(numLLVMArgOps(Ops) != 0 &&
+  assert_DISABLED(numLLVMArgOps(Ops) != 0 &&
          "Expected expression that references DIArglist locations using "
          "DW_OP_llvm_arg operands.");
   SmallVector<ValueAsMetadata *, 3> MetadataLocs;

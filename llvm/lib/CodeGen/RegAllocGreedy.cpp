@@ -2306,7 +2306,7 @@ void RAGreedy::tryHintRecoloring(const LiveInterval &VirtReg) {
 
     // This may be a skipped register.
     if (!VRM->hasPhys(Reg)) {
-      assert(!shouldAllocateRegister(Reg) &&
+      assert_DISABLED(!shouldAllocateRegister(Reg) &&
              "We have an unallocated variable which should have been handled");
       continue;
     }

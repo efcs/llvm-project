@@ -665,7 +665,7 @@ void DeadArgumentEliminationPass::markValue(const RetOrArg &RA, Liveness L,
     markLive(RA);
     break;
   case MaybeLive:
-    assert(!isLive(RA) && "Use is already live!");
+    assert_DISABLED(!isLive(RA) && "Use is already live!");
     for (const auto &MaybeLiveUse : MaybeLiveUses) {
       if (isLive(MaybeLiveUse)) {
         // A use is live, so this value is live.

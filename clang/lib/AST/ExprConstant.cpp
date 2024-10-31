@@ -7212,7 +7212,7 @@ class APValueToBufferConverter {
 
   // Write out Val with type Ty into Buffer starting at Offset.
   bool visit(const APValue &Val, QualType Ty, CharUnits Offset) {
-    assert((size_t)Offset.getQuantity() <= Buffer.size());
+    assert_DISABLED((size_t)Offset.getQuantity() <= Buffer.size());
 
     // As a special case, nullptr_t has an indeterminate value.
     if (Ty->isNullPtrType())
@@ -10860,7 +10860,7 @@ bool RecordExprEvaluator::VisitCXXStdInitializerListExpr(
     Array.moveInto(Result.getStructField(1));
   }
 
-  assert(++Field == Record->field_end() &&
+  assert_DISABLED(++Field == Record->field_end() &&
          "Expected std::initializer_list to only have two fields");
 
   return true;

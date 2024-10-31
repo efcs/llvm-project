@@ -277,7 +277,7 @@ void splitAndWriteThinLTOBitcode(
     function_ref<AAResults &(Function &)> AARGetter, Module &M) {
   std::string ModuleId = getUniqueModuleId(&M);
   if (ModuleId.empty()) {
-    assert(!enableUnifiedLTO(M));
+    assert_DISABLED(!enableUnifiedLTO(M));
     // We couldn't generate a module ID for this module, write it out as a
     // regular LTO module with an index for summary-based dead stripping.
     ProfileSummaryInfo PSI(M);

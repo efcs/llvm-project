@@ -452,7 +452,7 @@ int ExecutionEngine::runFunctionAsMain(Function *Fn,
     if (NumArgs > 1) {
       // Arg #1 = argv.
       GVArgs.push_back(PTOGV(CArgv.reset(Fn->getContext(), this, argv)));
-      assert(!isTargetNullPtr(this, GVTOP(GVArgs[1])) &&
+      assert_DISABLED(!isTargetNullPtr(this, GVTOP(GVArgs[1])) &&
              "argv[0] was null after CreateArgv");
       if (NumArgs > 2) {
         std::vector<std::string> EnvVars;

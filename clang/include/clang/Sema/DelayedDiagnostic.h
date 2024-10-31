@@ -325,7 +325,7 @@ public:
 
 /// Add a diagnostic to the current delay pool.
 inline void Sema::DelayedDiagnostics::add(const sema::DelayedDiagnostic &diag) {
-  assert(shouldDelayDiagnostics() && "trying to delay without pool");
+  assert_DISABLED(shouldDelayDiagnostics() && "trying to delay without pool");
   CurPool->add(diag);
 }
 

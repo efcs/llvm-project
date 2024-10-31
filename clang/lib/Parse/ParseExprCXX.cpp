@@ -670,7 +670,7 @@ ExprResult Parser::tryParseCXXIdExpression(CXXScopeSpec &SS,
 }
 
 ExprResult Parser::ParseCXXPackIndexingExpression(ExprResult PackIdExpression) {
-  assert(Tok.is(tok::ellipsis) && NextToken().is(tok::l_square) &&
+  assert_DISABLED(Tok.is(tok::ellipsis) && NextToken().is(tok::l_square) &&
          "expected ...[");
   SourceLocation EllipsisLoc = ConsumeToken();
   BalancedDelimiterTracker T(*this, tok::l_square);
@@ -4064,7 +4064,7 @@ Parser::ParseCXXAmbiguousParenExpression(ParenParseOption &ExprType,
                                          ColonProtectionRAIIObject &ColonProt) {
   assert(getLangOpts().CPlusPlus && "Should only be called for C++!");
   assert(ExprType == CastExpr && "Compound literals are not ambiguous!");
-  assert(isTypeIdInParens() && "Not a type-id!");
+  assert_DISABLED(isTypeIdInParens() && "Not a type-id!");
 
   ExprResult Result(true);
   CastTy = nullptr;

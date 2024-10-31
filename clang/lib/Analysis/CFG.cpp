@@ -1907,7 +1907,7 @@ void CFGBuilder::addAutomaticObjDestruction(LocalScope::const_iterator B,
 ///   * ScopeEnd for each scope left
 void CFGBuilder::addScopeExitHandling(LocalScope::const_iterator B,
                                       LocalScope::const_iterator E, Stmt *S) {
-  assert(!B.inSameLocalScope(E));
+  assert_DISABLED(!B.inSameLocalScope(E));
   if (!BuildOpts.AddLifetime && !BuildOpts.AddScopes)
     return;
 

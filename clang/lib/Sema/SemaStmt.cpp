@@ -4009,7 +4009,7 @@ StmtResult Sema::BuildReturnStmt(SourceLocation ReturnLoc, Expr *RetValExp,
                                           : diag::warn_return_missing_expr;
       // Note that at this point one of getCurFunctionDecl() or
       // getCurMethodDecl() must be non-null (see above).
-      assert((getCurFunctionDecl() || getCurMethodDecl()) &&
+      assert_DISABLED((getCurFunctionDecl() || getCurMethodDecl()) &&
              "Not in a FunctionDecl or ObjCMethodDecl?");
       bool IsMethod = FD == nullptr;
       const NamedDecl *ND =

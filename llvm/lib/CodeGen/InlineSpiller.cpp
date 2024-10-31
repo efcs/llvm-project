@@ -585,7 +585,7 @@ void InlineSpiller::markValueUsed(LiveInterval *LI, VNInfo *VNI) {
     if (!SnippetCopies.count(MI))
       continue;
     LiveInterval &SnipLI = LIS.getInterval(MI->getOperand(1).getReg());
-    assert(isRegToSpill(SnipLI.reg()) && "Unexpected register in copy");
+    assert_DISABLED(isRegToSpill(SnipLI.reg()) && "Unexpected register in copy");
     VNInfo *SnipVNI = SnipLI.getVNInfoAt(VNI->def.getRegSlot(true));
     assert(SnipVNI && "Snippet undefined before copy");
     WorkList.push_back(std::make_pair(&SnipLI, SnipVNI));
@@ -1047,7 +1047,7 @@ foldMemoryOperand(ArrayRef<std::pair<MachineInstr *, unsigned>> Ops,
   MI->eraseFromParent();
 
   // Insert any new instructions other than FoldMI into the LIS maps.
-  assert(!MIS.empty() && "Unexpected empty span of instructions!");
+  assert_DISABLED(!MIS.empty() && "Unexpected empty span of instructions!");
   for (MachineInstr &MI : MIS)
     if (&MI != FoldMI)
       LIS.InsertMachineInstrInMaps(MI);

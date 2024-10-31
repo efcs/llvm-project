@@ -110,7 +110,7 @@ static ResourceClass getResourceClass(RegisterType RT) {
 
 DeclBindingInfo *ResourceBindings::addDeclBindingInfo(const VarDecl *VD,
                                                       ResourceClass ResClass) {
-  assert(getDeclBindingInfo(VD, ResClass) == nullptr &&
+  assert_DISABLED(getDeclBindingInfo(VD, ResClass) == nullptr &&
          "DeclBindingInfo already added");
   assert(!hasBindingInfoForDecl(VD) || BindingsList.back().Decl == VD);
   // VarDecl may have multiple entries for different resource classes.

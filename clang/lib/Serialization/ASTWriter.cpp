@@ -2323,7 +2323,7 @@ void ASTWriter::WriteSourceManagerBlock(SourceManager &SourceMgr,
                "Writing to AST an overridden file is not supported");
 
         // The source location entry is a file. Emit input file ID.
-        assert(InputFileIDs[*Content->OrigEntry] != 0 && "Missed file entry");
+        assert_DISABLED(InputFileIDs[*Content->OrigEntry] != 0 && "Missed file entry");
         Record.push_back(InputFileIDs[*Content->OrigEntry]);
 
         Record.push_back(getAdjustedNumCreatedFIDs(FID));
@@ -3011,7 +3011,7 @@ void ASTWriter::WriteSubmodules(Module *WritingModule) {
 
     uint64_t ParentID = 0;
     if (Mod->Parent) {
-      assert(SubmoduleIDs[Mod->Parent] && "Submodule parent not written?");
+      assert_DISABLED(SubmoduleIDs[Mod->Parent] && "Submodule parent not written?");
       ParentID = SubmoduleIDs[Mod->Parent];
     }
 
@@ -4522,7 +4522,7 @@ void ASTWriter::WriteObjCCategories() {
            Cat = Class->known_categories_begin(),
            CatEnd = Class->known_categories_end();
          Cat != CatEnd; ++Cat, ++Size) {
-      assert(getDeclID(*Cat).isValid() && "Bogus category");
+      assert_DISABLED(getDeclID(*Cat).isValid() && "Bogus category");
       AddDeclRef(*Cat, Categories);
     }
 

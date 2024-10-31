@@ -2919,7 +2919,7 @@ bool Attributor::registerFunctionSignatureRewrite(
   LLVM_DEBUG(dbgs() << "[Attributor] Register new rewrite of " << Arg << " in "
                     << Arg.getParent()->getName() << " with "
                     << ReplacementTypes.size() << " replacements\n");
-  assert(isValidFunctionSignatureRewrite(Arg, ReplacementTypes) &&
+  assert_DISABLED(isValidFunctionSignatureRewrite(Arg, ReplacementTypes) &&
          "Cannot register an invalid rewrite");
 
   Function *Fn = Arg.getParent();

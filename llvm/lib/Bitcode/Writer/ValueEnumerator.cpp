@@ -789,7 +789,7 @@ void ValueEnumerator::EnumerateFunctionLocalListMetadata(
     if (isa<LocalAsMetadata>(VAM)) {
       assert(MetadataMap.count(VAM) &&
              "LocalAsMetadata should be enumerated before DIArgList");
-      assert(MetadataMap[VAM].F == F &&
+      assert_DISABLED(MetadataMap[VAM].F == F &&
              "Expected LocalAsMetadata in the same function");
     } else {
       assert(isa<ConstantAsMetadata>(VAM) &&

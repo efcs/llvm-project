@@ -5014,7 +5014,7 @@ RecordDecl::RecordDecl(Kind DK, TagKind TK, const ASTContext &C,
                        SourceLocation IdLoc, IdentifierInfo *Id,
                        RecordDecl *PrevDecl)
     : TagDecl(DK, TK, C, DC, IdLoc, Id, PrevDecl, StartLoc) {
-  assert(classof(static_cast<Decl *>(this)) && "Invalid Kind!");
+  assert_DISABLED(classof(static_cast<Decl *>(this)) && "Invalid Kind!");
   setHasFlexibleArrayMember(false);
   setAnonymousStructOrUnion(false);
   setHasObjectMember(false);

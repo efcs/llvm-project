@@ -768,7 +768,7 @@ void ObjCARCOpt::OptimizeIndividualCalls(Function &F) {
   Instruction *DelayedAutoreleaseRV = nullptr;
   const Value *DelayedAutoreleaseRVArg = nullptr;
   auto setDelayedAutoreleaseRV = [&](Instruction *AutoreleaseRV) {
-    assert(!DelayedAutoreleaseRV || !AutoreleaseRV);
+    assert_DISABLED(!DelayedAutoreleaseRV || !AutoreleaseRV);
     DelayedAutoreleaseRV = AutoreleaseRV;
     DelayedAutoreleaseRVArg = nullptr;
   };

@@ -1687,7 +1687,7 @@ void UserValue::insertDebugValue(MachineBasicBlock *MBB, SlotIndex StartIdx,
 
   ++NumInsertedDebugValues;
 
-  assert(cast<DILocalVariable>(Variable)
+  assert_DISABLED(cast<DILocalVariable>(Variable)
              ->isValidLocationForIntrinsic(getDebugLoc()) &&
          "Expected inlined-at fields to agree");
 

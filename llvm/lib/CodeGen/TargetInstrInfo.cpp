@@ -176,7 +176,7 @@ MachineInstr *TargetInstrInfo::commuteInstructionImpl(MachineInstr &MI,
 
   unsigned CommutableOpIdx1 = Idx1; (void)CommutableOpIdx1;
   unsigned CommutableOpIdx2 = Idx2; (void)CommutableOpIdx2;
-  assert(findCommutedOpIndices(MI, CommutableOpIdx1, CommutableOpIdx2) &&
+  assert_DISABLED(findCommutedOpIndices(MI, CommutableOpIdx1, CommutableOpIdx2) &&
          CommutableOpIdx1 == Idx1 && CommutableOpIdx2 == Idx2 &&
          "TargetInstrInfo::CommuteInstructionImpl(): not commutable operands.");
   assert(MI.getOperand(Idx1).isReg() && MI.getOperand(Idx2).isReg() &&

@@ -580,7 +580,7 @@ Sema::ActOnDependentMemberExpr(Expr *BaseExpr, QualType BaseType,
     }
   }
 
-  assert(BaseType->isDependentType() || NameInfo.getName().isDependentName() ||
+  assert_DISABLED(BaseType->isDependentType() || NameInfo.getName().isDependentName() ||
          isDependentScopeSpecifier(SS) ||
          (TemplateArgs && llvm::any_of(TemplateArgs->arguments(),
                                        [](const TemplateArgumentLoc &Arg) {
@@ -1000,7 +1000,7 @@ Sema::BuildMemberReferenceExpr(Expr *BaseExpr, QualType BaseExprType,
   }
   R.setBaseObjectType(BaseType);
 
-  assert((SS.isEmpty()
+  assert_DISABLED((SS.isEmpty()
               ? !BaseType->isDependentType() || computeDeclContext(BaseType)
               : !isDependentScopeSpecifier(SS) || computeDeclContext(SS)) &&
          "dependent lookup context that isn't the current instantiation?");

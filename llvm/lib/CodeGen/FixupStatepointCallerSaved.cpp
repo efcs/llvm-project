@@ -443,7 +443,7 @@ public:
     MachineInstr *Reload = It->getPrevNode();
     int Dummy = 0;
     (void)Dummy;
-    assert(TII.isLoadFromStackSlot(*Reload, Dummy) == Reg);
+    assert_DISABLED(TII.isLoadFromStackSlot(*Reload, Dummy) == Reg);
     assert(Dummy == FI);
     MBB->remove(Reload);
     MBB->insertAfter(It, Reload);

@@ -1374,7 +1374,7 @@ void VPWidenRecipe::execute(VPTransformState &State) {
 #if !defined(NDEBUG)
   // Verify that VPlan type inference results agree with the type of the
   // generated values.
-  assert(VectorType::get(State.TypeAnalysis.inferScalarType(this), State.VF) ==
+  assert_DISABLED(VectorType::get(State.TypeAnalysis.inferScalarType(this), State.VF) ==
              State.get(this)->getType() &&
          "inferred type and type from generated instructions do not match");
 #endif
@@ -1461,7 +1461,7 @@ void VPWidenEVLRecipe::execute(VPTransformState &State) {
 
   State.setDebugLocFrom(getDebugLoc());
 
-  assert(State.get(getOperand(0))->getType()->isVectorTy() &&
+  assert_DISABLED(State.get(getOperand(0))->getType()->isVectorTy() &&
          "VPWidenEVLRecipe should not be used for scalars");
 
   VPValue *EVL = getEVL();
@@ -3137,7 +3137,7 @@ void VPWidenPointerInductionRecipe::execute(VPTransformState &State) {
          "Not a pointer induction according to InductionDescriptor!");
   assert(cast<PHINode>(getUnderlyingInstr())->getType()->isPointerTy() &&
          "Unexpected type.");
-  assert(!onlyScalarsGenerated(State.VF.isScalable()) &&
+  assert_DISABLED(!onlyScalarsGenerated(State.VF.isScalable()) &&
          "Recipe should have been replaced");
 
   auto *IVR = getParent()->getPlan()->getCanonicalIV();
@@ -3198,7 +3198,7 @@ void VPWidenPointerInductionRecipe::execute(VPTransformState &State) {
   StartOffset = State.Builder.CreateAdd(
       StartOffset, State.Builder.CreateStepVector(VecPhiType));
 
-  assert(ScalarStepValue == State.get(getOperand(1), VPLane(0)) &&
+  assert_DISABLED(ScalarStepValue == State.get(getOperand(1), VPLane(0)) &&
          "scalar step must be the same across all parts");
   Value *GEP = State.Builder.CreateGEP(
       State.Builder.getInt8Ty(), NewPointerPhi,

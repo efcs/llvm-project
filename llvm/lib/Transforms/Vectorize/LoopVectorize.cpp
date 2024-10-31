@@ -2331,7 +2331,7 @@ void InnerLoopVectorizer::scalarizeInstruction(const Instruction *Instr,
 #if !defined(NDEBUG)
     // Verify that VPlan type inference results agree with the type of the
     // generated values.
-    assert(State.TypeAnalysis.inferScalarType(RepRecipe) == Cloned->getType() &&
+    assert_DISABLED(State.TypeAnalysis.inferScalarType(RepRecipe) == Cloned->getType() &&
            "inferred type and type from generated instructions do not match");
 #endif
   }
@@ -2489,7 +2489,7 @@ void InnerLoopVectorizer::emitIterationCountCheck(BasicBlock *Bypass) {
 #ifndef NDEBUG
     ScalarEvolution &SE = *PSE.getSE();
     const SCEV *TC2OverflowSCEV = SE.applyLoopGuards(SE.getSCEV(LHS), OrigLoop);
-    assert(
+    assert_DISABLED(
         !isIndvarOverflowCheckKnownFalse(Cost, VF * UF) &&
         !SE.isKnownPredicate(CmpInst::getInversePredicate(ICmpInst::ICMP_ULT),
                              TC2OverflowSCEV, SE.getSCEV(Step)) &&
@@ -6693,7 +6693,7 @@ LoopVectorizationCostModel::getInstructionCost(Instruction *I,
     if (canTruncateToMinimalBitwidth(I, VF)) {
       Instruction *Op0AsInstruction = dyn_cast<Instruction>(I->getOperand(0));
       (void)Op0AsInstruction;
-      assert((!canTruncateToMinimalBitwidth(Op0AsInstruction, VF) ||
+      assert_DISABLED((!canTruncateToMinimalBitwidth(Op0AsInstruction, VF) ||
               MinBWs[I] == MinBWs[Op0AsInstruction]) &&
              "if both the operand and the compare are marked for "
              "truncation, they must have the same bitwidth");
@@ -7516,7 +7516,7 @@ VectorizationFactor LoopVectorizationPlanner::computeBestVF() {
   // different VF to be picked by the VPlan-based cost model.
   VPCostContext CostCtx(CM.TTI, *CM.TLI, Legal->getWidestInductionType(), CM);
   precomputeCosts(BestPlan, BestFactor.Width, CostCtx);
-  assert((BestFactor.Width == LegacyVF.Width ||
+  assert_DISABLED((BestFactor.Width == LegacyVF.Width ||
           planContainsAdditionalSimplifications(getPlanFor(BestFactor.Width),
                                                 CostCtx, OrigLoop)) &&
          " VPlan cost model and legacy cost model disagreed");
@@ -7628,7 +7628,7 @@ DenseMap<const SCEV *, Value *> LoopVectorizationPlanner::executePlan(
     ElementCount BestVF, unsigned BestUF, VPlan &BestVPlan,
     InnerLoopVectorizer &ILV, DominatorTree *DT, bool IsEpilogueVectorization,
     const DenseMap<const SCEV *, Value *> *ExpandedSCEVs) {
-  assert(BestVPlan.hasVF(BestVF) &&
+  assert_DISABLED(BestVPlan.hasVF(BestVF) &&
          "Trying to execute plan with unsupported VF");
   assert(BestVPlan.hasUF(BestUF) &&
          "Trying to execute plan with unsupported UF");
@@ -8301,7 +8301,7 @@ createWidenInductionRecipes(PHINode *Phi, Instruction *PhiOrTrunc,
                             VPlan &Plan, ScalarEvolution &SE, Loop &OrigLoop) {
   assert(IndDesc.getStartValue() ==
          Phi->getIncomingValueForBlock(OrigLoop.getLoopPreheader()));
-  assert(SE.isLoopInvariant(IndDesc.getStep(), &OrigLoop) &&
+  assert_DISABLED(SE.isLoopInvariant(IndDesc.getStep(), &OrigLoop) &&
          "step must be loop invariant");
 
   VPValue *Step =

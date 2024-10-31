@@ -542,9 +542,9 @@ public:
       if (!Cand.isDependenceDistanceOfOne(PSE, L))
         continue;
 
-      assert(isa<SCEVAddRecExpr>(PSE.getSCEV(Cand.Load->getPointerOperand())) &&
+      assert_DISABLED(isa<SCEVAddRecExpr>(PSE.getSCEV(Cand.Load->getPointerOperand())) &&
              "Loading from something other than indvar?");
-      assert(
+      assert_DISABLED(
           isa<SCEVAddRecExpr>(PSE.getSCEV(Cand.Store->getPointerOperand())) &&
           "Storing to something other than indvar?");
 

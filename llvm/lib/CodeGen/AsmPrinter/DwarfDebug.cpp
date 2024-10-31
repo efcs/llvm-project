@@ -901,7 +901,7 @@ void DwarfDebug::constructCallSiteEntryDIEs(const DISubprogram &SP,
     // Ex. CALL_INSTRUCTION {
     //       DELAY_SLOT_INSTRUCTION }
     //      LABEL_AFTER_CALL
-    assert(getLabelAfterInsn(&*CallInstrBundle) ==
+    assert_DISABLED(getLabelAfterInsn(&*CallInstrBundle) ==
                getLabelAfterInsn(&*DelaySlotBundle) &&
            "Call and its successor instruction don't have same label after.");
     return true;
@@ -2217,7 +2217,7 @@ void DwarfDebug::beginFunctionImpl(const MachineFunction *MF) {
   CurFn = MF;
 
   auto *SP = MF->getFunction().getSubprogram();
-  assert(LScopes.empty() || SP == LScopes.getCurrentFunctionScope()->getScopeNode());
+  assert_DISABLED(LScopes.empty() || SP == LScopes.getCurrentFunctionScope()->getScopeNode());
   if (SP->getUnit()->getEmissionKind() == DICompileUnit::NoDebug)
     return;
 
@@ -2299,7 +2299,7 @@ void DwarfDebug::endFunctionImpl(const MachineFunction *MF) {
     for (const auto &R : Asm->MBBSectionRanges)
       addArangeLabel(SymbolCU(&TheCU, R.second.BeginLabel));
 
-    assert(InfoHolder.getScopeVariables().empty());
+    assert_DISABLED(InfoHolder.getScopeVariables().empty());
     PrevLabel = nullptr;
     CurFn = nullptr;
     return;

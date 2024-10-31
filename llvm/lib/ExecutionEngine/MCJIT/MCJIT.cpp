@@ -191,7 +191,7 @@ void MCJIT::generateCodeForModule(Module *M) {
   std::lock_guard<sys::Mutex> locked(lock);
 
   // This must be a module which has already been added to this MCJIT instance.
-  assert(OwnedModules.ownsModule(M) &&
+  assert_DISABLED(OwnedModules.ownsModule(M) &&
          "MCJIT::generateCodeForModule: Unknown module.");
 
   // Re-compilation is not supported
@@ -272,7 +272,7 @@ void MCJIT::finalizeModule(Module *M) {
   std::lock_guard<sys::Mutex> locked(lock);
 
   // This must be a module which has already been added to this MCJIT instance.
-  assert(OwnedModules.ownsModule(M) && "MCJIT::finalizeModule: Unknown module.");
+  assert_DISABLED(OwnedModules.ownsModule(M) && "MCJIT::finalizeModule: Unknown module.");
 
   // If the module hasn't been compiled, just do that.
   if (!OwnedModules.hasModuleBeenLoaded(M))

@@ -5239,7 +5239,7 @@ TypeSourceInfo *TreeTransform<Derived>::TransformTSIInObjectScope(
     TypeLoc TL, QualType ObjectType, NamedDecl *UnqualLookup,
     CXXScopeSpec &SS) {
   QualType T = TL.getType();
-  assert(!getDerived().AlreadyTransformed(T));
+  assert_DISABLED(!getDerived().AlreadyTransformed(T));
 
   TypeLocBuilder TLB;
   QualType Result;
@@ -12418,7 +12418,7 @@ TreeTransform<Derived>::TransformOffsetOfExpr(OffsetOfExpr *E) {
 template<typename Derived>
 ExprResult
 TreeTransform<Derived>::TransformOpaqueValueExpr(OpaqueValueExpr *E) {
-  assert((!E->getSourceExpr() || getDerived().AlreadyTransformed(E->getType())) &&
+  assert_DISABLED((!E->getSourceExpr() || getDerived().AlreadyTransformed(E->getType())) &&
          "opaque value expression requires transformation");
   return E;
 }

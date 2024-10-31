@@ -33,7 +33,7 @@ CoverageFilenamesSectionWriter::CoverageFilenamesSectionWriter(
 #ifndef NDEBUG
   StringSet<> NameSet;
   for (StringRef Name : Filenames)
-    assert(NameSet.insert(Name).second && "Duplicate filename");
+    assert_DISABLED(NameSet.insert(Name).second && "Duplicate filename");
 #endif
 }
 

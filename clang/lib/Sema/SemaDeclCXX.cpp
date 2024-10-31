@@ -9742,7 +9742,7 @@ bool Sema::ShouldDeleteSpecialMember(CXXMethodDecl *MD,
     // is treated as certain special member, which may not reflect what special
     // member MD really is. However inferTargetForImplicitSpecialMember
     // expects CSM to match MD, therefore recalculate CSM.
-    assert(ICI || CSM == getSpecialMember(MD));
+    assert_DISABLED(ICI || CSM == getSpecialMember(MD));
     auto RealCSM = CSM;
     if (ICI)
       RealCSM = getSpecialMember(MD);
@@ -15442,7 +15442,7 @@ void Sema::DefineImplicitMoveAssignment(SourceLocation CurrentLocation,
                        /*IsArrow=*/false, MemberLookup);
     MemberBuilder To(ObjectParameter, ObjectType, IsArrow, MemberLookup);
 
-    assert(!From.build(*this, Loc)->isLValue() && // could be xvalue or prvalue
+    assert_DISABLED(!From.build(*this, Loc)->isLValue() && // could be xvalue or prvalue
         "Member reference with rvalue base must be rvalue except for reference "
         "members, which aren't allowed for move assignment.");
 

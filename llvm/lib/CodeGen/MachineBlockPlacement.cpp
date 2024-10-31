@@ -1839,7 +1839,7 @@ void MachineBlockPlacement::fillWorkLists(
       Chain.UnscheduledPredecessors == 0 &&
       "Attempting to place block with unscheduled predecessors in worklist.");
   for (MachineBasicBlock *ChainBB : Chain) {
-    assert(BlockToChain[ChainBB] == &Chain &&
+    assert_DISABLED(BlockToChain[ChainBB] == &Chain &&
            "Block in chain doesn't match BlockToChain map.");
     for (MachineBasicBlock *Pred : ChainBB->predecessors()) {
       if (BlockFilter && !BlockFilter->count(Pred))
@@ -1864,7 +1864,7 @@ void MachineBlockPlacement::buildChain(const MachineBasicBlock *HeadBB,
                                        BlockChain &Chain,
                                        BlockFilterSet *BlockFilter) {
   assert(HeadBB && "BB must not be null.\n");
-  assert(BlockToChain[HeadBB] == &Chain && "BlockToChainMap mis-match.\n");
+  assert_DISABLED(BlockToChain[HeadBB] == &Chain && "BlockToChainMap mis-match.\n");
   MachineFunction::iterator PrevUnplacedBlockIt = F->begin();
   BlockFilterSet::iterator PrevUnplacedBlockInFilterIt;
   if (BlockFilter)
@@ -1875,7 +1875,7 @@ void MachineBlockPlacement::buildChain(const MachineBasicBlock *HeadBB,
   MachineBasicBlock *BB = *std::prev(Chain.end());
   while (true) {
     assert(BB && "null block found at end of chain in loop.");
-    assert(BlockToChain[BB] == &Chain && "BlockToChainMap mis-match in loop.");
+    assert_DISABLED(BlockToChain[BB] == &Chain && "BlockToChainMap mis-match in loop.");
     assert(*std::prev(Chain.end()) == BB && "BB Not found at end of chain.");
 
     // Look for the best viable successor if there is one to place immediately
@@ -2860,7 +2860,7 @@ void MachineBlockPlacement::buildCFGChains() {
       // Given the exact block placement we chose, we may actually not _need_ to
       // be able to edit PrevBB's terminator sequence, but not being _able_ to
       // do that at this point is a bug.
-      assert((!TII->analyzeBranch(*PrevBB, TBB, FBB, Cond) ||
+      assert_DISABLED((!TII->analyzeBranch(*PrevBB, TBB, FBB, Cond) ||
               !PrevBB->canFallThrough()) &&
              "Unexpected block with un-analyzable fallthrough!");
       Cond.clear();

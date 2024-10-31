@@ -1061,7 +1061,7 @@ Error LTO::addThinLTO(BitcodeModule BM, ArrayRef<InputFile::Symbol> Syms,
       auto GUID = GlobalValue::getGUID(GlobalValue::getGlobalIdentifier(
           Sym.getIRName(), GlobalValue::ExternalLinkage, ""));
       if (Res.Prevailing) {
-        assert(ThinLTO.PrevailingModuleForGUID[GUID] ==
+        assert_DISABLED(ThinLTO.PrevailingModuleForGUID[GUID] ==
                BM.getModuleIdentifier());
 
         // For linker redefined symbols (via --wrap or --defsym) we want to

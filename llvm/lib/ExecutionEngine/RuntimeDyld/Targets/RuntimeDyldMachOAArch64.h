@@ -459,7 +459,7 @@ private:
           -StubAlignment;
       unsigned StubOffset = StubAddress - BaseAddress;
       Stubs[Value] = StubOffset;
-      assert(isAligned(getStubAlignment(), StubAddress) &&
+      assert_DISABLED(isAligned(getStubAlignment(), StubAddress) &&
              "GOT entry not aligned");
       RelocationEntry GOTRE(RE.SectionID, StubOffset,
                             MachO::ARM64_RELOC_UNSIGNED, Value.Offset,

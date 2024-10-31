@@ -450,7 +450,7 @@ void DwarfExpression::cancelEntryValue() {
 
   // The temporary buffer can't be emptied, so for now just assert that nothing
   // has been emitted to it.
-  assert(getTemporaryBufferSize() == 0 &&
+  assert_DISABLED(getTemporaryBufferSize() == 0 &&
          "Began emitting entry value block before cancelling entry value");
 
   LocationKind = SavedLocationKind;

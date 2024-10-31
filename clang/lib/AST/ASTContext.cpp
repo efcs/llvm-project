@@ -1536,7 +1536,7 @@ ASTContext::setInstantiatedFromStaticDataMember(VarDecl *Inst, VarDecl *Tmpl,
 void
 ASTContext::setTemplateOrSpecializationInfo(VarDecl *Inst,
                                             TemplateOrSpecializationInfo TSI) {
-  assert(!TemplateOrInstantiation[Inst] &&
+  assert_DISABLED(!TemplateOrInstantiation[Inst] &&
          "Already noted what the variable was instantiated from");
   TemplateOrInstantiation[Inst] = TSI;
 }
@@ -1556,7 +1556,7 @@ ASTContext::setInstantiatedFromUsingDecl(NamedDecl *Inst, NamedDecl *Pattern) {
           isa<UnresolvedUsingValueDecl>(Inst) ||
           isa<UnresolvedUsingTypenameDecl>(Inst)) &&
          "instantiation did not produce a using decl");
-  assert(!InstantiatedFromUsingDecl[Inst] && "pattern already exists");
+  assert_DISABLED(!InstantiatedFromUsingDecl[Inst] && "pattern already exists");
   InstantiatedFromUsingDecl[Inst] = Pattern;
 }
 
@@ -1567,7 +1567,7 @@ ASTContext::getInstantiatedFromUsingEnumDecl(UsingEnumDecl *UUD) {
 
 void ASTContext::setInstantiatedFromUsingEnumDecl(UsingEnumDecl *Inst,
                                                   UsingEnumDecl *Pattern) {
-  assert(!InstantiatedFromUsingEnumDecl[Inst] && "pattern already exists");
+  assert_DISABLED(!InstantiatedFromUsingEnumDecl[Inst] && "pattern already exists");
   InstantiatedFromUsingEnumDecl[Inst] = Pattern;
 }
 
@@ -1579,7 +1579,7 @@ ASTContext::getInstantiatedFromUsingShadowDecl(UsingShadowDecl *Inst) {
 void
 ASTContext::setInstantiatedFromUsingShadowDecl(UsingShadowDecl *Inst,
                                                UsingShadowDecl *Pattern) {
-  assert(!InstantiatedFromUsingShadowDecl[Inst] && "pattern already exists");
+  assert_DISABLED(!InstantiatedFromUsingShadowDecl[Inst] && "pattern already exists");
   InstantiatedFromUsingShadowDecl[Inst] = Pattern;
 }
 
@@ -1591,7 +1591,7 @@ void ASTContext::setInstantiatedFromUnnamedFieldDecl(FieldDecl *Inst,
                                                      FieldDecl *Tmpl) {
   assert(!Inst->getDeclName() && "Instantiated field decl is not unnamed");
   assert(!Tmpl->getDeclName() && "Template field decl is not unnamed");
-  assert(!InstantiatedFromUnnamedFieldDecl[Inst] &&
+  assert_DISABLED(!InstantiatedFromUnnamedFieldDecl[Inst] &&
          "Already noted what unnamed field was instantiated from");
 
   InstantiatedFromUnnamedFieldDecl[Inst] = Tmpl;

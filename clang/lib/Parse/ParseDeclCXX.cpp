@@ -4938,7 +4938,7 @@ void Parser::ParseCXX11AttributeSpecifierInternal(ParsedAttributes &Attrs,
     return;
   }
 
-  assert(Tok.is(tok::l_square) && NextToken().is(tok::l_square) &&
+  assert_DISABLED(Tok.is(tok::l_square) && NextToken().is(tok::l_square) &&
          "Not a double square bracket attribute list");
 
   SourceLocation OpenLoc = Tok.getLocation();

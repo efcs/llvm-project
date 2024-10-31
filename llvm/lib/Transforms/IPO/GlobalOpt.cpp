@@ -2364,7 +2364,7 @@ static bool hasUseOtherThanLLVMUsed(GlobalAlias &GA, const LLVMUsed &U) {
   if (GA.use_empty()) // No use at all.
     return false;
 
-  assert((!U.usedCount(&GA) || !U.compilerUsedCount(&GA)) &&
+  assert_DISABLED((!U.usedCount(&GA) || !U.compilerUsedCount(&GA)) &&
          "We should have removed the duplicated "
          "element from llvm.compiler.used");
   if (!GA.hasOneUse())

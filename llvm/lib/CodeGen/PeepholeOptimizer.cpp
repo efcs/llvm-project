@@ -1228,7 +1228,7 @@ getNewSource(MachineRegisterInfo *MRI, const TargetInstrInfo *TII,
 /// \pre isCoalescableCopy(*MI) is true.
 /// \return True, when \p MI has been rewritten. False otherwise.
 bool PeepholeOptimizer::optimizeCoalescableCopy(MachineInstr &MI) {
-  assert(isCoalescableCopy(MI) && "Invalid argument");
+  assert_DISABLED(isCoalescableCopy(MI) && "Invalid argument");
   assert(MI.getDesc().getNumDefs() == 1 &&
          "Coalescer can understand multiple defs?!");
   const MachineOperand &MODef = MI.getOperand(0);
@@ -1329,7 +1329,7 @@ PeepholeOptimizer::rewriteSource(MachineInstr &CopyLike,
 /// All COPY instructions created, are inserted in \p LocalMIs.
 bool PeepholeOptimizer::optimizeUncoalescableCopy(
     MachineInstr &MI, SmallPtrSetImpl<MachineInstr *> &LocalMIs) {
-  assert(isUncoalescableCopy(MI) && "Invalid argument");
+  assert_DISABLED(isUncoalescableCopy(MI) && "Invalid argument");
   UncoalescableRewriter CpyRewriter(MI);
 
   // Rewrite each rewritable source by generating new COPYs. This works
@@ -1631,7 +1631,7 @@ bool PeepholeOptimizer::optimizeRecurrence(MachineInstr &PHI) {
   SmallSet<Register, 2> TargetRegs;
   for (unsigned Idx = 1; Idx < PHI.getNumOperands(); Idx += 2) {
     MachineOperand &MO = PHI.getOperand(Idx);
-    assert(isVirtualRegisterOperand(MO) && "Invalid PHI instruction");
+    assert_DISABLED(isVirtualRegisterOperand(MO) && "Invalid PHI instruction");
     TargetRegs.insert(MO.getReg());
   }
 

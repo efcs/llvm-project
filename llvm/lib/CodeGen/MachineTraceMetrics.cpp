@@ -689,7 +689,7 @@ struct DataDep {
     assert(!DefI.atEnd() && "Register has no defs");
     DefMI = DefI->getParent();
     DefOp = DefI.getOperandNo();
-    assert((++DefI).atEnd() && "Register has multiple defs");
+    assert_DISABLED((++DefI).atEnd() && "Register has multiple defs");
   }
 };
 

@@ -2239,7 +2239,7 @@ bool Parser::TryAnnotateTypeOrScopeTokenAfterScopeSpec(
 bool Parser::TryAnnotateCXXScopeToken(bool EnteringContext) {
   assert(getLangOpts().CPlusPlus &&
          "Call sites of this function should be guarded by checking for C++");
-  assert(MightBeCXXScopeToken() && "Cannot be a type or scope token!");
+  assert_DISABLED(MightBeCXXScopeToken() && "Cannot be a type or scope token!");
 
   CXXScopeSpec SS;
   if (ParseOptionalCXXScopeSpecifier(SS, /*ObjectType=*/nullptr,

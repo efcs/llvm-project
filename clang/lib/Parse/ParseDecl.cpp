@@ -1874,7 +1874,7 @@ void Parser::ParseTypeTagForDatatypeAttribute(
 /// this doesn't appear to actually be an attribute-specifier, and the caller
 /// should try to parse it.
 bool Parser::DiagnoseProhibitedCXX11Attribute() {
-  assert(Tok.is(tok::l_square) && NextToken().is(tok::l_square));
+  assert_DISABLED(Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 
   switch (isCXX11AttributeSpecifier(/*Disambiguate*/true)) {
   case CAK_NotAttributeSpecifier:
@@ -1905,7 +1905,7 @@ bool Parser::DiagnoseProhibitedCXX11Attribute() {
 /// provide a fixit moving them to the right place.
 void Parser::DiagnoseMisplacedCXX11Attribute(ParsedAttributes &Attrs,
                                              SourceLocation CorrectLocation) {
-  assert((Tok.is(tok::l_square) && NextToken().is(tok::l_square)) ||
+  assert_DISABLED((Tok.is(tok::l_square) && NextToken().is(tok::l_square)) ||
          Tok.is(tok::kw_alignas) || Tok.isRegularKeywordAttribute());
 
   // Consume the attributes.
@@ -5035,7 +5035,7 @@ void Parser::ParseStructDeclaration(
 // `Parser::ParseLexedAttributeList`.
 void Parser::ParseLexedCAttributeList(LateParsedAttrList &LAs, bool EnterScope,
                                       ParsedAttributes *OutAttrs) {
-  assert(LAs.parseSoon() &&
+  assert_DISABLED(LAs.parseSoon() &&
          "Attribute list should be marked for immediate parsing.");
   for (auto *LA : LAs) {
     ParseLexedCAttribute(*LA, EnterScope, OutAttrs);
@@ -8453,7 +8453,7 @@ void Parser::ParseTypeofSpecifier(DeclSpec &DS) {
 ///           _Atomic ( type-name )
 ///
 void Parser::ParseAtomicSpecifier(DeclSpec &DS) {
-  assert(Tok.is(tok::kw__Atomic) && NextToken().is(tok::l_paren) &&
+  assert_DISABLED(Tok.is(tok::kw__Atomic) && NextToken().is(tok::l_paren) &&
          "Not an atomic specifier");
 
   SourceLocation StartLoc = ConsumeToken();

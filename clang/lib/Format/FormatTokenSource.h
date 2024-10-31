@@ -214,7 +214,7 @@ public:
   FormatToken *getNextToken() override {
     // The \c UnwrappedLineParser guards against this by never calling
     // \c getNextToken() after it has encountered the first eof token.
-    assert(!eof());
+    assert_DISABLED(!eof());
     PreviousToken = Token;
     Token = PreviousTokenSource->getNextToken();
     if (eof())

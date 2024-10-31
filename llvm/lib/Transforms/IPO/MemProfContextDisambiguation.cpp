@@ -1132,7 +1132,7 @@ template <typename DerivedCCG, typename FuncTy, typename CallTy>
 typename CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::ContextNode *
 CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::addAllocNode(
     CallInfo Call, const FuncTy *F) {
-  assert(!getNodeForAlloc(Call));
+  assert_DISABLED(!getNodeForAlloc(Call));
   ContextNode *AllocNode = createNewNode(/*IsAllocation=*/true, F, Call);
   AllocationCallToContextNodeMap[Call] = AllocNode;
   // Use LastContextId as a uniq id for MIB allocation nodes.
@@ -1396,9 +1396,9 @@ void CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::
   if (Calls.size() == 1) {
     auto &[Call, Ids, Func, SavedContextIds] = Calls[0];
     if (Ids.size() == 1) {
-      assert(SavedContextIds.empty());
+      assert_DISABLED(SavedContextIds.empty());
       // It should be this Node
-      assert(Node == getNodeForStackId(Ids[0]));
+      assert_DISABLED(Node == getNodeForStackId(Ids[0]));
       if (Node->Recursive)
         return;
       Node->setCall(Call);
@@ -2212,7 +2212,7 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::partitionCallsByCallee(
   ContextNode *UnmatchedCalleesNode = nullptr;
   // Track whether we already assigned original node to a callee.
   bool UsedOrigNode = false;
-  assert(NodeToCallingFunc[Node]);
+  assert_DISABLED(NodeToCallingFunc[Node]);
   for (auto EI = Node->CalleeEdges.begin(); EI != Node->CalleeEdges.end();) {
     auto Edge = *EI;
     if (!Edge->Callee->hasCall()) {
@@ -2581,7 +2581,7 @@ bool IndexCallsiteContextGraph::findProfiledCalleeThroughTailCalls(
           FoundProfiledCalleeMaxDepth = Depth;
         CreateAndSaveCallsiteInfo(CallEdge.first, FS);
         // Add FS to FSToVIMap  in case it isn't already there.
-        assert(!FSToVIMap.count(FS) || FSToVIMap[FS] == FSVI);
+        assert_DISABLED(!FSToVIMap.count(FS) || FSToVIMap[FS] == FSVI);
         FSToVIMap[FS] = FSVI;
       } else if (findProfiledCalleeThroughTailCalls(
                      ProfiledCallee, CallEdge.first, Depth + 1,
@@ -2596,7 +2596,7 @@ bool IndexCallsiteContextGraph::findProfiledCalleeThroughTailCalls(
         FoundSingleCalleeChain = true;
         CreateAndSaveCallsiteInfo(CallEdge.first, FS);
         // Add FS to FSToVIMap  in case it isn't already there.
-        assert(!FSToVIMap.count(FS) || FSToVIMap[FS] == FSVI);
+        assert_DISABLED(!FSToVIMap.count(FS) || FSToVIMap[FS] == FSVI);
         FSToVIMap[FS] = FSVI;
       } else if (FoundMultipleCalleeChains)
         return false;
@@ -3558,7 +3558,7 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
         // Record the clone of callsite node assigned to this function clone.
         FuncCloneToCurNodeCloneMap[FuncClone] = CallsiteClone;
 
-        assert(FuncClonesToCallMap.count(FuncClone));
+        assert_DISABLED(FuncClonesToCallMap.count(FuncClone));
         std::map<CallInfo, CallInfo> &CallMap = FuncClonesToCallMap[FuncClone];
         CallInfo CallClone(Call);
         if (CallMap.count(Call))
@@ -3901,7 +3901,7 @@ bool CallsiteContextGraph<DerivedCCG, FuncTy, CallTy>::assignFunctions() {
                   FuncCloneAssignedToCurCallsiteClone, Call, Clone,
                   AllocationCallToContextNodeMap.count(Call));
             } else
-              assert(FuncCloneToCurNodeCloneMap
+              assert_DISABLED(FuncCloneToCurNodeCloneMap
                          [FuncCloneAssignedToCurCallsiteClone] == Clone);
             // Update callers to record function version called.
             RecordCalleeFuncOfCallsite(Edge->Caller,
@@ -4123,7 +4123,7 @@ bool MemProfContextDisambiguation::applyImport(Module &M) {
       }
       VMaps = createFunctionClones(F, NumClones, M, ORE, FuncToAliasMap);
       // The first "clone" is the original copy, which doesn't have a VMap.
-      assert(VMaps.size() == NumClones - 1);
+      assert_DISABLED(VMaps.size() == NumClones - 1);
       Changed = true;
       ClonesCreated = true;
       NumClonesCreated = NumClones;
@@ -4300,7 +4300,7 @@ bool MemProfContextDisambiguation::applyImport(Module &M) {
                 continue;
               LastStackContextId = *ContextIter;
               assert(StackIdIndexIter != MIBIter->StackIdIndices.end());
-              assert(ImportSummary->getStackIdAtIndex(*StackIdIndexIter) ==
+              assert_DISABLED(ImportSummary->getStackIdAtIndex(*StackIdIndexIter) ==
                      *ContextIter);
               StackIdIndexIter++;
             }

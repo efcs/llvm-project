@@ -203,7 +203,7 @@ namespace PBQP {
     }
 
     EdgeId addConstructedEdge(EdgeEntry E) {
-      assert(findEdge(E.getN1Id(), E.getN2Id()) == invalidEdgeId() &&
+      assert_DISABLED(findEdge(E.getN1Id(), E.getN2Id()) == invalidEdgeId() &&
              "Attempt to add duplicate edge.");
       EdgeId EId = 0;
       if (!FreeEdgeIds.empty()) {

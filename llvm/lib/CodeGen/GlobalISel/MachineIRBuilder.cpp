@@ -53,7 +53,7 @@ MachineIRBuilder::buildDirectDbgValue(Register Reg, const MDNode *Variable,
                                       const MDNode *Expr) {
   assert(isa<DILocalVariable>(Variable) && "not a variable");
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
-  assert(
+  assert_DISABLED(
       cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(getDL()) &&
       "Expected inlined-at fields to agree");
   return insertInstr(BuildMI(getMF(), getDL(),
@@ -66,7 +66,7 @@ MachineIRBuilder::buildIndirectDbgValue(Register Reg, const MDNode *Variable,
                                         const MDNode *Expr) {
   assert(isa<DILocalVariable>(Variable) && "not a variable");
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
-  assert(
+  assert_DISABLED(
       cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(getDL()) &&
       "Expected inlined-at fields to agree");
   return insertInstr(BuildMI(getMF(), getDL(),
@@ -79,7 +79,7 @@ MachineInstrBuilder MachineIRBuilder::buildFIDbgValue(int FI,
                                                       const MDNode *Expr) {
   assert(isa<DILocalVariable>(Variable) && "not a variable");
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
-  assert(
+  assert_DISABLED(
       cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(getDL()) &&
       "Expected inlined-at fields to agree");
   return insertInstr(buildInstrNoInsert(TargetOpcode::DBG_VALUE)
@@ -94,7 +94,7 @@ MachineInstrBuilder MachineIRBuilder::buildConstDbgValue(const Constant &C,
                                                          const MDNode *Expr) {
   assert(isa<DILocalVariable>(Variable) && "not a variable");
   assert(cast<DIExpression>(Expr)->isValid() && "not an expression");
-  assert(
+  assert_DISABLED(
       cast<DILocalVariable>(Variable)->isValidLocationForIntrinsic(getDL()) &&
       "Expected inlined-at fields to agree");
   auto MIB = buildInstrNoInsert(TargetOpcode::DBG_VALUE);

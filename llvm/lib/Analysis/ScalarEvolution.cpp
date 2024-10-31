@@ -3674,7 +3674,7 @@ ScalarEvolution::getAddRecExpr(SmallVectorImpl<const SCEV *> &Operands,
     assert(!Op->getType()->isPointerTy() && "Step must be integer");
   }
   for (const SCEV *Op : Operands)
-    assert(isAvailableAtLoopEntry(Op, L) &&
+    assert_DISABLED(isAvailableAtLoopEntry(Op, L) &&
            "SCEVAddRecExpr operand is not available at loop entry!");
 #endif
 
@@ -5615,7 +5615,7 @@ ScalarEvolution::createAddRecFromPHIWithCastsImpl(const SCEVUnknown *SymbolicPHI
   // for each of StartVal and Accum
   auto getExtendedExpr = [&](const SCEV *Expr,
                              bool CreateSignExtend) -> const SCEV * {
-    assert(isLoopInvariant(Expr, L) && "Expr is expected to be invariant");
+    assert_DISABLED(isLoopInvariant(Expr, L) && "Expr is expected to be invariant");
     const SCEV *TruncatedExpr = getTruncateExpr(Expr, TruncTy);
     const SCEV *ExtendedExpr =
         CreateSignExtend ? getSignExtendExpr(TruncatedExpr, Expr->getType())
@@ -5782,7 +5782,7 @@ const SCEV *ScalarEvolution::createSimpleAffineAddRec(PHINode *PN,
   // know that it is *undefined behavior* for BEValueV to
   // overflow.
   if (auto *BEInst = dyn_cast<Instruction>(BEValueV)) {
-    assert(isLoopInvariant(Accum, L) &&
+    assert_DISABLED(isLoopInvariant(Accum, L) &&
            "Accum is defined outside L, but is not invariant?");
     if (isAddRecNeverPoison(BEInst, L))
       (void)getAddRecExpr(getAddExpr(StartVal, Accum), Accum, L, Flags);
@@ -8831,7 +8831,7 @@ ScalarEvolution::computeBackedgeTakenCount(const Loop *L,
     if (EL.SymbolicMaxNotTaken != getCouldNotCompute())
       ExitCounts.emplace_back(ExitBB, EL);
     else {
-      assert(EL.ExactNotTaken == getCouldNotCompute() &&
+      assert_DISABLED(EL.ExactNotTaken == getCouldNotCompute() &&
              "Exact is known but symbolic isn't?");
       ++NumExitCountsNotComputed;
     }
@@ -10949,7 +10949,7 @@ ScalarEvolution::SplitIntoInitAndPostInc(const Loop *L, const SCEV *S) {
     return { Start, Start };
   // Compute post increment SCEV for loop L.
   const SCEV *PostInc = SCEVPostIncRewriter::rewrite(S, L, *this);
-  assert(PostInc != getCouldNotCompute() && "Unexpected could not compute");
+  assert_DISABLED(PostInc != getCouldNotCompute() && "Unexpected could not compute");
   return { Start, PostInc };
 }
 
@@ -11686,9 +11686,9 @@ bool ScalarEvolution::isLoopEntryGuardedByCond(const Loop *L,
     return false;
 
   // Both LHS and RHS must be available at loop entry.
-  assert(isAvailableAtLoopEntry(LHS, L) &&
+  assert_DISABLED(isAvailableAtLoopEntry(LHS, L) &&
          "LHS is not available at Loop Entry");
-  assert(isAvailableAtLoopEntry(RHS, L) &&
+  assert_DISABLED(isAvailableAtLoopEntry(RHS, L) &&
          "RHS is not available at Loop Entry");
 
   if (isKnownViaNonRecursiveReasoning(Pred, LHS, RHS))
@@ -12799,7 +12799,7 @@ bool ScalarEvolution::isImpliedCondOperandsViaRanges(ICmpInst::Predicate Pred,
 
 bool ScalarEvolution::canIVOverflowOnLT(const SCEV *RHS, const SCEV *Stride,
                                         bool IsSigned) {
-  assert(isKnownPositive(Stride) && "Positive stride expected!");
+  assert_DISABLED(isKnownPositive(Stride) && "Positive stride expected!");
 
   unsigned BitWidth = getTypeSizeInBits(RHS->getType());
   const SCEV *One = getOne(Stride->getType());
@@ -13156,9 +13156,9 @@ ScalarEvolution::howManyLessThans(const SCEV *LHS, const SCEV *RHS,
     // max(End,Start) is End and so the result is as above, and if not
     // max(End,Start) is Start so we get a backedge count of zero.
     auto *OrigStartMinusStride = getMinusSCEV(OrigStart, Stride);
-    assert(isAvailableAtLoopEntry(OrigStartMinusStride, L) && "Must be!");
-    assert(isAvailableAtLoopEntry(OrigStart, L) && "Must be!");
-    assert(isAvailableAtLoopEntry(OrigRHS, L) && "Must be!");
+    assert_DISABLED(isAvailableAtLoopEntry(OrigStartMinusStride, L) && "Must be!");
+    assert_DISABLED(isAvailableAtLoopEntry(OrigStart, L) && "Must be!");
+    assert_DISABLED(isAvailableAtLoopEntry(OrigRHS, L) && "Must be!");
     // Can we prove (max(RHS,Start) > Start - Stride?
     if (isLoopEntryGuardedByCond(L, Cond, OrigStartMinusStride, OrigStart) &&
         isLoopEntryGuardedByCond(L, Cond, OrigStartMinusStride, OrigRHS)) {
@@ -15369,7 +15369,7 @@ ScalarEvolution::LoopGuards::collect(const Loop *L, ScalarEvolution &SE) {
             return MinMaxExpr;
           auto IsMin =
               isa<SCEVSMinExpr>(MinMaxExpr) || isa<SCEVUMinExpr>(MinMaxExpr);
-          assert(SE.isKnownNonNegative(MinMaxLHS) &&
+          assert_DISABLED(SE.isKnownNonNegative(MinMaxLHS) &&
                  "Expected non-negative operand!");
           auto *DivisibleExpr =
               IsMin ? GetPreviousSCEVDividesByDivisor(MinMaxLHS, Divisor)

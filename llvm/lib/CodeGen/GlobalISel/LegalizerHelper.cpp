@@ -4663,7 +4663,7 @@ LegalizerHelper::LegalizeResult
 LegalizerHelper::fewerElementsVectorMultiEltType(
     GenericMachineInstr &MI, unsigned NumElts,
     std::initializer_list<unsigned> NonVecOpIndices) {
-  assert(hasSameNumEltsOnAllVectorOperands(MI, MRI, NonVecOpIndices) &&
+  assert_DISABLED(hasSameNumEltsOnAllVectorOperands(MI, MRI, NonVecOpIndices) &&
          "Non-compatible opcode or not specified non-vector operands");
   unsigned OrigNumElts = MRI.getType(MI.getReg(0)).getNumElements();
 

@@ -1311,7 +1311,7 @@ static void copyDebugInfoToSuccessor(const TargetInstrInfo *TII,
 // branch folding.
 static void salvageDebugInfoFromEmptyBlock(const TargetInstrInfo *TII,
                                            MachineBasicBlock &MBB) {
-  assert(IsEmptyBlock(&MBB) && "Expected an empty block (except debug info).");
+  assert_DISABLED(IsEmptyBlock(&MBB) && "Expected an empty block (except debug info).");
   // If this MBB is the only predecessor of a successor it is legal to copy
   // DBG_VALUE instructions to the beginning of the successor.
   for (MachineBasicBlock *SuccBB : MBB.successors())

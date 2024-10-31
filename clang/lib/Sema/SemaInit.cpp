@@ -5009,7 +5009,7 @@ static OverloadingResult TryRefInitWithConversionFunction(
   QualType cv2T2 = Initializer->getType();
   QualType T2 = cv2T2.getUnqualifiedType();
 
-  assert(!S.CompareReferenceRelationship(Initializer->getBeginLoc(), T1, T2) &&
+  assert_DISABLED(!S.CompareReferenceRelationship(Initializer->getBeginLoc(), T1, T2) &&
          "Must have incompatible references when binding via conversion");
 
   // Build the candidate set directly in the initialization sequence
@@ -8664,7 +8664,7 @@ static void diagnoseListInit(Sema &S, const InitializedEntity &Entity,
   InitListChecker DiagnoseInitList(S, Entity, InitList, DestType,
                                    /*VerifyOnly=*/false,
                                    /*TreatUnavailableAsInvalid=*/false);
-  assert(DiagnoseInitList.HadError() &&
+  assert_DISABLED(DiagnoseInitList.HadError() &&
          "Inconsistent init list check result.");
 }
 

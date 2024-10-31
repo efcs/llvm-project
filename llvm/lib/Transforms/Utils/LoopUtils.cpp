@@ -63,7 +63,8 @@ bool llvm::formDedicatedExitBlocks(Loop *L, DominatorTree *DT, LoopInfo *LI,
   SmallVector<BasicBlock *, 4> InLoopPredecessors;
 
   auto RewriteExit = [&](BasicBlock *BB) {
-    assert(InLoopPredecessors.empty() &&
+    ((void)InLoopPredecessors);
+    assert_DISABLED(InLoopPredecessors.empty() &&
            "Must start with an empty predecessors list!");
     auto Cleanup = make_scope_exit([&] { InLoopPredecessors.clear(); });
 

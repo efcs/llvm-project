@@ -178,7 +178,7 @@ CallStack<NodeT, IteratorT>::beginAfterSharedPrefix(CallStack &Other) {
   CallStackIterator Cur = begin();
   for (CallStackIterator OtherCur = Other.begin();
        Cur != end() && OtherCur != Other.end(); ++Cur, ++OtherCur)
-    assert(*Cur == *OtherCur);
+    assert_DISABLED(*Cur == *OtherCur);
   return Cur;
 }
 

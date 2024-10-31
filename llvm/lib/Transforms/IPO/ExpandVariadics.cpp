@@ -426,7 +426,7 @@ bool ExpandVariadics::runOnFunction(Module &M, IRBuilder<> &Builder,
 
   [[maybe_unused]] const bool OriginalFunctionIsDeclaration =
       OriginalFunction->isDeclaration();
-  assert(rewriteABI() || !OriginalFunctionIsDeclaration);
+  assert_DISABLED(rewriteABI() || !OriginalFunctionIsDeclaration);
 
   // Declare a new function and redirect every use to that new function
   Function *VariadicWrapper =
@@ -530,7 +530,7 @@ ExpandVariadics::deriveFixedArityReplacement(Module &M, IRBuilder<> &Builder,
   // and passes it to the second function. The second function does whatever
   // the original F does, except that it takes a va_list instead of the ...
 
-  assert(expansionApplicableToFunction(M, &F));
+  assert_DISABLED(expansionApplicableToFunction(M, &F));
 
   auto &Ctx = M.getContext();
 

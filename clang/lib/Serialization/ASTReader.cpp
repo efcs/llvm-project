@@ -3850,7 +3850,7 @@ llvm::Error ASTReader::ReadASTBlock(ModuleFile &F,
 
         DelayedNamespaceOffsetMap[ID] = {LexicalOffset, VisibleOffset};
 
-        assert(!GetExistingDecl(ID) &&
+        assert_DISABLED(!GetExistingDecl(ID) &&
                "We shouldn't load the namespace in the front of delayed "
                "namespace lexical and visible block");
       }

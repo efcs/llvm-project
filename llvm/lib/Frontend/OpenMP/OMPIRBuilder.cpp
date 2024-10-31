@@ -1143,7 +1143,7 @@ OpenMPIRBuilder::InsertPointTy OpenMPIRBuilder::emitKernelLaunch(
 void OpenMPIRBuilder::emitCancelationCheckImpl(Value *CancelFlag,
                                                omp::Directive CanceledDirective,
                                                FinalizeCallbackTy ExitCB) {
-  assert(isLastFinalizationInfoCancellable(CanceledDirective) &&
+  assert_DISABLED(isLastFinalizationInfoCancellable(CanceledDirective) &&
          "Unexpected cancellation!");
 
   // For a cancel barrier we create two new blocks.
@@ -7419,7 +7419,7 @@ void OpenMPIRBuilder::emitOffloadingArraysArgument(IRBuilderBase &Builder,
                                                    TargetDataRTArgs &RTArgs,
                                                    TargetDataInfo &Info,
                                                    bool ForEndCall) {
-  assert((!ForEndCall || Info.separateBeginEndCalls()) &&
+  assert_DISABLED((!ForEndCall || Info.separateBeginEndCalls()) &&
          "expected region end call to runtime only when end call is separate");
   auto UnqualPtrTy = PointerType::getUnqual(M.getContext());
   auto VoidPtrTy = UnqualPtrTy;

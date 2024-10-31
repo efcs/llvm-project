@@ -1614,7 +1614,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
     // The RHS is a reference that may be invalidated by an insertion caused by
     // the LHS. So we ensure that the side-effect of the LHS happens first.
 
-    assert(OffsetInfoMap.contains(CurPtr) &&
+    assert_DISABLED(OffsetInfoMap.contains(CurPtr) &&
            "CurPtr does not exist in the map!");
 
     auto &UsrOI = OffsetInfoMap[Usr];
@@ -1633,7 +1633,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
                       << "\n");
     assert(OffsetInfoMap.count(CurPtr) &&
            "The current pointer offset should have been seeded!");
-    assert(!OffsetInfoMap[CurPtr].isUnassigned() &&
+    assert_DISABLED(!OffsetInfoMap[CurPtr].isUnassigned() &&
            "Current pointer should be assigned");
 
     if (ConstantExpr *CE = dyn_cast<ConstantExpr>(Usr)) {
@@ -1948,7 +1948,7 @@ ChangeStatus AAPointerInfoFloating::updateImpl(Attributor &A) {
   };
   auto EquivalentUseCB = [&](const Use &OldU, const Use &NewU) {
     assert(OffsetInfoMap.count(OldU) && "Old use should be known already!");
-    assert(!OffsetInfoMap[OldU].isUnassigned() && "Old use should be assinged");
+    assert_DISABLED(!OffsetInfoMap[OldU].isUnassigned() && "Old use should be assinged");
     if (OffsetInfoMap.count(NewU)) {
       LLVM_DEBUG({
         if (!(OffsetInfoMap[NewU] == OffsetInfoMap[OldU])) {
@@ -2094,7 +2094,7 @@ struct AANoUnwindImpl : AANoUnwind {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoUnwind>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoUnwind>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -2219,7 +2219,7 @@ struct AANoSyncImpl : AANoSync {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoSync>(A, nullptr, getIRPosition(),
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoSync>(A, nullptr, getIRPosition(),
                                                     DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -2292,7 +2292,7 @@ struct AANoFreeImpl : public AANoFree {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoFree>(A, nullptr, getIRPosition(),
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoFree>(A, nullptr, getIRPosition(),
                                                     DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -2744,7 +2744,7 @@ struct AAMustProgressImpl : public AAMustProgress {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::MustProgress>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::MustProgress>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -2827,7 +2827,7 @@ struct AANoRecurseImpl : public AANoRecurse {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoRecurse>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoRecurse>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -3322,7 +3322,7 @@ struct AAWillReturnImpl : public AAWillReturn {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::WillReturn>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::WillReturn>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -4320,7 +4320,7 @@ struct AAIsDeadFloating : public AAIsDeadValueImpl {
         return ChangeStatus::CHANGED;
       }
       if (auto *FI = dyn_cast<FenceInst>(I)) {
-        assert(isDeadFence(A, *FI));
+        assert_DISABLED(isDeadFence(A, *FI));
         A.deleteAfterManifest(*FI);
         return ChangeStatus::CHANGED;
       }
@@ -5505,7 +5505,7 @@ struct AANoReturnImpl : public AANoReturn {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoReturn>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoReturn>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }
@@ -5828,7 +5828,7 @@ struct AANoCaptureImpl : public AANoCapture {
   /// See AbstractAttribute::initialize(...).
   void initialize(Attributor &A) override {
     bool IsKnown;
-    assert(!AA::hasAssumedIRAttr<Attribute::NoCapture>(
+    assert_DISABLED(!AA::hasAssumedIRAttr<Attribute::NoCapture>(
         A, nullptr, getIRPosition(), DepClassTy::NONE, IsKnown));
     (void)IsKnown;
   }

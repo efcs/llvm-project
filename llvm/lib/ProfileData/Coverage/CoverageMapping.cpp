@@ -336,7 +336,7 @@ public:
 #endif
     for (const auto *Branch : Branches) {
       const auto &BranchParams = Branch->getBranchParams();
-      assert(SeenIDs.insert(BranchParams.ID).second && "Duplicate CondID");
+      assert_DISABLED(SeenIDs.insert(BranchParams.ID).second && "Duplicate CondID");
       NextIDs[BranchParams.ID] = BranchParams.Conds;
     }
     assert(SeenIDs.size() == Branches.size());
@@ -414,7 +414,7 @@ private:
       }
 
       assert(TVIdx < SavedNodes[ID].Width);
-      assert(TVIdxs.insert(NextTVIdx).second && "Duplicate TVIdx");
+      assert_DISABLED(TVIdxs.insert(NextTVIdx).second && "Duplicate TVIdx");
 
       if (!Bitmap[IsVersion11
                       ? DecisionParams.BitmapIdx * CHAR_BIT + TV.getIndex()

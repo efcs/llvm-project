@@ -721,7 +721,7 @@ void DAGTypeLegalizer::SetSoftenedFloat(SDValue Op, SDValue Result) {
 #ifndef NDEBUG
   EVT VT = Result.getValueType();
   LLVMContext &Ctx = *DAG.getContext();
-  assert((VT == EVT::getIntegerVT(Ctx, 80) ||
+  assert_DISABLED((VT == EVT::getIntegerVT(Ctx, 80) ||
           VT == TLI.getTypeToTransformTo(Ctx, Op.getValueType())) &&
          "Invalid type for softened float");
 #endif

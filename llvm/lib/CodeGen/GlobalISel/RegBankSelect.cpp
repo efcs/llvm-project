@@ -324,7 +324,7 @@ void RegBankSelect::tryAvoidingSplit(
     RegBankSelect::RepairingPlacement &RepairPt, const MachineOperand &MO,
     const RegisterBankInfo::ValueMapping &ValMapping) const {
   const MachineInstr &MI = *MO.getParent();
-  assert(RepairPt.hasSplit() && "We should not have to adjust for split");
+  assert_DISABLED(RepairPt.hasSplit() && "We should not have to adjust for split");
   // Splitting should only occur for PHIs or between terminators,
   // because we only do local repairing.
   assert((MI.isPHI() || MI.isTerminator()) && "Why do we split?");

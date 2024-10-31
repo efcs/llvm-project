@@ -454,7 +454,7 @@ struct Parser::ConditionDeclarationOrInitStatementState {
     switch (IsDecl) {
     case TPResult::True:
       markNotExpression();
-      assert(resolved() && "can't continue after tentative parsing bails out");
+      assert_DISABLED(resolved() && "can't continue after tentative parsing bails out");
       break;
     case TPResult::False:
       CanBeCondition = CanBeInitStatement = CanBeForRangeDecl = false;
@@ -1724,7 +1724,7 @@ Parser::isCXXDeclarationSpecifier(ImplicitTypenameContext AllowImplicitTypename,
           }
 
           // Annotated it, check again.
-          assert(Tok.isNot(tok::annot_cxxscope) ||
+          assert_DISABLED(Tok.isNot(tok::annot_cxxscope) ||
                  NextToken().isNot(tok::identifier));
           return isCXXDeclarationSpecifier(AllowImplicitTypename,
                                            BracedCastResult, InvalidAsDeclSpec);

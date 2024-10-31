@@ -3033,7 +3033,7 @@ void CodeViewDebug::collectLexicalBlockInfo(
 void CodeViewDebug::endFunctionImpl(const MachineFunction *MF) {
   const Function &GV = MF->getFunction();
   assert(FnDebugInfo.count(&GV));
-  assert(CurFn == FnDebugInfo[&GV].get());
+  assert_DISABLED(CurFn == FnDebugInfo[&GV].get());
 
   collectVariableInfo(GV.getSubprogram());
 

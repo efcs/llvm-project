@@ -276,7 +276,7 @@ public:
               const NodeBuilderContext &Ctx, bool F = true)
       : C(Ctx), Finalized(F), Frontier(DstSet) {
     Frontier.insert(SrcSet);
-    assert(hasNoSinksInFrontier());
+    assert_DISABLED(hasNoSinksInFrontier());
   }
 
   virtual ~NodeBuilder() = default;
@@ -303,7 +303,7 @@ public:
 
   const ExplodedNodeSet &getResults() {
     finalizeResults();
-    assert(checkResults());
+    assert_DISABLED(checkResults());
     return Frontier;
   }
 
@@ -312,7 +312,7 @@ public:
   /// Iterators through the results frontier.
   iterator begin() {
     finalizeResults();
-    assert(checkResults());
+    assert_DISABLED(checkResults());
     return Frontier.begin();
   }
 

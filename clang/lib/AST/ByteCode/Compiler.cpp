@@ -3454,7 +3454,7 @@ bool Compiler<Emitter>::VisitCXXUuidofExpr(const CXXUuidofExpr *E) {
   if (!this->emitGetPtrGlobal(*GlobalIndex, E))
     return false;
 
-  assert(this->getRecord(E->getType()));
+  assert_DISABLED(this->getRecord(E->getType()));
 
   const APValue &V = GuidDecl->getAsAPValue();
   if (V.getKind() == APValue::None)

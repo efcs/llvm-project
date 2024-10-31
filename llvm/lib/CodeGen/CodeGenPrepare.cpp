@@ -3989,7 +3989,7 @@ public:
       To = dyn_cast<PHINode>(OldReplacement);
       OldReplacement = Get(From);
     }
-    assert(To && Get(To) == To && "Replacement PHI node is already replaced.");
+    assert_DISABLED(To && Get(To) == To && "Replacement PHI node is already replaced.");
     Put(From, To);
     From->replaceAllUsesWith(To);
     AllPhiNodes.erase(From);
@@ -8052,7 +8052,7 @@ public:
 
   /// Set the instruction that will be combined with the transition.
   void recordCombineInstruction(Instruction *ToBeCombined) {
-    assert(canCombine(ToBeCombined) && "Unsupported instruction to combine");
+    assert_DISABLED(canCombine(ToBeCombined) && "Unsupported instruction to combine");
     CombineInst = ToBeCombined;
   }
 

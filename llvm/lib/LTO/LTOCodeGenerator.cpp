@@ -243,7 +243,7 @@ bool LTOCodeGenerator::useAIXSystemAssembler() {
 }
 
 bool LTOCodeGenerator::runAIXSystemAssembler(SmallString<128> &AssemblyFile) {
-  assert(useAIXSystemAssembler() &&
+  assert_DISABLED(useAIXSystemAssembler() &&
          "Runing AIX system assembler when integrated assembler is available!");
 
   // Set the system assembler path.

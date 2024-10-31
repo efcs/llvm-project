@@ -545,7 +545,7 @@ SampleContextTracker::getTopLevelContextNode(FunctionId FName) {
 
 ContextTrieNode &
 SampleContextTracker::addTopLevelContextNode(FunctionId FName) {
-  assert(!getTopLevelContextNode(FName) && "Node to add must not exist");
+  assert_DISABLED(!getTopLevelContextNode(FName) && "Node to add must not exist");
   return *RootContext.getOrCreateChildContext(LineLocation(0, 0), FName);
 }
 

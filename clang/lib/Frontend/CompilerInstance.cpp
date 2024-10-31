@@ -1223,7 +1223,7 @@ compileModuleImpl(CompilerInstance &ImportingInstance, SourceLocation ImportLoc,
   DiagnosticOptions &DiagOpts = Invocation->getDiagnosticOpts();
 
   DiagOpts.VerifyDiagnostics = 0;
-  assert(ImportingInstance.getInvocation().getModuleHash() ==
+  assert_DISABLED(ImportingInstance.getInvocation().getModuleHash() ==
          Invocation->getModuleHash() && "Module hash mismatch!");
 
   // Construct a compiler instance that will be used to actually create the

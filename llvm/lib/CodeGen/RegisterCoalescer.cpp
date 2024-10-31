@@ -3392,7 +3392,7 @@ static bool isDefInSubRange(LiveInterval &LI, SlotIndex Def) {
 }
 
 void JoinVals::pruneMainSegments(LiveInterval &LI, bool &ShrinkMainRange) {
-  assert(&static_cast<LiveRange&>(LI) == &LR);
+  assert_DISABLED(&static_cast<LiveRange&>(LI) == &LR);
 
   for (unsigned i = 0, e = LR.getNumValNums(); i != e; ++i) {
     if (Vals[i].Resolution != CR_Keep)

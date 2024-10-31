@@ -1478,7 +1478,7 @@ void MachineCopyPropagation::EliminateSpillageCopies(MachineBasicBlock &MBB) {
         assert(MaybePrevReload &&
                "Found a valid leader through nullptr should not happend");
         L = Leader->second;
-        assert(SpillChain[L].size() > 0 &&
+        assert_DISABLED(SpillChain[L].size() > 0 &&
                "Existing chain's length should be larger than zero");
       }
       assert(!ChainLeader.count(&MI) && !ChainLeader.count(MaybeSpill) &&

@@ -1938,7 +1938,7 @@ bool Sema::isModuleVisible(const Module *M, bool ModulePrivate) {
 // FIXME: Return false directly if we don't have an interface dependency on the
 // translation unit containing D.
 bool LookupResult::isReachableSlow(Sema &SemaRef, NamedDecl *D) {
-  assert(!isVisible(SemaRef, D) && "Shouldn't call the slow case.\n");
+  assert_DISABLED(!isVisible(SemaRef, D) && "Shouldn't call the slow case.\n");
 
   Module *DeclModule = SemaRef.getOwningModule(D);
   assert(DeclModule && "hidden decl has no owning module");
@@ -2043,7 +2043,7 @@ bool Sema::shouldLinkPossiblyHiddenDecl(LookupResult &R, const NamedDecl *New) {
 /// and visible. If no declaration of D is visible, returns null.
 static NamedDecl *findAcceptableDecl(Sema &SemaRef, NamedDecl *D,
                                      unsigned IDNS) {
-  assert(!LookupResult::isAvailableForLookup(SemaRef, D) && "not in slow case");
+  assert_DISABLED(!LookupResult::isAvailableForLookup(SemaRef, D) && "not in slow case");
 
   for (auto *RD : D->redecls()) {
     // Don't bother with extra checks if we already know this one isn't visible.
@@ -2064,7 +2064,7 @@ static NamedDecl *findAcceptableDecl(Sema &SemaRef, NamedDecl *D,
 
 bool Sema::hasVisibleDeclarationSlow(const NamedDecl *D,
                                      llvm::SmallVectorImpl<Module *> *Modules) {
-  assert(!isVisible(D) && "not in slow case");
+  assert_DISABLED(!isVisible(D) && "not in slow case");
   return hasAcceptableDeclarationImpl(
       *this, D, Modules, [](const NamedDecl *) { return true; },
       Sema::AcceptableKind::Visible);
@@ -2072,7 +2072,7 @@ bool Sema::hasVisibleDeclarationSlow(const NamedDecl *D,
 
 bool Sema::hasReachableDeclarationSlow(
     const NamedDecl *D, llvm::SmallVectorImpl<Module *> *Modules) {
-  assert(!isReachable(D) && "not in slow case");
+  assert_DISABLED(!isReachable(D) && "not in slow case");
   return hasAcceptableDeclarationImpl(
       *this, D, Modules, [](const NamedDecl *) { return true; },
       Sema::AcceptableKind::Reachable);

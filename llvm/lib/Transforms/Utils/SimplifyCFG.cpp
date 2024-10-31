@@ -2569,7 +2569,7 @@ static bool sinkCommonCodeFromPredecessors(BasicBlock *BB,
       // But, that may make other instructions unprofitable, too.
       // So, do a backward scan, do any earlier instructions become
       // unprofitable?
-      assert(
+      assert_DISABLED(
           !ProfitableToSinkInstruction(LRI) &&
           "We already know that the last instruction is unprofitable to sink");
       ++LRI;

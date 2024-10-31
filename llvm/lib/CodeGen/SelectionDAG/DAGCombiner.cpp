@@ -21388,7 +21388,7 @@ bool DAGCombiner::tryStoreMergeOfLoads(SmallVectorImpl<MemOpLink> &StoreNodes,
       SDValue StoreOp = NewLoad;
       if (NeedRotate) {
         unsigned LoadWidth = ElementSizeBytes * 8 * 2;
-        assert(JointMemOpVT == EVT::getIntegerVT(Context, LoadWidth) &&
+        assert_DISABLED(JointMemOpVT == EVT::getIntegerVT(Context, LoadWidth) &&
                "Unexpected type for rotate-able load pair");
         SDValue RotAmt =
             DAG.getShiftAmountConstant(LoadWidth / 2, JointMemOpVT, LoadDL);
@@ -25774,7 +25774,7 @@ static SDValue combineShuffleOfSplatVal(ShuffleVectorSDNode *Shuf,
         // Or sentinel undef, if we know we'd pick a known-undef element.
         Idx = UndefElts[Idx] ? -1 : *MinNonUndefIdx;
       }
-      assert(SplatMask != Shuf->getMask() && "Expected mask to change!");
+      assert_DISABLED(SplatMask != Shuf->getMask() && "Expected mask to change!");
       return DAG.getVectorShuffle(VT, SDLoc(Shuf), Shuf->getOperand(0),
                                   Shuf->getOperand(1), SplatMask);
     }

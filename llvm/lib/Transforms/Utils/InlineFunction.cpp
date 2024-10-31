@@ -445,7 +445,7 @@ static Value *getUnwindDestToken(Instruction *EHPad,
     // were the case, then we should also have recorded the lack of information
     // for the descendant that we're coming from.  So assert that we don't
     // find a null entry in the MemoMap for AncestorPad.
-    assert(!MemoMap.count(AncestorPad) || MemoMap[AncestorPad]);
+    assert_DISABLED(!MemoMap.count(AncestorPad) || MemoMap[AncestorPad]);
     auto AncestorMemo = MemoMap.find(AncestorPad);
     if (AncestorMemo == MemoMap.end()) {
       UnwindDestToken = getUnwindDestTokenHelper(AncestorPad, MemoMap);
@@ -704,7 +704,7 @@ static void HandleInlinedEHPad(InvokeInst *II, BasicBlock *FirstNewBlock,
         // subsequent calls to getUnwindDestToken, so map the cleanuppad
         // to short-circuit any such calls and recognize this as an "unwind
         // to caller" cleanup.
-        assert(!FuncletUnwindMap.count(CleanupPad) ||
+        assert_DISABLED(!FuncletUnwindMap.count(CleanupPad) ||
                isa<ConstantTokenNone>(FuncletUnwindMap[CleanupPad]));
         FuncletUnwindMap[CleanupPad] =
             ConstantTokenNone::get(Caller->getContext());

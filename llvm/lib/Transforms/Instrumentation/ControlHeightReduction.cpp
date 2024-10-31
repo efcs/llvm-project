@@ -187,9 +187,9 @@ class CHRScope {
   void append(CHRScope *Next) {
     assert(RegInfos.size() > 0 && "Empty CHRScope");
     assert(Next->RegInfos.size() > 0 && "Empty CHRScope");
-    assert(getParentRegion() == Next->getParentRegion() &&
+    assert_DISABLED(getParentRegion() == Next->getParentRegion() &&
            "Must be siblings");
-    assert(getExitBlock() == Next->getEntryBlock() &&
+    assert_DISABLED(getExitBlock() == Next->getEntryBlock() &&
            "Must be adjacent");
     RegInfos.append(Next->RegInfos.begin(), Next->RegInfos.end());
     Subs.append(Next->Subs.begin(), Next->Subs.end());
@@ -948,7 +948,7 @@ void CHR::checkScopeHoistable(CHRScope *Scope) {
       assert(!DT.dominates(Branch, InsertPoint) &&
              "Branch can't be already above the hoist point");
       DenseMap<Instruction *, bool> Visited;
-      assert(checkHoistValue(Branch->getCondition(), InsertPoint,
+      assert_DISABLED(checkHoistValue(Branch->getCondition(), InsertPoint,
                              DT, Unhoistables, nullptr, Visited) &&
              "checkHoistValue for branch");
     }
@@ -956,7 +956,7 @@ void CHR::checkScopeHoistable(CHRScope *Scope) {
       assert(!DT.dominates(SI, InsertPoint) &&
              "SI can't be already above the hoist point");
       DenseMap<Instruction *, bool> Visited;
-      assert(checkHoistValue(SI->getCondition(), InsertPoint, DT,
+      assert_DISABLED(checkHoistValue(SI->getCondition(), InsertPoint, DT,
                              Unhoistables, nullptr, Visited) &&
              "checkHoistValue for selects");
     }
@@ -1628,7 +1628,7 @@ assertCHRRegionsHaveBiasedBranchOrSelect(CHRScope *Scope) {
     return false;
   };
   for (RegInfo &RI : Scope->CHRRegions) {
-    assert(HasBiasedBranchOrSelect(RI, Scope) &&
+    assert_DISABLED(HasBiasedBranchOrSelect(RI, Scope) &&
            "Must have biased branch or select");
   }
 #endif

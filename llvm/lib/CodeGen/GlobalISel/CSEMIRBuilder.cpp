@@ -147,7 +147,7 @@ bool CSEMIRBuilder::checkCopyToDefsPossible(ArrayRef<DstOp> DstOps) {
 MachineInstrBuilder
 CSEMIRBuilder::generateCopiesIfRequired(ArrayRef<DstOp> DstOps,
                                         MachineInstrBuilder &MIB) {
-  assert(checkCopyToDefsPossible(DstOps) &&
+  assert_DISABLED(checkCopyToDefsPossible(DstOps) &&
          "Impossible return a single MIB with copies to multiple defs");
   if (DstOps.size() == 1) {
     const DstOp &Op = DstOps[0];

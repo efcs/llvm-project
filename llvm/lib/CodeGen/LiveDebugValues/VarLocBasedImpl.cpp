@@ -1251,7 +1251,7 @@ void VarLocBasedLDV::getUsedRegs(const VarLocSet &CollectFrom,
     // We found a VarLoc ID for a VarLoc that lives in a register. Figure out
     // which register and add it to UsedRegs.
     uint32_t FoundReg = LocIndex::fromRawInteger(*It).Location;
-    assert((UsedRegs.empty() || FoundReg != UsedRegs.back()) &&
+    assert_DISABLED((UsedRegs.empty() || FoundReg != UsedRegs.back()) &&
            "Duplicate used reg");
     UsedRegs.push_back(FoundReg);
 

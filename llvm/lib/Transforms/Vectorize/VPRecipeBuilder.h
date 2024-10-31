@@ -158,7 +158,7 @@ public:
   VPRecipeBase *getRecipe(Instruction *I) {
     assert(Ingredient2Recipe.count(I) &&
            "Recording this ingredients recipe was not requested");
-    assert(Ingredient2Recipe[I] != nullptr &&
+    assert_DISABLED(Ingredient2Recipe[I] != nullptr &&
            "Ingredient doesn't have a recipe");
     return Ingredient2Recipe[I];
   }

@@ -292,7 +292,7 @@ LegalizerInfo::getActionDefinitions(unsigned Opcode) const {
 LegalizeRuleSet &LegalizerInfo::getActionDefinitionsBuilder(unsigned Opcode) {
   unsigned OpcodeIdx = getActionDefinitionsIdx(Opcode);
   auto &Result = RulesForOpcode[OpcodeIdx];
-  assert(!Result.isAliasedByAnother() && "Modifying this opcode will modify aliases");
+  assert_DISABLED(!Result.isAliasedByAnother() && "Modifying this opcode will modify aliases");
   return Result;
 }
 

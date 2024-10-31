@@ -254,7 +254,7 @@ Value *CachingVPExpander::convertEVLToMask(IRBuilder<> &Builder,
 Value *
 CachingVPExpander::expandPredicationInBinaryOperator(IRBuilder<> &Builder,
                                                      VPIntrinsic &VPI) {
-  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
+  assert_DISABLED((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   auto OC = static_cast<Instruction::BinaryOps>(*VPI.getFunctionalOpcode());
@@ -319,7 +319,7 @@ Value *CachingVPExpander::expandPredicationToIntCall(
 
 Value *CachingVPExpander::expandPredicationToFPCall(
     IRBuilder<> &Builder, VPIntrinsic &VPI, unsigned UnpredicatedIntrinsicID) {
-  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
+  assert_DISABLED((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   switch (UnpredicatedIntrinsicID) {
@@ -377,7 +377,7 @@ static Value *getNeutralReductionElement(const VPReductionIntrinsic &VPI,
 Value *
 CachingVPExpander::expandPredicationInReduction(IRBuilder<> &Builder,
                                                 VPReductionIntrinsic &VPI) {
-  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
+  assert_DISABLED((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   Value *Mask = VPI.getMaskParam();
@@ -560,7 +560,7 @@ CachingVPExpander::expandPredicationInMemoryIntrinsic(IRBuilder<> &Builder,
 
 Value *CachingVPExpander::expandPredicationInComparison(IRBuilder<> &Builder,
                                                         VPCmpIntrinsic &VPI) {
-  assert((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
+  assert_DISABLED((maySpeculateLanes(VPI) || VPI.canIgnoreVectorLengthParam()) &&
          "Implicitly dropping %evl in non-speculatable operator!");
 
   assert(*VPI.getFunctionalOpcode() == Instruction::ICmp ||

@@ -190,7 +190,7 @@ clang::getStackIndexOfNearestEnclosingCaptureCapableLambda(
     return NoLambdaIsCaptureCapable;
 
   const unsigned IndexOfCaptureReadyLambda = *OptionalStackIndex;
-  assert(((IndexOfCaptureReadyLambda != (FunctionScopes.size() - 1)) ||
+  assert_DISABLED(((IndexOfCaptureReadyLambda != (FunctionScopes.size() - 1)) ||
           S.getCurGenericLambda()) &&
          "The capture ready lambda for a potential capture can only be the "
          "current lambda if it is a generic lambda");

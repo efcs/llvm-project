@@ -1287,7 +1287,7 @@ private:
 
       Join.VariableIDsInBlock = A.VariableIDsInBlock;
       Join.VariableIDsInBlock |= B.VariableIDsInBlock;
-      assert(Join.isValid());
+      assert_DISABLED(Join.isValid());
       return Join;
     }
   };

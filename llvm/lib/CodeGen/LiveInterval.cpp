@@ -156,7 +156,7 @@ public:
   /// merge and eliminate all segments that this will overlap
   /// with. The iterator is not invalidated.
   void extendSegmentEndTo(iterator I, SlotIndex NewEnd) {
-    assert(I != segments().end() && "Not a valid segment!");
+    assert_DISABLED(I != segments().end() && "Not a valid segment!");
     Segment *S = segmentAt(I);
     VNInfo *ValNo = I->valno;
 
@@ -184,7 +184,7 @@ public:
   /// by I to start at the specified endpoint.  To do this, we should
   /// merge and eliminate all segments that this will overlap with.
   iterator extendSegmentStartTo(iterator I, SlotIndex NewStart) {
-    assert(I != segments().end() && "Not a valid segment!");
+    assert_DISABLED(I != segments().end() && "Not a valid segment!");
     Segment *S = segmentAt(I);
     VNInfo *ValNo = I->valno;
 

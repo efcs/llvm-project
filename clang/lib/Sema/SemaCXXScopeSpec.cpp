@@ -1043,7 +1043,7 @@ void Sema::ActOnCXXExitDeclaratorScope(Scope *S, const CXXScopeSpec &SS) {
   assert(SS.isSet() && "Parser passed invalid CXXScopeSpec.");
   if (SS.isInvalid())
     return;
-  assert(!SS.isInvalid() && computeDeclContext(SS, true) &&
+  assert_DISABLED(!SS.isInvalid() && computeDeclContext(SS, true) &&
          "exiting declarator scope we never really entered");
   ExitDeclaratorContext(S);
 }

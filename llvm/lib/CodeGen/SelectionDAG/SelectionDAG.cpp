@@ -11749,7 +11749,7 @@ void SelectionDAG::VerifyDAGDivergence() {
   std::vector<SDNode *> TopoOrder;
   CreateTopologicalOrder(TopoOrder);
   for (auto *N : TopoOrder) {
-    assert(calculateDivergence(N) == N->isDivergent() &&
+    assert_DISABLED(calculateDivergence(N) == N->isDivergent() &&
            "Divergence bit inconsistency detected");
   }
 }

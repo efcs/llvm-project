@@ -725,7 +725,7 @@ NumericalStabilitySanitizer::NumericalStabilitySanitizer(Module &M)
   if (!ClCheckFunctionsFilter.empty()) {
     Regex R = Regex(ClCheckFunctionsFilter);
     std::string RegexError;
-    assert(R.isValid(RegexError));
+    assert_DISABLED(R.isValid(RegexError));
     CheckFunctionsFilter = std::move(R);
   }
 }

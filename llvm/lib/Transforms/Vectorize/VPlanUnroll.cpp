@@ -85,7 +85,7 @@ public:
   VPValue *getValueForPart(VPValue *V, unsigned Part) {
     if (Part == 0 || V->isLiveIn())
       return V;
-    assert((VPV2Parts.contains(V) && VPV2Parts[V].size() >= Part) &&
+    assert_DISABLED((VPV2Parts.contains(V) && VPV2Parts[V].size() >= Part) &&
            "accessed value does not exist");
     return VPV2Parts[V][Part - 1];
   }

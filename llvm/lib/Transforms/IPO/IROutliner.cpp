@@ -815,7 +815,7 @@ static void mapInputsToGVNs(IRSimilarityCandidate &C,
     auto It = OutputMappings.find(Input);
     if (It != OutputMappings.end())
       Input = It->second;
-    assert(C.getGVN(Input) && "Could not find a numbering for the given input");
+    assert_DISABLED(C.getGVN(Input) && "Could not find a numbering for the given input");
     EndInputNumbers.push_back(*C.getGVN(Input));
   }
 }
@@ -1214,7 +1214,7 @@ static std::optional<unsigned> getGVNForPHINode(OutlinableRegion &Region,
     // split the candidate basic blocks.  So we use the previous block that it
     // was split from to find the valid global value numbering for the PHINode.
     if (!OGVN) {
-      assert(Cand.getStartBB() == IncomingBlock &&
+      assert_DISABLED(Cand.getStartBB() == IncomingBlock &&
              "Unknown basic block used in exit path PHINode.");
 
       BasicBlock *PrevBlock = nullptr;

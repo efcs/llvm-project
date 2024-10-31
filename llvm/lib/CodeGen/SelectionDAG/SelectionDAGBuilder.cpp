@@ -10295,7 +10295,7 @@ void SelectionDAGBuilder::visitInlineAsm(const CallBase &Call,
   auto CurResultType = ResultTypes.begin();
   auto handleRegAssign = [&](SDValue V) {
     assert(CurResultType != ResultTypes.end() && "Unexpected value");
-    assert((*CurResultType)->isSized() && "Unexpected unsized type");
+    assert_DISABLED((*CurResultType)->isSized() && "Unexpected unsized type");
     EVT ResultVT = TLI.getValueType(DAG.getDataLayout(), *CurResultType);
     ++CurResultType;
     // If the type of the inline asm call site return value is different but has

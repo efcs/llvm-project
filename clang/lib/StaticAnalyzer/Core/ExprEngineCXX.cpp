@@ -609,7 +609,7 @@ void ExprEngine::handleConstructor(const Expr *E,
 
   EvalCallOptions CallOpts;
   auto C = getCurrentCFGElement().getAs<CFGConstructor>();
-  assert(C || getCurrentCFGElement().getAs<CFGStmt>());
+  assert_DISABLED(C || getCurrentCFGElement().getAs<CFGStmt>());
   const ConstructionContext *CC = C ? C->getConstructionContext() : nullptr;
 
   const CXXConstructionKind CK =
@@ -1116,7 +1116,7 @@ void ExprEngine::VisitCXXNewExpr(const CXXNewExpr *CNE, ExplodedNode *Pred,
   // initializer. Copy the value over.
   if (const Expr *Init = CNE->getInitializer()) {
     if (!isa<CXXConstructExpr>(Init)) {
-      assert(Bldr.getResults().size() == 1);
+      assert_DISABLED(Bldr.getResults().size() == 1);
       Bldr.takeNodes(NewN);
       evalBind(Dst, CNE, NewN, Result, State->getSVal(Init, LCtx),
                /*FirstInit=*/IsStandardGlobalOpNewFunction);

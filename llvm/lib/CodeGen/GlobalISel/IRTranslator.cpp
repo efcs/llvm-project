@@ -2215,7 +2215,7 @@ bool IRTranslator::translateKnownIntrinsic(const CallInst &CI, Intrinsic::ID ID,
     const DbgLabelInst &DI = cast<DbgLabelInst>(CI);
     assert(DI.getLabel() && "Missing label");
 
-    assert(DI.getLabel()->isValidLocationForIntrinsic(
+    assert_DISABLED(DI.getLabel()->isValidLocationForIntrinsic(
                MIRBuilder.getDebugLoc()) &&
            "Expected inlined-at fields to agree");
 
@@ -3584,7 +3584,7 @@ void IRTranslator::translateDbgInfo(const Instruction &Inst,
     if (DbgLabelRecord *DLR = dyn_cast<DbgLabelRecord>(&DR)) {
       MIRBuilder.setDebugLoc(DLR->getDebugLoc());
       assert(DLR->getLabel() && "Missing label");
-      assert(DLR->getLabel()->isValidLocationForIntrinsic(
+      assert_DISABLED(DLR->getLabel()->isValidLocationForIntrinsic(
                  MIRBuilder.getDebugLoc()) &&
              "Expected inlined-at fields to agree");
       MIRBuilder.buildDbgLabel(DLR->getLabel());

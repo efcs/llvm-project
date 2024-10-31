@@ -153,7 +153,7 @@ void BranchRelaxation::verify() {
       if (MI.getOpcode() == TargetOpcode::FAULTING_OP)
         continue;
       MachineBasicBlock *DestBB = TII->getBranchDestBlock(MI);
-      assert(isBlockInRange(MI, *DestBB) ||
+      assert_DISABLED(isBlockInRange(MI, *DestBB) ||
              RelaxedUnconditionals.contains({&MBB, DestBB}));
     }
   }

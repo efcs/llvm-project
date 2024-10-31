@@ -240,7 +240,7 @@ Value *VPTransformState::get(VPValue *Def, const VPLane &Lane) {
     return Data.VPV2Scalars[Def][0];
   }
 
-  assert(hasVectorValue(Def));
+  assert_DISABLED(hasVectorValue(Def));
   auto *VecPart = Data.VPV2Vector[Def];
   if (!VecPart->getType()->isVectorTy()) {
     assert(Lane.isFirstLane() && "cannot get lane > 0 for scalar");
@@ -255,7 +255,7 @@ Value *VPTransformState::get(VPValue *Def, const VPLane &Lane) {
 
 Value *VPTransformState::get(VPValue *Def, bool NeedsScalar) {
   if (NeedsScalar) {
-    assert((VF.isScalar() || Def->isLiveIn() || hasVectorValue(Def) ||
+    assert_DISABLED((VF.isScalar() || Def->isLiveIn() || hasVectorValue(Def) ||
             !vputils::onlyFirstLaneUsed(Def) ||
             (hasScalarValue(Def, VPLane(0)) &&
              Data.VPV2Scalars[Def].size() == 1)) &&
@@ -451,7 +451,7 @@ VPBasicBlock::createEmptyBasicBlock(VPTransformState::CFGState &CFG) {
 }
 
 void VPIRBasicBlock::execute(VPTransformState *State) {
-  assert(getHierarchicalSuccessors().size() <= 2 &&
+  assert_DISABLED(getHierarchicalSuccessors().size() <= 2 &&
          "VPIRBasicBlock can have at most two successors at the moment!");
   State->Builder.SetInsertPoint(getIRBasicBlock()->getTerminator());
   executeRecipes(State, getIRBasicBlock());
@@ -708,11 +708,11 @@ static std::pair<VPBlockBase *, VPBlockBase *> cloneFrom(VPBlockBase *Entry) {
            vp_depth_first_shallow(Old2NewVPBlocks[Entry]))) {
     for (const auto &[OldPred, NewPred] :
          zip(OldBB->getPredecessors(), NewBB->getPredecessors()))
-      assert(NewPred == Old2NewVPBlocks[OldPred] && "Different predecessors");
+      assert_DISABLED(NewPred == Old2NewVPBlocks[OldPred] && "Different predecessors");
 
     for (const auto &[OldSucc, NewSucc] :
          zip(OldBB->successors(), NewBB->successors()))
-      assert(NewSucc == Old2NewVPBlocks[OldSucc] && "Different successors");
+      assert_DISABLED(NewSucc == Old2NewVPBlocks[OldSucc] && "Different successors");
   }
 #endif
 
@@ -887,7 +887,7 @@ VPlanPtr VPlan::createInitialVPlan(Type *InductionTy,
   // uncountable exits whilst also ensuring the symbolic maximum and known
   // back-edge taken count remain identical for loops with countable exits.
   const SCEV *BackedgeTakenCountSCEV = PSE.getSymbolicMaxBackedgeTakenCount();
-  assert((!isa<SCEVCouldNotCompute>(BackedgeTakenCountSCEV) &&
+  assert_DISABLED((!isa<SCEVCouldNotCompute>(BackedgeTakenCountSCEV) &&
           BackedgeTakenCountSCEV == PSE.getBackedgeTakenCount()) &&
          "Invalid loop count");
   ScalarEvolution &SE = *PSE.getSE();

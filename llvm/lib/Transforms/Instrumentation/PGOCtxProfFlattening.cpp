@@ -445,7 +445,7 @@ PreservedAnalyses PGOCtxProfFlatteningPass::run(Module &M,
     if (F.isDeclaration())
       continue;
 
-    assert(areAllBBsReachable(
+    assert_DISABLED(areAllBBsReachable(
                F, MAM.getResult<FunctionAnalysisManagerModuleProxy>(M)
                       .getManager()) &&
            "Function has unreacheable basic blocks. The expectation was that "

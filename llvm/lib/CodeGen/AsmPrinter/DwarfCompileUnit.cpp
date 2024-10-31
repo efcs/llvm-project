@@ -743,7 +743,7 @@ DIE *DwarfCompileUnit::constructLexicalScopeDIE(LexicalScope *Scope) {
 
   auto ScopeDIE = DIE::get(DIEValueAllocator, dwarf::DW_TAG_lexical_block);
   if (Scope->isAbstractScope()) {
-    assert(!getAbstractScopeDIEs().count(DS) &&
+    assert_DISABLED(!getAbstractScopeDIEs().count(DS) &&
            "Abstract DIE for this scope exists!");
     getAbstractScopeDIEs()[DS] = ScopeDIE;
     return ScopeDIE;

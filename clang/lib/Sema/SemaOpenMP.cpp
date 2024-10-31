@@ -1556,7 +1556,7 @@ void DSAStackTy::addTaskgroupReductionData(const ValueDecl *D, SourceRange SR,
                                            BinaryOperatorKind BOK) {
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
-  assert(
+  assert_DISABLED(
       getTopOfStack().SharingMap[D].Attributes == OMPC_reduction &&
       "Additional reduction info may be specified only for reduction items.");
   ReductionData &ReductionData = getTopOfStack().ReductionMap[D];
@@ -1581,7 +1581,7 @@ void DSAStackTy::addTaskgroupReductionData(const ValueDecl *D, SourceRange SR,
                                            const Expr *ReductionRef) {
   D = getCanonicalDecl(D);
   assert(!isStackEmpty() && "Data-sharing attributes stack is empty");
-  assert(
+  assert_DISABLED(
       getTopOfStack().SharingMap[D].Attributes == OMPC_reduction &&
       "Additional reduction info may be specified only for reduction items.");
   ReductionData &ReductionData = getTopOfStack().ReductionMap[D];
@@ -2993,7 +2993,7 @@ static bool FinishOpenMPLinearClause(OMPLinearClause &Clause, DeclRefExpr *IV,
 static bool finishLinearClauses(Sema &SemaRef, ArrayRef<OMPClause *> Clauses,
                                 OMPLoopBasedDirective::HelperExprs &B,
                                 DSAStackTy *Stack) {
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "loop exprs were not built");
 
   if (SemaRef.CurContext->isDependentContext())
@@ -10628,7 +10628,7 @@ StmtResult SemaOpenMP::ActOnOpenMPGenericLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp loop exprs were not built");
 
   return OMPGenericLoopDirective::Create(getASTContext(), StartLoc, EndLoc,
@@ -10658,7 +10658,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTeamsGenericLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp loop exprs were not built");
 
   DSAStack->setParentTeamsRegionLoc(StartLoc);
@@ -10692,7 +10692,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTargetTeamsGenericLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp loop exprs were not built");
 
   return OMPTargetTeamsGenericLoopDirective::Create(
@@ -10725,7 +10725,7 @@ StmtResult SemaOpenMP::ActOnOpenMPParallelGenericLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp loop exprs were not built");
 
   return OMPParallelGenericLoopDirective::Create(
@@ -10757,7 +10757,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTargetParallelGenericLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp loop exprs were not built");
 
   return OMPTargetParallelGenericLoopDirective::Create(
@@ -13265,7 +13265,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTaskLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   // OpenMP, [2.9.2 taskloop Construct, Restrictions]
@@ -13344,7 +13344,7 @@ StmtResult SemaOpenMP::ActOnOpenMPMasterTaskLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   // OpenMP, [2.9.2 taskloop Construct, Restrictions]
@@ -13382,7 +13382,7 @@ StmtResult SemaOpenMP::ActOnOpenMPMaskedTaskLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   // OpenMP, [2.9.2 taskloop Construct, Restrictions]
@@ -13504,7 +13504,7 @@ StmtResult SemaOpenMP::ActOnOpenMPParallelMasterTaskLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   // OpenMP, [2.9.2 taskloop Construct, Restrictions]
@@ -13543,7 +13543,7 @@ StmtResult SemaOpenMP::ActOnOpenMPParallelMaskedTaskLoopDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   // OpenMP, [2.9.2 taskloop Construct, Restrictions]
@@ -13660,7 +13660,7 @@ StmtResult SemaOpenMP::ActOnOpenMPDistributeDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   SemaRef.setFunctionHasBranchProtectedScope();
@@ -13688,7 +13688,7 @@ StmtResult SemaOpenMP::ActOnOpenMPDistributeParallelForDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   return OMPDistributeParallelForDirective::Create(
@@ -13830,7 +13830,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTeamsDistributeDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp teams distribute loop exprs were not built");
 
   DSAStack->setParentTeamsRegionLoc(StartLoc);
@@ -13921,7 +13921,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTeamsDistributeParallelForDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp for loop exprs were not built");
 
   DSAStack->setParentTeamsRegionLoc(StartLoc);
@@ -13991,7 +13991,7 @@ StmtResult SemaOpenMP::ActOnOpenMPTargetTeamsDistributeDirective(
   if (NestedLoopCount == 0)
     return StmtError();
 
-  assert((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
+  assert_DISABLED((SemaRef.CurContext->isDependentContext() || B.builtAll()) &&
          "omp target teams distribute loop exprs were not built");
 
   return OMPTargetTeamsDistributeDirective::Create(
@@ -18011,7 +18011,7 @@ static T filterLookupForUDReductionAndMapper(
 }
 
 static NamedDecl *findAcceptableDecl(Sema &SemaRef, NamedDecl *D) {
-  assert(!LookupResult::isVisible(SemaRef, D) && "not in slow case");
+  assert_DISABLED(!LookupResult::isVisible(SemaRef, D) && "not in slow case");
 
   for (auto *RD : D->redecls()) {
     // Don't bother with extra checks if we already know this one isn't visible.
@@ -19765,7 +19765,7 @@ OMPClause *SemaOpenMP::ActOnOpenMPCopyprivateClause(ArrayRef<Expr *> VarList,
 
     // No need to mark vars as copyprivate, they are already threadprivate or
     // implicitly private.
-    assert(VD || isOpenMPCapturedDecl(D));
+    assert_DISABLED(VD || isOpenMPCapturedDecl(D));
     Vars.push_back(
         VD ? RefExpr->IgnoreParens()
            : buildCapture(SemaRef, D, SimpleRefExpr, /*WithInit=*/false));

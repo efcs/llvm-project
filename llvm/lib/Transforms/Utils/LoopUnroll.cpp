@@ -747,7 +747,7 @@ llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
         // Eliminate copies of the loop heart intrinsic, if any.
         if (ULO.Heart) {
           auto it = VMap.find(ULO.Heart);
-          assert(it != VMap.end());
+          assert_DISABLED(it != VMap.end());
           Instruction *heartCopy = cast<Instruction>(it->second);
           heartCopy->eraseFromParent();
           VMap.erase(it);
@@ -834,7 +834,7 @@ llvm::UnrollLoop(Loop *L, UnrollLoopOptions ULO, LoopInfo *LI,
         if (L->contains(InValI))
           InVal = LastValueMap[InVal];
       }
-      assert(Latches.back() == LastValueMap[LatchBlock] && "bad last latch");
+      assert_DISABLED(Latches.back() == LastValueMap[LatchBlock] && "bad last latch");
       PN->addIncoming(InVal, Latches.back());
     }
   }

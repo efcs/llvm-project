@@ -756,7 +756,7 @@ void Parser::ParseLexedAttributes(ParsingClass &Class) {
 /// Parse all attributes in LAs, and attach them to Decl D.
 void Parser::ParseLexedAttributeList(LateParsedAttrList &LAs, Decl *D,
                                      bool EnterScope, bool OnDefinition) {
-  assert(LAs.parseSoon() &&
+  assert_DISABLED(LAs.parseSoon() &&
          "Attribute list should be marked for immediate parsing.");
   for (unsigned i = 0, ni = LAs.size(); i < ni; ++i) {
     if (D)

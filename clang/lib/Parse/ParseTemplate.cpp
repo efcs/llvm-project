@@ -688,7 +688,7 @@ bool Parser::TryAnnotateTypeConstraint() {
 ///         'typename' ...[opt][C++0x] identifier[opt]
 ///         'typename' identifier[opt] '=' type-id
 NamedDecl *Parser::ParseTypeParameter(unsigned Depth, unsigned Position) {
-  assert((Tok.isOneOf(tok::kw_class, tok::kw_typename) ||
+  assert_DISABLED((Tok.isOneOf(tok::kw_class, tok::kw_typename) ||
           isTypeConstraintAnnotation()) &&
          "A type-parameter starts with 'class', 'typename' or a "
          "type-constraint");

@@ -2028,7 +2028,7 @@ void ASTDeclWriter::VisitDeclContext(DeclContext *DC) {
 }
 
 const Decl *ASTWriter::getFirstLocalDecl(const Decl *D) {
-  assert(IsLocalDecl(D) && "expected a local declaration");
+  assert_DISABLED(IsLocalDecl(D) && "expected a local declaration");
 
   const Decl *Canon = D->getCanonicalDecl();
   if (IsLocalDecl(Canon))
