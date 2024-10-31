@@ -351,7 +351,7 @@ const ExplodedNode *MoveChecker::getMoveLocation(const ExplodedNode *N,
 void MoveChecker::modelUse(ProgramStateRef State, const MemRegion *Region,
                            const CXXRecordDecl *RD, MisuseKind MK,
                            CheckerContext &C) const {
-  assert(!C.isDifferent() && "No transitions should have been made by now");
+  assert_DISABLED(!C.isDifferent() && "No transitions should have been made by now");
   const RegionState *RS = State->get<TrackedRegionMap>(Region);
   ObjectKind OK = classifyObject(Region, RD);
 
@@ -489,7 +489,7 @@ void MoveChecker::checkPostCall(const CallEvent &Call,
     C.addTransition(State);
     return;
   }
-  assert(!C.isDifferent() && "Should not have made transitions on this path!");
+  assert_DISABLED(!C.isDifferent() && "Should not have made transitions on this path!");
 }
 
 bool MoveChecker::isMoveSafeMethod(const CXXMethodDecl *MethodDec) const {

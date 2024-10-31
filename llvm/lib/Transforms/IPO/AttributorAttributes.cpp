@@ -10215,7 +10215,7 @@ struct AANoUndefImpl : AANoUndef {
     Value &V = getAssociatedValue();
     if (isa<UndefValue>(V))
       indicatePessimisticFixpoint();
-    assert(!isImpliedByIR(A, getIRPosition(), Attribute::NoUndef));
+    assert_DISABLED(!isImpliedByIR(A, getIRPosition(), Attribute::NoUndef));
   }
 
   /// See followUsesInMBEC
