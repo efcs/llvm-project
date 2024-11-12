@@ -741,7 +741,7 @@ class DeclaratorDecl : public ValueDecl {
   // qualifier, to be used for the (uncommon) case of out-of-line declarations,
   // constrained function decls or functions with contracts.
   struct ExtInfo : public QualifierInfo {
-    TypeSourceInfo *TInfo;
+    TypeSourceInfo *TInfo = nullptr;
     Expr *TrailingRequiresClause = nullptr;
   };
 

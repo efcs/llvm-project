@@ -3326,6 +3326,10 @@ public:
                                         const FieldDecl *FAMDecl,
                                         uint64_t &Offset);
 
+  llvm::Value *GetCountedByFieldExprGEP(const Expr *Base,
+                                        const FieldDecl *FAMDecl,
+                                        const FieldDecl *CountDecl);
+
   /// Build an expression accessing the "counted_by" field.
   llvm::Value *EmitLoadOfCountedByField(const Expr *Base,
                                         const FieldDecl *FAMDecl,
@@ -3545,7 +3549,7 @@ public:
   /// This function may clear the current insertion point; callers should use
   /// EnsureInsertPoint if they wish to subsequently generate code without first
   /// calling EmitBlock, EmitBranch, or EmitStmt.
-  void EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs = std::nullopt);
+  void EmitStmt(const Stmt *S, ArrayRef<const Attr *> Attrs = {});
 
   /// EmitSimpleStmt - Try to emit a "simple" statement which does not
   /// necessarily require an insertion point or debug information; typically
@@ -3572,11 +3576,9 @@ public:
   void EmitIndirectGotoStmt(const IndirectGotoStmt &S);
   void EmitIfStmt(const IfStmt &S);
 
-  void EmitWhileStmt(const WhileStmt &S,
-                     ArrayRef<const Attr *> Attrs = std::nullopt);
-  void EmitDoStmt(const DoStmt &S, ArrayRef<const Attr *> Attrs = std::nullopt);
-  void EmitForStmt(const ForStmt &S,
-                   ArrayRef<const Attr *> Attrs = std::nullopt);
+  void EmitWhileStmt(const WhileStmt &S, ArrayRef<const Attr *> Attrs = {});
+  void EmitDoStmt(const DoStmt &S, ArrayRef<const Attr *> Attrs = {});
+  void EmitForStmt(const ForStmt &S, ArrayRef<const Attr *> Attrs = {});
   void EmitReturnStmt(const ReturnStmt &S);
   void EmitDeclStmt(const DeclStmt &S);
   void EmitBreakStmt(const BreakStmt &S);
@@ -3653,7 +3655,7 @@ public:
                                     llvm::Value *ParentFP);
 
   void EmitCXXForRangeStmt(const CXXForRangeStmt &S,
-                           ArrayRef<const Attr *> Attrs = std::nullopt);
+                           ArrayRef<const Attr *> Attrs = {});
 
   /// Controls insertion of cancellation exit blocks in worksharing constructs.
   class OMPCancelStackRAII {
@@ -4106,6 +4108,13 @@ public:
     EmitStmt(S.getLoop());
   }
 
+  void EmitOpenACCCombinedConstruct(const OpenACCCombinedConstruct &S) {
+    // TODO OpenACC: Implement this.  It is currently implemented as a 'no-op',
+    // simply emitting its loop, but in the future we will implement
+    // some sort of IR.
+    EmitStmt(S.getLoop());
+  }
+
   //===--------------------------------------------------------------------===//
   //                         LValue Expression Emission
   //===--------------------------------------------------------------------===//
@@ -4187,7 +4196,8 @@ public:
   llvm::AtomicRMWInst *emitAtomicRMWInst(
       llvm::AtomicRMWInst::BinOp Op, Address Addr, llvm::Value *Val,
       llvm::AtomicOrdering Order = llvm::AtomicOrdering::SequentiallyConsistent,
-      llvm::SyncScope::ID SSID = llvm::SyncScope::System);
+      llvm::SyncScope::ID SSID = llvm::SyncScope::System,
+      const AtomicExpr *AE = nullptr);
 
   void EmitAtomicUpdate(LValue LVal, llvm::AtomicOrdering AO,
                         const llvm::function_ref<RValue(RValue)> &UpdateOp,
@@ -4318,8 +4328,11 @@ public:
   LValue EmitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   LValue EmitOpaqueValueLValue(const OpaqueValueExpr *e);
   LValue EmitHLSLArrayAssignLValue(const BinaryOperator *E);
-  void EmitHLSLOutArgExpr(const HLSLOutArgExpr *E, CallArgList &Args,
-                          QualType Ty);
+
+  std::pair<LValue, LValue> EmitHLSLOutArgLValues(const HLSLOutArgExpr *E,
+                                                  QualType Ty);
+  LValue EmitHLSLOutArgExpr(const HLSLOutArgExpr *E, CallArgList &Args,
+                            QualType Ty);
 
   Address EmitExtVectorElementLValue(LValue V);
 
@@ -5184,6 +5197,9 @@ public:
   void EmitNonNullArgCheck(Address Addr, QualType ArgType,
                            SourceLocation ArgLoc, AbstractCallee AC,
                            unsigned ParmNum);
+
+  /// EmitWriteback - Emit callbacks for function.
+  void EmitWritebacks(const CallArgList &Args);
 
   /// EmitCallArg - Emit a single call argument.
   void EmitCallArg(CallArgList &args, const Expr *E, QualType ArgType);
