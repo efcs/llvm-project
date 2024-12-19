@@ -664,7 +664,7 @@ private:
   DebugLoc debugLoc;
 
   /// Return a pointer to the specified value type.
-  static const EVT *getValueTypeList(EVT VT);
+  static const EVT *getValueTypeList(MVT VT);
 
   /// Index in worklist of DAGCombiner, or negative if the node is not in the
   /// worklist. -1 = not in worklist; -2 = not in worklist, but has already been
@@ -806,9 +806,6 @@ public:
       return !operator==(x);
     }
 
-    /// Return true if this iterator is at the end of uses list.
-    bool atEnd() const { return Op == nullptr; }
-
     // Iterator traversal: forward iteration only.
     use_iterator &operator++() {          // Preincrement
       assert(Op && "Cannot increment end iterator!");
@@ -821,20 +818,55 @@ public:
     }
 
     /// Retrieve a pointer to the current user node.
-    SDNode *operator*() const {
+    SDUse &operator*() const {
       assert(Op && "Cannot dereference end iterator!");
-      return Op->getUser();
+      return *Op;
     }
 
-    SDNode *operator->() const { return operator*(); }
-
-    SDUse &getUse() const { return *Op; }
+    SDUse *operator->() const { return &operator*(); }
 
     /// Retrieve the operand # of this use in its user.
     unsigned getOperandNo() const {
       assert(Op && "Cannot dereference end iterator!");
       return (unsigned)(Op - Op->getUser()->OperandList);
     }
+  };
+
+  class user_iterator {
+    friend class SDNode;
+    use_iterator UI;
+
+    explicit user_iterator(SDUse *op) : UI(op) {};
+
+  public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = SDNode *;
+    using difference_type = std::ptrdiff_t;
+    using pointer = value_type *;
+    using reference = value_type &;
+
+    user_iterator() = default;
+
+    bool operator==(const user_iterator &x) const { return UI == x.UI; }
+    bool operator!=(const user_iterator &x) const { return !operator==(x); }
+
+    user_iterator &operator++() { // Preincrement
+      ++UI;
+      return *this;
+    }
+
+    user_iterator operator++(int) { // Postincrement
+      auto tmp = *this;
+      ++*this;
+      return tmp;
+    }
+
+    // Retrieve a pointer to the current User.
+    SDNode *operator*() const { return UI->getUser(); }
+
+    SDNode *operator->() const { return operator*(); }
+
+    SDUse &getUse() const { return *UI; }
   };
 
   /// Provide iteration support to walk over all uses of an SDNode.
@@ -849,6 +881,18 @@ public:
   }
   inline iterator_range<use_iterator> uses() const {
     return make_range(use_begin(), use_end());
+  }
+
+  /// Provide iteration support to walk over all users of an SDNode.
+  user_iterator user_begin() const { return user_iterator(UseList); }
+
+  static user_iterator user_end() { return user_iterator(nullptr); }
+
+  inline iterator_range<user_iterator> users() {
+    return make_range(user_begin(), user_end());
+  }
+  inline iterator_range<user_iterator> users() const {
+    return make_range(user_begin(), user_end());
   }
 
   /// Return true if there are exactly NUSES uses of the indicated value.
@@ -1010,9 +1054,9 @@ public:
   /// If this node has a glue value with a user, return
   /// the user (there is at most one). Otherwise return NULL.
   SDNode *getGluedUser() const {
-    for (use_iterator UI = use_begin(), UE = use_end(); UI != UE; ++UI)
-      if (UI.getUse().get().getValueType() == MVT::Glue)
-        return *UI;
+    for (SDUse &U : uses())
+      if (U.getValueType() == MVT::Glue)
+        return U.getUser();
     return nullptr;
   }
 
@@ -1124,7 +1168,7 @@ public:
   void addUse(SDUse &U) { U.addToList(&UseList); }
 
 protected:
-  static SDVTList getSDVTList(EVT VT) {
+  static SDVTList getSDVTList(MVT VT) {
     SDVTList Ret = { getValueTypeList(VT), 1 };
     return Ret;
   }
