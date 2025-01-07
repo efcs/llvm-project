@@ -13342,7 +13342,7 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();
 
-  if (S.getContractConstification(var) == CC_ApplyConst)
+  if (S.getContractConstification(Var) == CC_ApplyConst)
     return NCCK_Contract;
 
 #if 1

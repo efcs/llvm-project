@@ -1895,8 +1895,6 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
   if (Cap.isInitCapture()) {
     auto Init = cast<VarDecl>(Cap.getVariable())->getInit();
     assert(Init);
-    llvm::errs() << "Dumping Init\n";
-    Init->dumpColor();
     return Init;
   }
   // For anything else, build an initialization expression. For an implicit
