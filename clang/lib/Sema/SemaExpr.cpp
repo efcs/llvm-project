@@ -3381,7 +3381,6 @@ ExprResult Sema::BuildDeclarationNameExpr(
       if (!CapturedType.isNull())
         type = CapturedType;
         // TypeWasSetByLambdaCapture = true;
-      }
     }
     break;
   }
