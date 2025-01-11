@@ -1934,8 +1934,10 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
 
       assert(isa<DeclRefExpr>(Init.get()));
       DeclRefExpr *DRE = cast<DeclRefExpr>(Init.get());
-      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture())
+      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture()) {
+        llvm::errs() << "Setting Is Constified capture!\n";
         DRE->setIsInContractContext(true);
+      }
       // llvm::errs() << "Dumping DeclarationNameExpr\n";
       // Init.get()->dumpColor();
     }
