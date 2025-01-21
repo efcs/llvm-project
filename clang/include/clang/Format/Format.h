@@ -2298,7 +2298,7 @@ struct FormatStyle {
     BBO_RespectPrecedence
   };
 
-  /// The break constructor initializers style to use.
+  /// The break binary operations style to use.
   /// \version 20
   BreakBinaryOperationsStyle BreakBinaryOperations;
 
@@ -2510,6 +2510,7 @@ struct FormatStyle {
   /// lists.
   ///
   /// Important differences:
+  ///
   /// * No spaces inside the braced list.
   /// * No line break before the closing brace.
   /// * Indentation with the continuation indent, not with the block indent.
@@ -2817,6 +2818,19 @@ struct FormatStyle {
   /// \endcode
   /// \version 10
   bool IndentGotoLabels;
+
+  /// If ``true``, clang-format will indent the body of an ``export { ... }``
+  /// block. This doesn't affect the formatting of anything else related to
+  /// exported declarations.
+  /// \code
+  ///    true:                     false:
+  ///    export {          vs.     export {
+  ///      void foo();             void foo();
+  ///      void bar();             void bar();
+  ///    }                         }
+  /// \endcode
+  /// \version 20
+  bool IndentExportBlock;
 
   /// Indents extern blocks
   enum IndentExternBlockStyle : int8_t {
@@ -5265,6 +5279,7 @@ struct FormatStyle {
            IndentAccessModifiers == R.IndentAccessModifiers &&
            IndentCaseBlocks == R.IndentCaseBlocks &&
            IndentCaseLabels == R.IndentCaseLabels &&
+           IndentExportBlock == R.IndentExportBlock &&
            IndentExternBlock == R.IndentExternBlock &&
            IndentGotoLabels == R.IndentGotoLabels &&
            IndentPPDirectives == R.IndentPPDirectives &&
