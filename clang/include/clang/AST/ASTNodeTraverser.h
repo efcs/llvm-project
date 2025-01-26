@@ -158,8 +158,8 @@ public:
       ConstStmtVisitor<Derived>::Visit(S);
 
       // Some statements have custom mechanisms for dumping their children.
-      if (isa<DeclStmt>(S) || isa<GenericSelectionExpr>(S) ||
-          isa<RequiresExpr>(S) || isa<OpenACCWaitConstruct>(S) || isa<ContractStmt>(S))
+      if (isa<DeclStmt, GenericSelectionExpr, RequiresExpr,
+              OpenACCWaitConstruct, SYCLKernelCallStmt, ContractStmt>(S))
         return;
 
       if (Traversal == TK_IgnoreUnlessSpelledInSource &&
@@ -588,6 +588,12 @@ public:
 
   void VisitTopLevelStmtDecl(const TopLevelStmtDecl *D) { Visit(D->getStmt()); }
 
+  void VisitOutlinedFunctionDecl(const OutlinedFunctionDecl *D) {
+    for (const ImplicitParamDecl *Parameter : D->parameters())
+      Visit(Parameter);
+    Visit(D->getBody());
+  }
+
   void VisitCapturedDecl(const CapturedDecl *D) { Visit(D->getBody()); }
 
   void VisitOMPThreadPrivateDecl(const OMPThreadPrivateDecl *D) {
@@ -827,6 +833,12 @@ public:
 
   void VisitCapturedStmt(const CapturedStmt *Node) {
     Visit(Node->getCapturedDecl());
+  }
+
+  void VisitSYCLKernelCallStmt(const SYCLKernelCallStmt *Node) {
+    Visit(Node->getOriginalStmt());
+    if (Traversal != TK_IgnoreUnlessSpelledInSource)
+      Visit(Node->getOutlinedFunctionDecl());
   }
 
   void VisitOMPExecutableDirective(const OMPExecutableDirective *Node) {
