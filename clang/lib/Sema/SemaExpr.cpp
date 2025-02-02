@@ -13347,6 +13347,7 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();
+  ((void)ScopeIndex);
 
   if (S.getContractConstification(Var) == CC_ApplyConst)
     return NCCK_Contract;
@@ -19346,7 +19347,8 @@ bool Sema::tryCaptureVariable(
   };
 
   SmallVector<ContractScope, 4> ContractFunctionScopeIdxs;
-  auto *CurContract = CurrentContractEntry;
+  auto *CurContract = getCurrentContractEntry();
+  auto *Currentcontract = Contract
   while (CurContract) {
     ContractFunctionScopeIdxs.push_back(
         {CurContract->FunctionIndex, CurContract->KeywordLoc});
