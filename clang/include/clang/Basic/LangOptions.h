@@ -145,6 +145,7 @@ public:
     MSVC2019_5 = 1925,
     MSVC2019_8 = 1928,
     MSVC2022_3 = 1933,
+    MSVC2022_9 = 1939,
   };
 
   enum SYCLMajorVersion {
@@ -246,6 +247,8 @@ public:
     ///   construction vtable because it hasn't added 'type' as a substitution.
     ///   - Skip mangling enclosing class templates of member-like friend
     ///   function templates.
+    ///   - Ignore empty struct arguments in C++ mode for ARM, instead of
+    ///   passing them as if they had a size of 1 byte.
     Ver19,
 
     /// Conform to the underlying platform's C and C++ ABIs as closely
