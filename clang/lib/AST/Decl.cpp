@@ -2691,10 +2691,6 @@ bool VarDecl::recheckForConstantInitialization(
   return evaluateValueImpl(Notes, true, EnableContracts) && Notes.empty();
 }
 
-// FIXME(EricWF): Remove this
-// bool VarDecl::isParameterPack() const {
-//  return isa<PackExpansionType>(getType());
-//}
 
 
 template<typename DeclT>

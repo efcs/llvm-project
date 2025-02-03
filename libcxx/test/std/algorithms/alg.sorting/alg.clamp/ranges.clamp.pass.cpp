@@ -110,7 +110,7 @@ constexpr bool test() {
     assert(std::ranges::clamp(3, 2, 4, std::ranges::less{}, projection_function) == 3);
 #if defined(_LIBCPP_HARDENING_MODE) && \
       _LIBCPP_HARDENING_MODE != _LIBCPP_HARDENING_MODE_EXTENSIVE && \
-      _LIBCPP_HARDENING_MODE != _LIBCPP_HARDENING_MODE_DEBUG
+      _LIBCPP_HARDENING_MODE != _LIBCPP_HARDENING_MODE_DEBUG && !__has_keyword(contract_assert)
     assert(counter <= 3);
 #endif
   }
