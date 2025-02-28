@@ -1522,10 +1522,10 @@ enum DeclCode {
   /// An ImplicitConceptSpecializationDecl record.
   DECL_IMPLICIT_CONCEPT_SPECIALIZATION,
 
-  // A decls specilization record.
+  // A decls specialization record.
   DECL_SPECIALIZATIONS,
 
-  // A decls specilization record.
+  // A decls specialization record.
   DECL_PARTIAL_SPECIALIZATIONS,
 
   /// A ResultNameDecl record
@@ -1534,7 +1534,7 @@ enum DeclCode {
   /// A contract specifier sequence on a function
   DECL_CONTRACT_SPECIFIER,
 
-  DECL_LAST = DECL_CONTRACT_SPECIFIER,
+  DECL_LAST = DECL_CONTRACT_SPECIFIER
 };
 
 /// Record codes for each kind of statement or expression.
@@ -1914,7 +1914,6 @@ enum StmtCode {
   EXPR_PACK_EXPANSION,                    // PackExpansionExpr
   EXPR_PACK_INDEXING,                     // PackIndexingExpr
   EXPR_SIZEOF_PACK,                       // SizeOfPackExpr
-  EXPR_RESOLVED_UNEXPANDED_PACK,          // ResolvedUnexpandedPackExpr
   EXPR_SUBST_NON_TYPE_TEMPLATE_PARM,      // SubstNonTypeTemplateParmExpr
   EXPR_SUBST_NON_TYPE_TEMPLATE_PARM_PACK, // SubstNonTypeTemplateParmPackExpr
   EXPR_FUNCTION_PARM_PACK,                // FunctionParmPackExpr
@@ -1945,6 +1944,7 @@ enum StmtCode {
   STMT_OMP_PARALLEL_DIRECTIVE,
   STMT_OMP_SIMD_DIRECTIVE,
   STMT_OMP_TILE_DIRECTIVE,
+  STMP_OMP_STRIPE_DIRECTIVE,
   STMT_OMP_UNROLL_DIRECTIVE,
   STMT_OMP_REVERSE_DIRECTIVE,
   STMT_OMP_INTERCHANGE_DIRECTIVE,

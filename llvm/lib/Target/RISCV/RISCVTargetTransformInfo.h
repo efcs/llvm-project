@@ -63,6 +63,12 @@ class RISCVTTIImpl : public BasicTTIImplBase<RISCVTTIImpl> {
   /// type.
   InstructionCost getConstantPoolLoadCost(Type *Ty,
                                           TTI::TargetCostKind CostKind);
+
+  /// If this shuffle can be lowered as a masked slide pair (at worst),
+  /// return a cost for it.
+  InstructionCost getSlideCost(FixedVectorType *Tp, ArrayRef<int> Mask,
+                               TTI::TargetCostKind CostKind);
+
 public:
   explicit RISCVTTIImpl(const RISCVTargetMachine *TM, const Function &F)
       : BaseT(TM, F.getDataLayout()), ST(TM->getSubtargetImpl(F)),
@@ -115,7 +121,7 @@ public:
 
   TypeSize getRegisterBitWidth(TargetTransformInfo::RegisterKind K) const;
 
-  unsigned getRegUsageForType(Type *Ty);
+  unsigned getRegUsageForType(Type *Ty) const;
 
   unsigned getMaximumVF(unsigned ElemWidth, unsigned Opcode) const;
 
@@ -173,6 +179,12 @@ public:
                                          Align Alignment,
                                          TTI::TargetCostKind CostKind,
                                          const Instruction *I);
+
+  InstructionCost getExpandCompressMemoryOpCost(unsigned Opcode, Type *Src,
+                                                bool VariableMask,
+                                                Align Alignment,
+                                                TTI::TargetCostKind CostKind,
+                                                const Instruction *I = nullptr);
 
   InstructionCost getStridedMemoryOpCost(unsigned Opcode, Type *DataTy,
                                          const Value *Ptr, bool VariableMask,
