@@ -1118,6 +1118,33 @@ void CXXRecordDecl::addedMember(Decl *D) {
     } else if (!T.isCXX98PODType(Context))
       data().PlainOldData = false;
 
+    // If a class has an address-discriminated signed pointer member, it is a
+    // non-POD type and its copy constructor, move constructor, copy assignment
+    // operator, move assignment operator are non-trivial.
+    if (PointerAuthQualifier Q = T.getPointerAuth()) {
+      if (Q.isAddressDiscriminated()) {
+        struct DefinitionData &Data = data();
+        Data.PlainOldData = false;
+        Data.HasTrivialSpecialMembers &=
+            ~(SMF_CopyConstructor | SMF_MoveConstructor | SMF_CopyAssignment |
+              SMF_MoveAssignment);
+        setArgPassingRestrictions(RecordArgPassingKind::CanNeverPassInRegs);
+
+        // Copy/move constructors/assignment operators of a union are deleted by
+        // default if it has an address-discriminated ptrauth field.
+        if (isUnion()) {
+          data().DefaultedCopyConstructorIsDeleted = true;
+          data().DefaultedMoveConstructorIsDeleted = true;
+          data().DefaultedCopyAssignmentIsDeleted = true;
+          data().DefaultedMoveAssignmentIsDeleted = true;
+          data().NeedOverloadResolutionForCopyConstructor = true;
+          data().NeedOverloadResolutionForMoveConstructor = true;
+          data().NeedOverloadResolutionForCopyAssignment = true;
+          data().NeedOverloadResolutionForMoveAssignment = true;
+        }
+      }
+    }
+
     if (Field->hasAttr<ExplicitInitAttr>())
       setHasUninitializedExplicitInitFields(true);
 
@@ -2304,7 +2331,7 @@ CXXDeductionGuideDecl *CXXDeductionGuideDecl::Create(
     ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
     ExplicitSpecifier ES, const DeclarationNameInfo &NameInfo, QualType T,
     TypeSourceInfo *TInfo, SourceLocation EndLocation, CXXConstructorDecl *Ctor,
-    DeductionCandidate Kind, Expr *TrailingRequiresClause,
+    DeductionCandidate Kind, const AssociatedConstraint &TrailingRequiresClause,
     const CXXDeductionGuideDecl *GeneratedFrom,
     SourceDeductionGuideKind SourceKind) {
   return new (C, DC) CXXDeductionGuideDecl(
@@ -2318,7 +2345,7 @@ CXXDeductionGuideDecl::CreateDeserialized(ASTContext &C, GlobalDeclID ID) {
       C, /*DC=*/nullptr, SourceLocation(), ExplicitSpecifier(),
       DeclarationNameInfo(), QualType(), /*TInfo=*/nullptr, SourceLocation(),
       /*Ctor=*/nullptr, DeductionCandidate::Normal,
-      /*TrailingRequiresClause=*/nullptr,
+      /*TrailingRequiresClause=*/{},
       /*GeneratedFrom=*/nullptr, SourceDeductionGuideKind::None);
 }
 
@@ -2426,8 +2453,9 @@ CXXMethodDecl::Create(ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
                       const DeclarationNameInfo &NameInfo, QualType T,
                       TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                       bool isInline, ConstexprSpecKind ConstexprKind,
-                      SourceLocation EndLocation, Expr *TrailingRequiresClause,
-                      ContractSpecifierDecl *Contracts) {
+                      SourceLocation EndLocation,
+                      const AssociatedConstraint &TrailingRequiresClause,
+                          ContractSpecifierDecl *Contracts) {
   return new (C, RD) CXXMethodDecl(
       CXXMethod, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
       isInline, ConstexprKind, EndLocation, TrailingRequiresClause, Contracts);
@@ -2439,7 +2467,7 @@ CXXMethodDecl *CXXMethodDecl::CreateDeserialized(ASTContext &C,
       CXXMethodDecl(CXXMethod, C, nullptr, SourceLocation(),
                     DeclarationNameInfo(), QualType(), nullptr, SC_None, false,
                     false, ConstexprSpecKind::Unspecified, SourceLocation(),
-                    nullptr, /*Contracts=*/nullptr);
+                    /*TrailingRequiresClause=*/{}, /*Contracts=*/nullptr);
 }
 
 CXXMethodDecl *CXXMethodDecl::getDevirtualizedMethod(const Expr *Base,
@@ -2530,13 +2558,46 @@ CXXMethodDecl *CXXMethodDecl::getDevirtualizedMethod(const Expr *Base,
 bool CXXMethodDecl::isUsualDeallocationFunction(
     SmallVectorImpl<const FunctionDecl *> &PreventedBy) const {
   assert(PreventedBy.empty() && "PreventedBy is expected to be empty");
-  if (getOverloadedOperator() != OO_Delete &&
-      getOverloadedOperator() != OO_Array_Delete)
+  if (!getDeclName().isAnyOperatorDelete())
     return false;
+
+  if (isTypeAwareOperatorNewOrDelete()) {
+    // A variadic type aware allocation function is not a usual deallocation
+    // function
+    if (isVariadic())
+      return false;
+
+    // Type aware deallocation functions are only usual if they only accept the
+    // mandatory arguments
+    if (getNumParams() != FunctionDecl::RequiredTypeAwareDeleteParameterCount)
+      return false;
+
+    FunctionTemplateDecl *PrimaryTemplate = getPrimaryTemplate();
+    if (!PrimaryTemplate)
+      return true;
+
+    // A template instance is is only a usual deallocation function if it has a
+    // type-identity parameter, the type-identity parameter is a dependent type
+    // (i.e. the type-identity parameter is of type std::type_identity<U> where
+    // U shall be a dependent type), and the type-identity parameter is the only
+    // dependent parameter, and there are no template packs in the parameter
+    // list.
+    FunctionDecl *SpecializedDecl = PrimaryTemplate->getTemplatedDecl();
+    if (!SpecializedDecl->getParamDecl(0)->getType()->isDependentType())
+      return false;
+    for (unsigned Idx = 1; Idx < getNumParams(); ++Idx) {
+      if (SpecializedDecl->getParamDecl(Idx)->getType()->isDependentType())
+        return false;
+    }
+    return true;
+  }
 
   // C++ [basic.stc.dynamic.deallocation]p2:
   //   A template instance is never a usual deallocation function,
   //   regardless of its signature.
+  // Post-P2719 adoption:
+  //   A template instance is is only a usual deallocation function if it has a
+  //   type-identity parameter
   if (getPrimaryTemplate())
     return false;
 
@@ -2835,7 +2896,8 @@ CXXConstructorDecl::CXXConstructorDecl(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
-    InheritedConstructor Inherited, Expr *TrailingRequiresClause,
+    InheritedConstructor Inherited,
+    const AssociatedConstraint &TrailingRequiresClause,
     ContractSpecifierDecl *Contracts)
     : CXXMethodDecl(CXXConstructor, C, RD, StartLoc, NameInfo, T, TInfo,
                     SC_None, UsesFPIntrin, isInline, ConstexprKind,
@@ -2863,7 +2925,8 @@ CXXConstructorDecl *CXXConstructorDecl::CreateDeserialized(ASTContext &C,
   auto *Result = new (C, ID, Extra) CXXConstructorDecl(
       C, nullptr, SourceLocation(), DeclarationNameInfo(), QualType(), nullptr,
       ExplicitSpecifier(), false, false, false, ConstexprSpecKind::Unspecified,
-      InheritedConstructor(), nullptr, /*Contracts=*/{});
+      InheritedConstructor(), /*TrailingRequiresClause=*/{}, /*Contracts=*/{});
+
   Result->setInheritingConstructor(isInheritingConstructor);
   Result->CXXConstructorDeclBits.HasTrailingExplicitSpecifier =
       hasTrailingExplicit;
@@ -2876,8 +2939,10 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
-    InheritedConstructor Inherited, Expr *TrailingRequiresClause,
+    InheritedConstructor Inherited,
+    const AssociatedConstraint &TrailingRequiresClause,
     ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConstructorName &&
          "Name must refer to a constructor");
@@ -3004,15 +3069,20 @@ CXXDestructorDecl *CXXDestructorDecl::CreateDeserialized(ASTContext &C,
                                                          GlobalDeclID ID) {
   return new (C, ID) CXXDestructorDecl(
       C, nullptr, SourceLocation(), DeclarationNameInfo(), QualType(), nullptr,
-      false, false, false, ConstexprSpecKind::Unspecified, nullptr, {});
+      false, false, false, ConstexprSpecKind::Unspecified,
+      /*TrailingRequiresClause=*/{},
+      /*Contracts=*/{});
+
 }
 
 CXXDestructorDecl *CXXDestructorDecl::Create(
     ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
-    ConstexprSpecKind ConstexprKind, Expr *TrailingRequiresClause,
+    ConstexprSpecKind ConstexprKind,
+    const AssociatedConstraint &TrailingRequiresClause,
     ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXDestructorName &&
          "Name must refer to a destructor");
@@ -3060,7 +3130,7 @@ CXXConversionDecl *CXXConversionDecl::CreateDeserialized(ASTContext &C,
   return new (C, ID) CXXConversionDecl(
       C, nullptr, SourceLocation(), DeclarationNameInfo(), QualType(), nullptr,
       false, false, ExplicitSpecifier(), ConstexprSpecKind::Unspecified,
-      SourceLocation(), nullptr);
+      SourceLocation(), /*TrailingRequiresClause=*/{});
 }
 
 CXXConversionDecl *CXXConversionDecl::Create(
@@ -3068,7 +3138,9 @@ CXXConversionDecl *CXXConversionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
     ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-    Expr *TrailingRequiresClause, ContractSpecifierDecl *Contracts) {
+    const AssociatedConstraint &TrailingRequiresClause,
+        ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConversionFunctionName &&
          "Name must refer to a conversion function");

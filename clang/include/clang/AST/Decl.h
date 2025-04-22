@@ -33,6 +33,7 @@
 #include "clang/Basic/PragmaKinds.h"
 #include "clang/Basic/SourceLocation.h"
 #include "clang/Basic/Specifiers.h"
+#include "clang/Basic/UnsignedOrNone.h"
 #include "clang/Basic/Visibility.h"
 #include "llvm/ADT/APSInt.h"
 #include "llvm/ADT/ArrayRef.h"
@@ -81,6 +82,23 @@ class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
 enum class ContractKind;
+
+// Holds a constraint expression along with a pack expansion index, if
+// expanded.
+struct AssociatedConstraint {
+  const Expr *ConstraintExpr = nullptr;
+  UnsignedOrNone ArgPackSubstIndex = std::nullopt;
+
+  constexpr AssociatedConstraint() = default;
+
+  explicit AssociatedConstraint(const Expr *ConstraintExpr,
+                                UnsignedOrNone ArgPackSubstIndex = std::nullopt)
+      : ConstraintExpr(ConstraintExpr), ArgPackSubstIndex(ArgPackSubstIndex) {}
+
+  explicit operator bool() const { return ConstraintExpr != nullptr; }
+
+  bool isNull() const { return !operator bool(); }
+};
 
 /// The top declaration context.
 class TranslationUnitDecl : public Decl,
@@ -746,7 +764,7 @@ class DeclaratorDecl : public ValueDecl {
   // constrained function decls or functions with contracts.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo = nullptr;
-    Expr *TrailingRequiresClause = nullptr;
+    AssociatedConstraint TrailingRequiresClause;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -815,17 +833,12 @@ public:
   /// \brief Get the constraint-expression introduced by the trailing
   /// requires-clause in the function/member declaration, or null if no
   /// requires-clause was provided.
-  Expr *getTrailingRequiresClause() {
-    return hasExtInfo() ? getExtInfo()->TrailingRequiresClause
-                        : nullptr;
+  const AssociatedConstraint &getTrailingRequiresClause() const {
+    static constexpr AssociatedConstraint Null;
+    return hasExtInfo() ? getExtInfo()->TrailingRequiresClause : Null;
   }
 
-  const Expr *getTrailingRequiresClause() const {
-    return hasExtInfo() ? getExtInfo()->TrailingRequiresClause
-                        : nullptr;
-  }
-
-  void setTrailingRequiresClause(Expr *TrailingRequiresClause);
+  void setTrailingRequiresClause(const AssociatedConstraint &AC);
 
   unsigned getNumTemplateParameterLists() const {
     return hasExtInfo() ? getExtInfo()->NumTemplParamLists : 0;
@@ -2111,7 +2124,7 @@ protected:
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
-               Expr *TrailingRequiresClause = nullptr,
+               const AssociatedConstraint &TrailingRequiresClause,
                ContractSpecifierDecl *Contracts = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
@@ -2148,7 +2161,7 @@ public:
          TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
-         Expr *TrailingRequiresClause = nullptr,
+         const AssociatedConstraint &TrailingRequiresClause = {},
          ContractSpecifierDecl *Contracts = nullptr) {
 
     DeclarationNameInfo NameInfo(N, NLoc);
@@ -2163,7 +2176,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         Expr *TrailingRequiresClause, ContractSpecifierDecl *Contracts);
+         const AssociatedConstraint &TrailingRequiresClause, ContractSpecifierDecl *Contracts);
+
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -2551,7 +2565,39 @@ public:
   /// If this function is an allocation/deallocation function that takes
   /// the `std::nothrow_t` tag, return true through IsNothrow,
   bool isReplaceableGlobalAllocationFunction(
-      std::optional<unsigned> *AlignmentParam = nullptr,
+      UnsignedOrNone *AlignmentParam = nullptr,
+      bool *IsNothrow = nullptr) const {
+    if (isTypeAwareOperatorNewOrDelete())
+      return false;
+    return isUsableAsGlobalAllocationFunctionInConstantEvaluation(
+        AlignmentParam, IsNothrow);
+  }
+
+  /// Determines whether this function is one of the replaceable global
+  /// allocation functions described in isReplaceableGlobalAllocationFunction,
+  /// or is a function that may be treated as such during constant evaluation.
+  /// This adds support for potentially templated type aware global allocation
+  /// functions of the form:
+  ///    void *operator new(type-identity, std::size_t, std::align_val_t)
+  ///    void *operator new(type-identity, std::size_t, std::align_val_t,
+  ///                       const std::nothrow_t &) noexcept;
+  ///    void *operator new[](type-identity, std::size_t, std::align_val_t)
+  ///    void *operator new[](type-identity, std::size_t, std::align_val_t,
+  ///                         const std::nothrow_t &) noexcept;
+  ///    void operator delete(type-identity, void*, std::size_t,
+  ///                         std::align_val_t) noexcept;
+  ///    void operator delete(type-identity, void*, std::size_t,
+  ///                         std::align_val_t, const std::nothrow_t&) noexcept;
+  ///    void operator delete[](type-identity, void*, std::size_t,
+  ///                         std::align_val_t) noexcept;
+  ///    void operator delete[](type-identity, void*, std::size_t,
+  ///                         std::align_val_t, const std::nothrow_t&) noexcept;
+  /// Where `type-identity` is a specialization of std::type_identity. If the
+  /// declaration is a templated function, it may not include a parameter pack
+  /// in the argument list, the type-identity parameter is required to be
+  /// dependent, and is the only permitted dependent parameter.
+  bool isUsableAsGlobalAllocationFunctionInConstantEvaluation(
+      UnsignedOrNone *AlignmentParam = nullptr,
       bool *IsNothrow = nullptr) const;
 
   /// Determine if this function provides an inline implementation of a builtin.
@@ -2559,6 +2605,20 @@ public:
 
   /// Determine whether this is a destroying operator delete.
   bool isDestroyingOperatorDelete() const;
+  void setIsDestroyingOperatorDelete(bool IsDestroyingDelete);
+
+  /// Count of mandatory parameters for type aware operator new
+  static constexpr unsigned RequiredTypeAwareNewParameterCount =
+      /* type-identity */ 1 + /* size */ 1 + /* alignment */ 1;
+
+  /// Count of mandatory parameters for type aware operator delete
+  static constexpr unsigned RequiredTypeAwareDeleteParameterCount =
+      /* type-identity */ 1 + /* address */ 1 + /* size */ 1 +
+      /* alignment */ 1;
+
+  /// Determine whether this is a type aware operator new or delete.
+  bool isTypeAwareOperatorNewOrDelete() const;
+  void setIsTypeAwareOperatorNewOrDelete(bool IsTypeAwareOperator = true);
 
   /// Compute the language linkage.
   LanguageLinkage getLanguageLinkage() const;
@@ -2655,9 +2715,10 @@ public:
   ///
   /// Use this instead of getTrailingRequiresClause for concepts APIs that
   /// accept an ArrayRef of constraint expressions.
-  void getAssociatedConstraints(SmallVectorImpl<const Expr *> &AC) const {
-    if (auto *TRC = getTrailingRequiresClause())
-      AC.push_back(TRC);
+  void
+  getAssociatedConstraints(SmallVectorImpl<AssociatedConstraint> &ACs) const {
+    if (const AssociatedConstraint &AC = getTrailingRequiresClause())
+      ACs.emplace_back(AC);
   }
 
   /// Get the message that indicates why this function was deleted.
@@ -3078,6 +3139,8 @@ public:
   static FunctionDecl *castFromDeclContext(const DeclContext *DC) {
     return static_cast<FunctionDecl *>(const_cast<DeclContext*>(DC));
   }
+
+  bool isReferenceableKernel() const;
 };
 
 /// Represents a member of a struct/union/class.

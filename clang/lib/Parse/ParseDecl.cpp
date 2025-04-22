@@ -2077,10 +2077,9 @@ Parser::DeclGroupPtrTy Parser::ParseDeclaration(DeclaratorContext Context,
     ProhibitAttributes(DeclSpecAttrs);
     return ParseNamespace(Context, DeclEnd);
   case tok::kw_using: {
-    ParsedAttributes Attrs(AttrFactory);
-    takeAndConcatenateAttrs(DeclAttrs, DeclSpecAttrs, Attrs);
+    takeAndConcatenateAttrs(DeclAttrs, std::move(DeclSpecAttrs));
     return ParseUsingDirectiveOrDeclaration(Context, ParsedTemplateInfo(),
-                                            DeclEnd, Attrs);
+                                            DeclEnd, DeclAttrs);
   }
   case tok::kw_static_assert:
   case tok::kw__Static_assert:
@@ -3426,6 +3425,45 @@ void Parser::DistributeCLateParsedAttrs(Decl *Dcl,
   }
 }
 
+/// type-qualifier:
+///    ('__ptrauth') '(' constant-expression
+///                   (',' constant-expression)[opt]
+///                   (',' constant-expression)[opt] ')'
+void Parser::ParsePtrauthQualifier(ParsedAttributes &Attrs) {
+  assert(Tok.is(tok::kw___ptrauth));
+
+  IdentifierInfo *KwName = Tok.getIdentifierInfo();
+  SourceLocation KwLoc = ConsumeToken();
+
+  BalancedDelimiterTracker T(*this, tok::l_paren);
+  if (T.expectAndConsume())
+    return;
+
+  ArgsVector ArgExprs;
+  do {
+    ExprResult ER = ParseAssignmentExpression();
+    if (ER.isInvalid()) {
+      T.skipToEnd();
+      return;
+    }
+    ArgExprs.push_back(ER.get());
+  } while (TryConsumeToken(tok::comma));
+
+  T.consumeClose();
+  SourceLocation EndLoc = T.getCloseLocation();
+
+  if (ArgExprs.empty() || ArgExprs.size() > 3) {
+    Diag(KwLoc, diag::err_ptrauth_qualifier_bad_arg_count);
+    return;
+  }
+
+  Attrs.addNew(KwName, SourceRange(KwLoc, EndLoc),
+               /*scope*/ nullptr, SourceLocation(), ArgExprs.data(),
+               ArgExprs.size(),
+               ParsedAttr::Form::Keyword(/*IsAlignAs=*/false,
+                                         /*IsRegularKeywordAttribute=*/false));
+}
+
 /// Bounds attributes (e.g., counted_by):
 ///   AttrName '(' expression ')'
 void Parser::ParseBoundsAttribute(IdentifierInfo &AttrName,
@@ -4293,6 +4331,11 @@ void Parser::ParseDeclarationSpecifiers(
                                  getLangOpts());
       break;
 
+    // __ptrauth qualifier.
+    case tok::kw___ptrauth:
+      ParsePtrauthQualifier(DS.getAttributes());
+      continue;
+
     case tok::kw___sptr:
     case tok::kw___uptr:
     case tok::kw___ptr64:
@@ -4434,6 +4477,10 @@ void Parser::ParseDeclarationSpecifiers(
           !getActions().getOpenCLOptions().isAvailableOption(
               "__cl_clang_function_pointers", getLangOpts())) {
         DiagID = diag::err_openclcxx_virtual_function;
+        PrevSpec = Tok.getIdentifierInfo()->getNameStart();
+        isInvalid = true;
+      } else if (getLangOpts().HLSL) {
+        DiagID = diag::err_hlsl_virtual_function;
         PrevSpec = Tok.getIdentifierInfo()->getNameStart();
         isInvalid = true;
       } else {
@@ -5195,7 +5242,9 @@ void Parser::ParseStructUnionBody(SourceLocation RecordLoc,
     }
 
     if (Tok.is(tok::annot_pragma_openacc)) {
-      ParseOpenACCDirectiveDecl();
+      AccessSpecifier AS = AS_none;
+      ParsedAttributes Attrs(AttrFactory);
+      ParseOpenACCDirectiveDecl(AS, Attrs, TagType, TagDecl);
       continue;
     }
 
@@ -5472,11 +5521,8 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
       BaseRange = SourceRange(ColonLoc, DeclaratorInfo.getSourceRange().getEnd());
 
       if (!getLangOpts().ObjC) {
-        if (getLangOpts().CPlusPlus11)
-          Diag(ColonLoc, diag::warn_cxx98_compat_enum_fixed_underlying_type)
-              << BaseRange;
-        else if (getLangOpts().CPlusPlus)
-          Diag(ColonLoc, diag::ext_cxx11_enum_fixed_underlying_type)
+        if (getLangOpts().CPlusPlus)
+          DiagCompat(ColonLoc, diag_compat::enum_fixed_underlying_type)
               << BaseRange;
         else if (getLangOpts().MicrosoftExt && !getLangOpts().C23)
           Diag(ColonLoc, diag::ext_ms_c_enum_fixed_underlying_type)
@@ -5677,7 +5723,7 @@ void Parser::ParseEnumSpecifier(SourceLocation StartLoc, DeclSpec &DS,
     Decl *D = SkipBody.CheckSameAsPrevious ? SkipBody.New : TagDecl;
     ParseEnumBody(StartLoc, D);
     if (SkipBody.CheckSameAsPrevious &&
-        !Actions.ActOnDuplicateDefinition(TagDecl, SkipBody)) {
+        !Actions.ActOnDuplicateDefinition(getCurScope(), TagDecl, SkipBody)) {
       DS.SetTypeSpecError();
       return;
     }
@@ -6003,6 +6049,7 @@ bool Parser::isTypeSpecifierQualifier() {
   case tok::kw___ptr32:
   case tok::kw___pascal:
   case tok::kw___unaligned:
+  case tok::kw___ptrauth:
 
   case tok::kw__Nonnull:
   case tok::kw__Nullable:
@@ -6292,6 +6339,7 @@ bool Parser::isDeclarationSpecifier(
   case tok::kw___forceinline:
   case tok::kw___pascal:
   case tok::kw___unaligned:
+  case tok::kw___ptrauth:
 
   case tok::kw__Nonnull:
   case tok::kw__Nullable:
@@ -6554,6 +6602,12 @@ void Parser::ParseTypeQualifierListOpt(
     case tok::kw_out:
       // NOTE: ParseHLSLQualifiers will consume the qualifier token.
       ParseHLSLQualifiers(DS.getAttributes());
+      continue;
+
+    // __ptrauth qualifier.
+    case tok::kw___ptrauth:
+      ParsePtrauthQualifier(DS.getAttributes());
+      EndLoc = PrevTokLocation;
       continue;
 
     case tok::kw___unaligned:
