@@ -701,7 +701,7 @@ public:
 
   bool isCapturedAcrossContract() const { return CapturedAcrossContract; }
   bool setIsCapturedAcrossContract(bool value = true) {
-    return CapturedAcrossContract = value;
+    return (CapturedAcrossContract = value);
   }
 
   /// Retrieve the location at which this variable was captured.

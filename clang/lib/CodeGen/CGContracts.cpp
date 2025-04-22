@@ -395,6 +395,7 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
     case QuickEnforce:
       return Shared;
     case ContractEvaluationSemantic::Ignore:
+    
       llvm_unreachable("unhandled semantic");
     }
   }();

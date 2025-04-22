@@ -336,6 +336,12 @@ struct ScopeEntry {
   unsigned ContractScopeIndex = 0;
   const ContractScopeRecord *CSR = nullptr;
 
+  ScopeEntry(const DeclContext *DC, unsigned FSII, const FunctionScopeInfo *FSI,
+             unsigned CSII, const ContractScopeRecord *CSR) :
+        Ctx(DC), FunctionScopeIndex(FSII), FSI(FSI),
+        ContractScopeIndex(CSII), CSR(CSR) {
+  }
+
   bool capturesVariable(const ValueDecl *VD) const {
     return getCaptureIfCaptured(VD).has_value();
   }
