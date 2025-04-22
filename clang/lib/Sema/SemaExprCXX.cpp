@@ -344,10 +344,12 @@ ParsedType Sema::getDestructorName(const IdentifierInfo &II,
     // We didn't find our type, but that's OK: it's dependent anyway.
 
     // FIXME: What if we have no nested-name-specifier?
+    TypeSourceInfo *TSI = nullptr;
     QualType T =
         CheckTypenameType(ElaboratedTypeKeyword::None, SourceLocation(),
-                          SS.getWithLocInContext(Context), II, NameLoc);
-    return ParsedType::make(T);
+                          SS.getWithLocInContext(Context), II, NameLoc, &TSI,
+                          /*DeducedTSTContext=*/true);
+    return CreateParsedType(T, TSI);
   }
 
   // The remaining cases are all non-standard extensions imitating the behavior
@@ -2581,7 +2583,7 @@ ExprResult Sema::BuildCXXNew(SourceRange Range, bool UseGlobal,
                               : &OpaqueAllocationSize);
     if (isAlignedAllocation(IAP.PassAlignment))
       CallArgs.emplace_back(&DesiredAlignment);
-    CallArgs.insert(CallArgs.end(), PlacementArgs.begin(), PlacementArgs.end());
+    llvm::append_range(CallArgs, PlacementArgs);
 
     DiagnoseSentinelCalls(OperatorNew, PlacementLParen, CallArgs);
 
@@ -3018,7 +3020,7 @@ bool Sema::FindAllocationFunctions(
   if (IncludeAlignParam)
     AllocArgs.push_back(&Align);
 
-  AllocArgs.insert(AllocArgs.end(), PlaceArgs.begin(), PlaceArgs.end());
+  llvm::append_range(AllocArgs, PlaceArgs);
 
   // Find the allocation function.
   {
@@ -4794,19 +4796,13 @@ Sema::PerformImplicitConversion(Expr *From, QualType ToType,
   case ICK_HLSL_Array_RValue:
     if (ToType->isArrayParameterType()) {
       FromType = Context.getArrayParameterType(FromType);
-      From = ImpCastExprToType(From, FromType, CK_HLSLArrayRValue, VK_PRValue,
-                               /*BasePath=*/nullptr, CCK)
-                 .get();
-    } else { // FromType must be ArrayParameterType
-      assert(FromType->isArrayParameterType() &&
-             "FromType must be ArrayParameterType in ICK_HLSL_Array_RValue \
-              if it is not ToType");
+    } else if (FromType->isArrayParameterType()) {
       const ArrayParameterType *APT = cast<ArrayParameterType>(FromType);
       FromType = APT->getConstantArrayType(Context);
-      From = ImpCastExprToType(From, FromType, CK_HLSLArrayRValue, VK_PRValue,
-                               /*BasePath=*/nullptr, CCK)
-                 .get();
     }
+    From = ImpCastExprToType(From, FromType, CK_HLSLArrayRValue, VK_PRValue,
+                             /*BasePath=*/nullptr, CCK)
+               .get();
     break;
 
   case ICK_Function_To_Pointer:

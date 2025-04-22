@@ -4219,7 +4219,7 @@ public:
       ArrayRef<OpenACCClause *> Clauses) {
     llvm::SmallVector<Expr *> Exprs;
     Exprs.push_back(DevNumExpr);
-    Exprs.insert(Exprs.end(), QueueIdExprs.begin(), QueueIdExprs.end());
+    llvm::append_range(Exprs, QueueIdExprs);
     return getSema().OpenACC().ActOnEndStmtDirective(
         OpenACCDirectiveKind::Wait, BeginLoc, DirLoc, LParenLoc, QueuesLoc,
         Exprs, OpenACCAtomicKind::None, RParenLoc, EndLoc, Clauses, {});
@@ -12412,9 +12412,6 @@ void OpenACCClauseTransform<Derived>::VisitCollapseClause(
 
   NewLoopCount =
       Self.getSema().OpenACC().CheckCollapseLoopCount(NewLoopCount.get());
-
-  if (!NewLoopCount.isUsable())
-    return;
 
   ParsedClause.setCollapseDetails(C.hasForce(), NewLoopCount.get());
   NewClause = OpenACCCollapseClause::Create(

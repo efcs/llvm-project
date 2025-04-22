@@ -1121,6 +1121,8 @@ func.func @bitcast_folding(%I1: vector<4x8xf32>, %I2: vector<2xi32>) -> (vector<
   return %0, %2 : vector<4x8xf32>, vector<2xi32>
 }
 
+// -----
+
 // CHECK-LABEL: func @bitcast_f16_to_f32
 //              bit pattern: 0x40004000
 //       CHECK-DAG: %[[CST1:.+]] = arith.constant dense<2.00390625> : vector<4xf32>
@@ -1134,6 +1136,8 @@ func.func @bitcast_f16_to_f32() -> (vector<4xf32>, vector<4xf32>) {
   %cast1 = vector.bitcast %cst1: vector<8xf16> to vector<4xf32>
   return %cast0, %cast1: vector<4xf32>, vector<4xf32>
 }
+
+// -----
 
 // CHECK-LABEL: func @bitcast_i8_to_i32
 //              bit pattern: 0xA0A0A0A0
@@ -1732,6 +1736,7 @@ func.func @vector_multi_reduction_unit_dimensions(%source: vector<5x1x4x1x20xf32
 }
 
 // -----
+
 // CHECK-LABEL:   func.func @vector_multi_reduction_scalable(
 // CHECK-SAME:     %[[VAL_0:.*]]: vector<1x[4]x1xf32>,
 // CHECK-SAME:     %[[VAL_1:.*]]: vector<1x[4]xf32>,
@@ -2248,6 +2253,8 @@ func.func @transpose_splat_constant() -> vector<8x4xf32> {
   %0 = vector.transpose %cst, [1, 0] : vector<4x8xf32> to vector<8x4xf32>
   return %0 : vector<8x4xf32>
 }
+
+// -----
 
 // CHECK-LABEL:   func @transpose_splat2(
 // CHECK-SAME:                           %[[VAL_0:.*]]: f32) -> vector<3x4xf32> {
@@ -3303,4 +3310,42 @@ func.func @fold_insert_constant_indices(%arg : vector<4x1xi32>) -> vector<4x1xi3
   %1 = arith.constant 1 : i32
   %res = vector.insert %1, %arg[%0, %0] : i32 into vector<4x1xi32>
   return %res : vector<4x1xi32>
+}
+
+// -----
+
+// Check that out of bounds indices are not folded for vector.insert.
+
+// CHECK-LABEL: @fold_insert_oob
+//  CHECK-SAME:   %[[ARG:.*]]: vector<4x1x2xi32>) -> vector<4x1x2xi32> {
+//       CHECK:   %[[OOB1:.*]] = arith.constant -2 : index
+//       CHECK:   %[[OOB2:.*]] = arith.constant 2 : index
+//       CHECK:   %[[VAL:.*]] = arith.constant 1 : i32
+//       CHECK:   %[[RES:.*]] = vector.insert %[[VAL]], %[[ARG]] [0, %[[OOB1]], %[[OOB2]]] : i32 into vector<4x1x2xi32>
+//       CHECK:   return %[[RES]] : vector<4x1x2xi32>
+func.func @fold_insert_oob(%arg : vector<4x1x2xi32>) -> vector<4x1x2xi32> {
+  %c0 = arith.constant 0 : index
+  %c-2 = arith.constant -2 : index
+  %c2 = arith.constant 2 : index
+  %c1 = arith.constant 1 : i32
+  %res = vector.insert %c1, %arg[%c0, %c-2, %c2] : i32 into vector<4x1x2xi32>
+  return %res : vector<4x1x2xi32>
+}
+
+// -----
+
+// Check that out of bounds indices are not folded for vector.extract.
+
+// CHECK-LABEL: @fold_extract_oob
+//  CHECK-SAME:   %[[ARG:.*]]: vector<4x1x2xi32>) -> i32 {
+//       CHECK:   %[[OOB1:.*]] = arith.constant -2 : index
+//       CHECK:   %[[OOB2:.*]] = arith.constant 2 : index
+//       CHECK:   %[[RES:.*]] = vector.extract %[[ARG]][0, %[[OOB1]], %[[OOB2]]] : i32 from vector<4x1x2xi32>
+//       CHECK:   return %[[RES]] : i32
+func.func @fold_extract_oob(%arg : vector<4x1x2xi32>) -> i32 {
+  %c0 = arith.constant 0 : index
+  %c-2 = arith.constant -2 : index
+  %c2 = arith.constant 2 : index
+  %res = vector.extract %arg[%c0, %c-2, %c2] : i32 from vector<4x1x2xi32>
+  return %res : i32
 }
