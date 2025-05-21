@@ -27,6 +27,7 @@
 #endif
 
 _LIBCPP_BEGIN_NAMESPACE_STD
+_LIBCPP_BEGIN_EXPLICIT_ABI_ANNOTATIONS
 
 #if defined(_LIBCPP_WIN32API)
 
@@ -366,8 +367,11 @@ void __throw_system_error(int ev, const char* what_arg) {
 #endif
 }
 
+
 void contract_violation() {
   std::abort();
 }
+
+_LIBCPP_END_EXPLICIT_ABI_ANNOTATIONS
 
 _LIBCPP_END_NAMESPACE_STD

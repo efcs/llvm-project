@@ -78,6 +78,7 @@ add_clang_library(clangBasic
   MakeSupport.cpp
   Module.cpp
   ObjCRuntime.cpp
+  OffloadArch.cpp
   OpenCLOptions.cpp
   OpenMPKinds.cpp
   OperatorPrecedence.cpp
@@ -135,8 +136,7 @@ add_clang_library(clangBasic
   omp_gen
   ClangDriverOptions
   # These generated headers are included transitively.
-  ARMTargetParserTableGen
-  AArch64TargetParserTableGen
+  target_parser_gen
   )
 
 target_link_libraries(clangBasic

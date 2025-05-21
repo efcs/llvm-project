@@ -34,7 +34,8 @@ void transform::ApplyVectorToLLVMConversionPatternsOp::populatePatterns(
     TypeConverter &typeConverter, RewritePatternSet &patterns) {
   populateVectorToLLVMConversionPatterns(
       static_cast<LLVMTypeConverter &>(typeConverter), patterns,
-      getReassociateFpReductions(), getForce_32bitVectorIndices());
+      getReassociateFpReductions(), getForce_32bitVectorIndices(),
+      getUseVectorAlignment());
 }
 
 LogicalResult
@@ -67,10 +68,6 @@ void transform::ApplyFoldElementwiseToVectorPatternsOp::populatePatterns(
 void transform::ApplyVectorReductionToContractPatternsOp::populatePatterns(
     RewritePatternSet &patterns) {
   vector::populateVectorReductionToContractPatterns(patterns);
-
-  // TODO: As we now have a dedicated transform for
-  // `populateSinkVectorOpsPatterns` we can remove it from here.
-  vector::populateSinkVectorOpsPatterns(patterns);
 }
 
 void transform::ApplyLowerCreateMaskPatternsOp::populatePatterns(
