@@ -157,3 +157,53 @@ __handle_contract_violation_v3(_EvaluationSemantic __semantic, _DetectionMode __
     std::terminate();
   }
 }
+
+namespace {
+
+void __run_violation_handler(const std::contracts::contract_violation& violation) {
+  if (::handle_contract_violation)
+    ::handle_contract_violation(violation);
+  else
+    invoke_default_contract_violation_handler(violation);
+
+  if (violation.semantic() == evaluation_semantic::enforce)
+    std::terminate();
+}
+
+void __run_nothrow_violation_handler(const std::contracts::contract_violation& violation) noexcept {
+#if _LIBCPP_HAS_EXCEPTIONS
+try {
+#endif
+  __run_violation_handler(violation);
+#if _LIBCPP_HAS_EXCEPTIONS
+  } catch (...) {
+    std::terminate();
+  }
+#endif
+}
+
+} // end namespace
+
+void std::contracts::__handle_manual_contract_violation(
+  assertion_kind __kind,
+  evaluation_semantic __semantic,
+  detection_mode __mode,
+  const char* __comment,
+  std::source_location __loc,
+  const std::nothrow_t* __nothrow
+) {
+  _ContractViolationImpl __impl{
+      .kind     = __kind,
+      .semantic = __semantic,
+      .mode     = __mode,
+      .comment  = __comment ? __comment : "<unknown contract violation>",
+      .location = __loc};
+
+  auto violation = __impl.__create_violation();
+  if (__nothrow)
+    __run_nothrow_violation_handler(violation);
+  else
+    __run_violation_handler(violation);
+
+
+}
