@@ -4626,7 +4626,9 @@ class ContractSpecifierDecl final
   using FilterRangeT = llvm::iterator_range<llvm::filter_iterator<
       ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
 
-  virtual void anchor();
+
+  LLVM_DECLARE_VIRTUAL_ANCHOR_FUNCTION();
+
 
 public:
   static ContractSpecifierDecl *Create(ASTContext &C, DeclContext *DC,
