@@ -45,7 +45,7 @@ CXXTryStmt::CXXTryStmt(SourceLocation tryLoc, CompoundStmt *tryBlock,
     : Stmt(CXXTryStmtClass), TryLoc(tryLoc), NumHandlers(handlers.size()) {
   Stmt **Stmts = getStmts();
   Stmts[0] = tryBlock;
-  std::copy(handlers.begin(), handlers.end(), Stmts + 1);
+  llvm::copy(handlers, Stmts + 1);
 }
 
 CXXForRangeStmt::CXXForRangeStmt(Stmt *Init, DeclStmt *Range,
@@ -126,8 +126,7 @@ CoroutineBodyStmt::CoroutineBodyStmt(CoroutineBodyStmt::CtorArgs const &Args)
   SubStmts[CoroutineBodyStmt::ReturnStmt] = Args.ReturnStmt;
   SubStmts[CoroutineBodyStmt::ReturnStmtOnAllocFailure] =
       Args.ReturnStmtOnAllocFailure;
-  std::copy(Args.ParamMoves.begin(), Args.ParamMoves.end(),
-            const_cast<Stmt **>(getParamMoves().data()));
+  llvm::copy(Args.ParamMoves, const_cast<Stmt **>(getParamMoves().data()));
 }
 
 ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,

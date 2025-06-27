@@ -16,7 +16,6 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/Basic/DiagnosticParse.h"
-#include "clang/Basic/FileManager.h"
 #include "clang/Basic/StackExhaustionHandler.h"
 #include "clang/Parse/RAIIObjectsForParser.h"
 #include "clang/Sema/DeclSpec.h"
@@ -1878,6 +1877,11 @@ Parser::TryAnnotateName(CorrectionCandidateCallback *CCC,
   return AnnotatedNameKind::Unresolved;
 }
 
+SourceLocation Parser::getEndOfPreviousToken() const {
+  SourceLocation TokenEndLoc = PP.getLocForEndOfToken(PrevTokLocation);
+  return TokenEndLoc.isValid() ? TokenEndLoc : Tok.getLocation();
+}
+
 bool Parser::TryKeywordIdentFallback(bool DisableKeyword) {
   assert(Tok.isNot(tok::identifier));
   Diag(Tok, diag::ext_keyword_as_ident)
@@ -2340,7 +2344,8 @@ void Parser::ParseMicrosoftIfExistsExternalDeclaration() {
 
 Parser::DeclGroupPtrTy
 Parser::ParseModuleDecl(Sema::ModuleImportState &ImportState) {
-  SourceLocation StartLoc = Tok.getLocation();
+  Token Introducer = Tok;
+  SourceLocation StartLoc = Introducer.getLocation();
 
   Sema::ModuleDeclKind MDK = TryConsumeToken(tok::kw_export)
                                  ? Sema::ModuleDeclKind::Interface
@@ -2359,7 +2364,7 @@ Parser::ParseModuleDecl(Sema::ModuleImportState &ImportState) {
   // Parse a global-module-fragment, if present.
   if (getLangOpts().CPlusPlusModules && Tok.is(tok::semi)) {
     SourceLocation SemiLoc = ConsumeToken();
-    if (ImportState != Sema::ModuleImportState::FirstDecl) {
+    if (!Introducer.isFirstPPToken()) {
       Diag(StartLoc, diag::err_global_module_introducer_not_at_start)
         << SourceRange(StartLoc, SemiLoc);
       return nullptr;
@@ -2416,7 +2421,7 @@ Parser::ParseModuleDecl(Sema::ModuleImportState &ImportState) {
   ExpectAndConsumeSemi(diag::err_module_expected_semi);
 
   return Actions.ActOnModuleDecl(StartLoc, ModuleLoc, MDK, Path, Partition,
-                                 ImportState);
+                                 ImportState, Introducer.isFirstPPToken());
 }
 
 Decl *Parser::ParseModuleImport(SourceLocation AtLoc,

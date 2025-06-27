@@ -262,7 +262,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
   ExprResult Cond = [&]() {
     Sema::ContractScopeRAII ContractScope(Actions, CK, ScopeOffset, KeywordLoc);
-    ExprResult CondResult = Actions.CorrectDelayedTyposInExpr(ParseConditionalExpression());
+    ExprResult CondResult = ParseConditionalExpression();
     if (CondResult.isInvalid())
       return CondResult;
     return Actions.ActOnContractAssertCondition(CondResult.get());
