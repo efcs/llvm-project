@@ -26,10 +26,11 @@ static void __default_violation_handler(const contract_violation& violation) {
       return {"pre(", ")"};
     case _AssertKind::post:
       return {"post(", ")"};
-
     case _AssertKind::assert:
       return {"contract_assert(", ")"};
-
+    case _AssertKind::cassert:
+      return {"assert(", ")"};
+    case _AssertKind::manual:
     case _AssertKind::__unknown:
       return {"", ""};
     }
@@ -190,7 +191,7 @@ void std::contracts::__handle_manual_contract_violation(
   detection_mode __mode,
   const char* __comment,
   std::source_location __loc,
-  const std::nothrow_t* __nothrow
+  bool __can_throw
 ) {
   _ContractViolationImpl __impl{
       .kind     = __kind,
@@ -200,7 +201,7 @@ void std::contracts::__handle_manual_contract_violation(
       .location = __loc};
 
   auto violation = __impl.__create_violation();
-  if (__nothrow)
+  if (!__can_throw)
     __run_nothrow_violation_handler(violation);
   else
     __run_violation_handler(violation);

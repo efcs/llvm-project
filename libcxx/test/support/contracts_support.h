@@ -38,7 +38,7 @@ using DetectionKind = std::contracts::detection_mode;
 
 constexpr AssertKind pre     = AssertKind::pre;
 constexpr AssertKind post    = AssertKind::post;
-constexpr AssertKind cassert = AssertKind::assert;
+constexpr AssertKind contract_assertion = AssertKind::assert;
 
 constexpr Semantic observe = Semantic::observe;
 constexpr Semantic enforce = Semantic::enforce;
@@ -52,8 +52,12 @@ constexpr std::string_view enum_to_string(AssertKind K) {
     return "pre";
   case post:
     return "post";
-  case cassert:
+  case AssertKind::assert:
     return "contract_assert";
+  case AssertKind::manual:
+    return "manual";
+  case AssertKind::cassert:
+  return "assert";
   case AssertKind::__unknown:
     return "<unknown>";
   }
@@ -74,6 +78,8 @@ constexpr std::string_view enum_to_string(DetectionKind D) {
     return "failed";
   case exception:
     return "exception";
+  case DetectionKind::unspecified:
+    return "unspecified";
   case DetectionKind::__unknown:
     return "<unknown>";
   }

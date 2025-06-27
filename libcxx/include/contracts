@@ -5,6 +5,8 @@
 #include <source_location>
 #include <version>
 #include <__new/nothrow_t.h>
+#include <__utility/unreachable.h>
+
 
 #if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
 #pragma GCC system_header
@@ -16,7 +18,7 @@ enum class assertion_kind : unsigned char { __unknown = 0, pre = 1, post = 2, as
 using _AssertKind = assertion_kind;
 enum class evaluation_semantic : unsigned char { __unknown = 0, enforce = 1, observe = 2 };
 using _EvaluationSemantic = evaluation_semantic;
-enum class detection_mode : unsigned char { __unknown = 0, predicate_false = 1, evaluation_exception = 2, unspecified =  };
+enum class detection_mode : unsigned char { __unknown = 0, predicate_false = 1, evaluation_exception = 2, unspecified = 3 };
 using _DetectionMode = detection_mode;
 
 struct _ContractViolationImpl;
@@ -50,74 +52,50 @@ _LIBCPP_EXPORTED_FROM_ABI void __handle_manual_contract_violation(
   detection_mode __mode,
   const char* __comment,
   std::source_location __loc,
-  const nothrow_t* __can_throw = nullptr
+  bool __can_throw
 );
 
 
 inline void handle_observed_contract_violation(
-    const char* __comment) {
-    __handle_manual_contract_violation(assertion_kind::manual,
-      evaluation_semantic::observe, detection_mode::unspecified,
-      __comment, std::source_location{});
-}
-inline void handle_observed_contract_violation(
     const char* __comment,
-    const std::source_location &__loc) {
+    const std::source_location &__loc = std::source_location::current()) {
   __handle_manual_contract_violation(assertion_kind::manual,
                                      evaluation_semantic::observe, detection_mode::unspecified,
-                                     __comment, __loc);
+                                     __comment, __loc,
+                                     /*__can_throw=*/true);
 }
 
 inline void handle_observed_contract_violation(
+    nothrow_t,
     const char* __comment,
-    const std::nothrow_t&) noexcept {
+    const std::source_location& __loc = std::source_location::current()) noexcept {
 __handle_manual_contract_violation(assertion_kind::manual,
     evaluation_semantic::observe, detection_mode::unspecified,
-    __comment, std::source_location{}, &std::nothrow);
-}
-
-inline void handle_observed_contract_violation(
-    const char* __comment,
-    const std::source_location& __loc,
-    const std::nothrow_t&) noexcept {
-__handle_manual_contract_violation(assertion_kind::manual,
-    evaluation_semantic::observe, detection_mode::unspecified,
-    __comment, __loc, &std::nothrow);
+    __comment, __loc, /*__can_throw=*/false);
 
 }
 
 
 
 [[noreturn]]  inline void handle_enforced_contract_violation(
-    const char* __comment) {
+    const char* __comment,
+    const std::source_location &__loc = std::source_location::current()) {
   __handle_manual_contract_violation(assertion_kind::manual,
                                      evaluation_semantic::enforce, detection_mode::unspecified,
-                                     __comment, std::source_location{});
-}
-[[noreturn]]  inline void handle_enforced_contract_violation(
-    const char* __comment,
-    const std::source_location &__loc) {
-  __handle_manual_contract_violation(assertion_kind::manual,
-                                     evaluation_semantic::enforce, detection_mode::unspecified,
-                                     __comment, __loc);
+                                     __comment, __loc, /*__can_throw=*/true);
+  __libcpp_unreachable();
 }
 
-[[noreturn]]  inline void handle_enforced_contract_violation(
-    const char* __comment,
-    const std::nothrow_t&) noexcept {
-__handle_manual_contract_violation(assertion_kind::manual,
-    evaluation_semantic::enforce, detection_mode::unspecified,
-    __comment, std::source_location{}, &std::nothrow);
-}
 
 [[noreturn]] inline void handle_enforced_contract_violation(
+    std::nothrow_t,
     const char* __comment,
-    const std::source_location& __loc,
-    const std::nothrow_t&) noexcept {
-__handle_manual_contract_violation(assertion_kind::manual,
-    evaluation_semantic::enforce, detection_mode::unspecified,
-    __comment, __loc, &std::nothrow);
-
+    const std::source_location& __loc = std::source_location::current()
+    ) noexcept {
+  __handle_manual_contract_violation(assertion_kind::manual,
+      evaluation_semantic::enforce, detection_mode::unspecified,
+      __comment, __loc, /*__can_throw=*/false);
+  __libcpp_unreachable();
 }
 
 } // namespace std::contracts

@@ -183,6 +183,11 @@ constexpr bool test() {
     });
   });
 
+
+  return true;
+}
+
+constexpr bool test_expensive() {
   { // Test vector<bool>::iterator optimization
     test_vector_bool<8>();
     test_vector_bool<19>();
@@ -200,6 +205,6 @@ static_assert(std::same_as<std::ranges::swap_ranges_result<int, char>, std::rang
 int main(int, char**) {
   test();
   static_assert(test());
-
+  static_assert(test_expensive());
   return 0;
 }
