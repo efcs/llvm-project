@@ -4614,7 +4614,7 @@ class ContractSpecifierDecl final
                         unsigned NumContracts)
       : Decl(Decl::ContractSpecifier, DC, Loc), IsUninstantiated(DC->isDependentContext()),
          NumContracts(NumContracts) {
-    std::uninitialized_fill_n(getTrailingObjects<ContractStmt *>(),
+    std::uninitialized_fill_n(getTrailingObjects(),
                               NumContracts, nullptr);
   }
 
@@ -4640,7 +4640,7 @@ public:
 
 public:
   ArrayRef<ContractStmt *> contracts() const {
-    return llvm::ArrayRef(getTrailingObjects<ContractStmt *>(), NumContracts);
+    return getTrailingObjects(NumContracts);
   }
 
   /// Returns a range representing the preconditions in this contract sequence

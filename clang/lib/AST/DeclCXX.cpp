@@ -3896,7 +3896,7 @@ void ContractSpecifierDecl::setContracts(ArrayRef<ContractStmt *> Contracts) {
       "ContractSpecifierDecl must have at least one contract");
 
   std::copy(Contracts.begin(), Contracts.end(),
-            getTrailingObjects<ContractStmt *>());
+            getTrailingObjects());
   auto *DC = getDeclContext();
   // Update the result names to point to the correct canonical result name.
   ResultNameDecl *CanonicalResultName = nullptr;
