@@ -947,7 +947,7 @@ StmtResult Parser::ParseCompoundStatement(bool isStmtExpr) {
 }
 
 StmtResult Parser::ParseCompoundStatement(bool isStmtExpr,
-                                          unsigned ScopeFlags) {
+                                          unsigned long ScopeFlags) {
   assert(Tok.is(tok::l_brace) && "Not a compound stmt!");
 
   // Enter a scope to hold everything within the compound stmt.  Compound
@@ -1642,7 +1642,7 @@ StmtResult Parser::ParseSwitchStatement(SourceLocation *TrailingElseLoc) {
   // while, for, and switch statements are local to the if, while, for, or
   // switch statement (including the controlled statement).
   //
-  unsigned ScopeFlags = Scope::SwitchScope;
+  unsigned long ScopeFlags = Scope::SwitchScope;
   if (C99orCXX)
     ScopeFlags |= Scope::DeclScope | Scope::ControlScope;
   ParseScope SwitchScope(this, ScopeFlags);
@@ -1726,7 +1726,7 @@ StmtResult Parser::ParseWhileStatement(SourceLocation *TrailingElseLoc) {
   // while, for, and switch statements are local to the if, while, for, or
   // switch statement (including the controlled statement).
   //
-  unsigned ScopeFlags;
+  unsigned long ScopeFlags;
   if (C99orCXX)
     ScopeFlags = Scope::BreakScope | Scope::ContinueScope |
                  Scope::DeclScope  | Scope::ControlScope;
@@ -1783,7 +1783,7 @@ StmtResult Parser::ParseDoStatement() {
 
   // C99 6.8.5p5 - In C99, the do statement is a block.  This is not
   // the case for C90.  Start the loop scope.
-  unsigned ScopeFlags;
+  unsigned long ScopeFlags;
   if (getLangOpts().C99)
     ScopeFlags = Scope::BreakScope | Scope::ContinueScope | Scope::DeclScope;
   else
@@ -1906,7 +1906,7 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc) {
   // Names declared in the for-init-statement are in the same declarative-region
   // as those declared in the condition.
   //
-  unsigned ScopeFlags = 0;
+  unsigned long ScopeFlags = 0;
   if (C99orCXXorObjC)
     ScopeFlags = Scope::DeclScope | Scope::ControlScope;
 
