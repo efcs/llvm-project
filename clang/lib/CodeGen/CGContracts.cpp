@@ -223,6 +223,35 @@ CodeGenFunction::GetSharedContractViolationTrapBlock(bool Create) {
   return ContractData->GetSharedTrapBlock(*this).Block;
 }
 
+static std::string GetMangledContractViolationHandler(
+    ContractEvaluationSemantic Sem,
+    ContractViolationDetection Detect) {
+  std::string result = "__handle_contract_violation_v4";
+  result += [&]() -> const char* {
+    switch (Detect) {
+    case PredicateFailed:
+      return "_pf";
+    case ExceptionRaised:
+      return "_pe";
+
+    }
+    llvm_unreachable("cases should all be handled")
+  }();
+  result += [&]() -> const char* {
+    switch (Sem) {
+    case Observe:
+      return "_so";
+    case Enforce:
+      return "_se";
+    case Ignore:
+    case QuickEnforce:
+      llvm_unreachable("cases should not occur");
+    }
+  }();
+
+  return result;
+}
+
 void CodeGenFunction::EmitHandleContractViolationCall(
     llvm::Constant *EvalSemantic, llvm::Constant *DetectionMode,
     llvm::Value *ViolationInfoGV, bool IsNoReturn) {
