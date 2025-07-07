@@ -234,10 +234,12 @@ void Scope::dumpImpl(raw_ostream &OS) const {
       {OpenMPOrderClauseScope, "OpenMPOrderClauseScope"},
       {LambdaScope, "LambdaScope"},
       {OpenACCComputeConstructScope, "OpenACCComputeConstructScope"},
+      {OpenACCLoopConstructScope, "OpenACCLoopConstructScope"},
       {TypeAliasScope, "TypeAliasScope"},
       {FriendScope, "FriendScope"},
       {ContractAssertScope, "ContractAssertScope"}
   };
+
 
   for (auto Info : FlagInfo) {
     if (Flags & Info.first) {
