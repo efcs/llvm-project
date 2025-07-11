@@ -59,12 +59,16 @@ enum class ContractKind {
 };
 
 // std::contracts::assertion_kind
-enum class StdContractAssertionKind {
+enum class ContractAssertionKind {
   Pre = 1,
 
   Post = 2,
 
   Assert = 3,
+
+  Manual = 4,
+
+  CAssert = 5
 };
 
 /// Contract evaluation mode. Determines whether to check contracts, and
@@ -96,8 +100,8 @@ enum class ContractEvaluationSemantic {
 
 /// The result of checking a contract. The second two values match
 /// std::contracts::detection_mode.
-enum class ContractViolationDetection {
-  NoViolation = 0,
+enum class ContractDetectionMode {
+  Unspecified = 0,
   PredicateFailed = 1,
   ExceptionRaised = 2
 };

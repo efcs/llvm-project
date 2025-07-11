@@ -18,7 +18,7 @@ enum class assertion_kind : unsigned char { __unknown = 0, pre = 1, post = 2, as
 using _AssertKind = assertion_kind;
 enum class evaluation_semantic : unsigned char { __unknown = 0, enforce = 1, observe = 2 };
 using _EvaluationSemantic = evaluation_semantic;
-enum class detection_mode : unsigned char { __unknown = 0, predicate_false = 1, evaluation_exception = 2, unspecified = 3 };
+enum class detection_mode : unsigned char { unspecified = 0, predicate_false = 1, evaluation_exception = 2, };
 using _DetectionMode = detection_mode;
 
 struct _ContractViolationImpl;
@@ -74,8 +74,6 @@ __handle_manual_contract_violation(assertion_kind::manual,
     __comment, __loc, /*__can_throw=*/false);
 
 }
-
-
 
 [[noreturn]]  inline void handle_enforced_contract_violation(
     const char* __comment,

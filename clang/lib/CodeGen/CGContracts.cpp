@@ -43,10 +43,10 @@ constexpr ContractEvaluationSemantic Observe =
 constexpr ContractEvaluationSemantic Ignore =
     ContractEvaluationSemantic::Ignore;
 
-constexpr ContractViolationDetection PredicateFailed =
-    ContractViolationDetection::PredicateFailed;
-constexpr ContractViolationDetection ExceptionRaised =
-    ContractViolationDetection::ExceptionRaised;
+constexpr ContractDetectionMode PredicateFailed =
+    ContractDetectionMode::PredicateFailed;
+constexpr ContractDetectionMode ExceptionRaised =
+    ContractDetectionMode::ExceptionRaised;
 
 namespace clang::CodeGen {
 
@@ -71,7 +71,7 @@ enum ContractEmissionStyle {
 template <class T>
 static llvm::Constant *CreateConstantInt(CodeGenFunction &CGF, T Sem) {
   static_assert(std::is_same_v<T, ContractEvaluationSemantic> ||
-                std::is_same_v<T, ContractViolationDetection>);
+                std::is_same_v<T, ContractDetectionMode>);
   return llvm::ConstantInt::get(CGF.IntTy, (int)Sem);
 }
 
@@ -223,9 +223,10 @@ CodeGenFunction::GetSharedContractViolationTrapBlock(bool Create) {
   return ContractData->GetSharedTrapBlock(*this).Block;
 }
 
+[[maybe_unused]]
 static std::string GetMangledContractViolationHandler(
     ContractEvaluationSemantic Sem,
-    ContractViolationDetection Detect) {
+    ContractDetectionMode Detect) {
   std::string result = "__handle_contract_violation_v4";
   result += [&]() -> const char* {
     switch (Detect) {
@@ -233,9 +234,10 @@ static std::string GetMangledContractViolationHandler(
       return "_pf";
     case ExceptionRaised:
       return "_pe";
-
+    case ContractDetectionMode::Unspecified:
+      llvm_unreachable("Here");
     }
-    llvm_unreachable("cases should all be handled")
+    llvm_unreachable("cases should all be handled");
   }();
   result += [&]() -> const char* {
     switch (Sem) {

@@ -206,5 +206,4 @@ void std::contracts::__handle_manual_contract_violation(
   else
     __run_violation_handler(violation);
 
-
 }
