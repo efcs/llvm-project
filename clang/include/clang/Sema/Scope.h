@@ -309,7 +309,8 @@ public:
   // is disallowed despite being a continue scope.
   void setIsConditionVarScope(bool InConditionVarScope) {
     Flags = (Flags & ~ConditionVarScope) |
-            (InConditionVarScope ? ConditionVarScope : ScopeFlags(0));
+            (InConditionVarScope ? ConditionVarScope : NoScope);
+
   }
 
   bool isConditionVarScope() const {
@@ -318,7 +319,7 @@ public:
 
   void setIsContractScope(bool InContractScope) {
     Flags = (Flags & ~ContractAssertScope) |
-            (InContractScope ? ContractAssertScope : ScopeFlags(0));
+            (InContractScope ? ContractAssertScope : NoScope);
   }
 
   bool isContractScope() const { return Flags & ContractAssertScope; }

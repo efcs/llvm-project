@@ -2735,6 +2735,7 @@ Decl *Parser::ParseDeclarationAfterDeclaratorAndAttributes(
     break;
   }
   case InitKind::Uninitialized: {
+    InitializerScopeRAII InitScope(*this, D, ThisDecl);
     Actions.ActOnUninitializedDecl(ThisDecl);
     break;
   }
