@@ -8417,6 +8417,12 @@ public:
   /// \<source_location>.
   RecordDecl *StdSourceLocationImplDecl;
 
+  /// A Clang builtin type matching the layout of libc++ and libstdc++'s
+  /// "std::source_location::__impl". This is used by
+  /// __builtin_source_location_pointer to produce source locations without
+  /// the <source_location> header.
+  RecordDecl *ClangSourceLocationImplDecl;
+
   /// A stack of expression evaluation contexts.
   SmallVector<ExpressionEvaluationContextRecord, 8> ExprEvalContexts;
 

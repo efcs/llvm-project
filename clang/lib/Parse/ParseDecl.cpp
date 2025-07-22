@@ -8188,6 +8188,7 @@ TypeResult Parser::ParseTypeFromString(StringRef TypeStr, StringRef Context,
   return Result;
 }
 
+
 void Parser::DiagnoseBitIntUse(const Token &Tok) {
   // If the token is for _ExtInt, diagnose it as being deprecated. Otherwise,
   // the token is about _BitInt and gets (potentially) diagnosed as use of an

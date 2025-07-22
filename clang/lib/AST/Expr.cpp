@@ -2279,6 +2279,8 @@ StringRef SourceLocExpr::getBuiltinStr() const {
     return "__builtin_COLUMN";
   case SourceLocIdentKind::SourceLocStruct:
     return "__builtin_source_location";
+  case SourceLocIdentKind::SourceLocPointer:
+    return "__builtin_source_location_pointer";
   }
   llvm_unreachable("unexpected IdentKind!");
 }
@@ -2348,6 +2350,7 @@ APValue SourceLocExpr::EvaluateInContext(const ASTContext &Ctx,
     return APValue(Ctx.MakeIntValue(PLoc.getLine(), Ctx.UnsignedIntTy));
   case SourceLocIdentKind::Column:
     return APValue(Ctx.MakeIntValue(PLoc.getColumn(), Ctx.UnsignedIntTy));
+  case SourceLocIdentKind::SourceLocPointer:
   case SourceLocIdentKind::SourceLocStruct: {
     // Fill in a std::source_location::__impl structure, by creating an
     // artificial file-scoped CompoundLiteralExpr, and returning a pointer to

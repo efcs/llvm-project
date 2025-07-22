@@ -16909,6 +16909,67 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
   return new (Context) GNUNullExpr(Ty, TokenLoc);
 }
 
+static CXXRecordDecl *CreateClangSourceLocationImpl(Sema &S, SourceLocation Loc) {
+  CXXRecordDecl *ImplDecl = nullptr;
+
+  // Fetch the std::source_location::__impl decl.
+
+    LookupResult ResultSL(S, &S.PP.getIdentifierTable().get("__clang_source_location_impl"),
+                          Loc, Sema::LookupOrdinaryName);
+    auto *DC = S.TUScope->getLookupEntity();
+    if (S.LookupQualifiedName(ResultSL, DC)) {
+      ImplDecl = ResultSL.getAsSingle<CXXRecordDecl>();
+    }
+
+
+  if (!ImplDecl || !ImplDecl->isCompleteDefinition()) {
+    S.Diag(Loc, diag::err_std_source_location_impl_not_found);
+    return nullptr;
+  }
+
+  // Verify that __impl is a trivial struct type, with no base classes, and with
+  // only the four expected fields.
+  if (ImplDecl->isUnion() || !ImplDecl->isStandardLayout() ||
+      ImplDecl->getNumBases() != 0) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  unsigned Count = 0;
+  for (FieldDecl *F : ImplDecl->fields()) {
+    StringRef Name = F->getName();
+
+    if (Name == "_M_file_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_function_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_line") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else if (Name == "_M_column") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else {
+      Count = 100; // invalid
+      break;
+    }
+  }
+  if (Count != 4) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  return ImplDecl;
+}
+
 static CXXRecordDecl *LookupStdSourceLocationImpl(Sema &S, SourceLocation Loc) {
   CXXRecordDecl *ImplDecl = nullptr;
 
@@ -16994,6 +17055,16 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
   case SourceLocIdentKind::Column:
     ResultTy = Context.UnsignedIntTy;
     break;
+  case SourceLocIdentKind::SourceLocPointer: {
+    if (!ClangSourceLocationImplDecl) {
+      ClangSourceLocationImplDecl = CreateClangSourceLocationImpl(*this, BuiltinLoc);
+      if (!ClangSourceLocationImplDecl)
+        return ExprError();
+    }
+    ResultTy = Context.getPointerType(
+        Context.getRecordType(ClangSourceLocationImplDecl).withConst());
+    break;
+  }
   case SourceLocIdentKind::SourceLocStruct: {
     if (!StdSourceLocationImplDecl) {
       StdSourceLocationImplDecl =

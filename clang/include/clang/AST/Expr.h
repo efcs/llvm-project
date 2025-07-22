@@ -4961,8 +4961,12 @@ enum class SourceLocIdentKind {
   FileName,
   Line,
   Column,
-  SourceLocStruct
+  SourceLocStruct,
+  SourceLocPointer
 };
+// We use 3 bits to represent this in the AST
+static_assert(static_cast<int>(SourceLocIdentKind::SourceLocPointer) < 8);
+
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
 /// __builtin_FUNCTION(), __builtin_FUNCSIG(), __builtin_FILE(),
@@ -4998,6 +5002,7 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
+    case SourceLocIdentKind::SourceLocPointer:
       return false;
     case SourceLocIdentKind::Line:
     case SourceLocIdentKind::Column:
@@ -5032,6 +5037,7 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
+    case SourceLocIdentKind::SourceLocPointer:
       return true;
     default:
       return false;
