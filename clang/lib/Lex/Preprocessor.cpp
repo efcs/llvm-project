@@ -598,7 +598,7 @@ void Preprocessor::EnterMainSourceFile() {
 
     struct __basic_descriptor_table {
       unsigned __len_;
-      __basic_descriptor* __table_;
+      struct __basic_descriptor* __table_;
     };
 
 )CPP";
