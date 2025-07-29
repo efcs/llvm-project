@@ -248,6 +248,7 @@ protected:
   bool HasVmemPrefInsts = false;
   bool HasSafeSmemPrefetch = false;
   bool HasSafeCUPrefetch = false;
+  bool HasCUStores = false;
   bool HasVcmpxExecWARHazard = false;
   bool HasLdsBranchVmemWARHazard = false;
   bool HasNSAtoVMEMBug = false;
@@ -714,7 +715,9 @@ public:
   bool hasVINTERPEncoding() const { return GFX11Insts && !hasGFX1250Insts(); }
 
   // DS_ADD_F64/DS_ADD_RTN_F64
-  bool hasLdsAtomicAddF64() const { return hasGFX90AInsts(); }
+  bool hasLdsAtomicAddF64() const {
+    return hasGFX90AInsts() || hasGFX1250Insts();
+  }
 
   bool hasMultiDwordFlatScratchAddressing() const {
     return getGeneration() >= GFX9;
@@ -997,6 +1000,8 @@ public:
   bool hasSafeSmemPrefetch() const { return HasSafeSmemPrefetch; }
 
   bool hasSafeCUPrefetch() const { return HasSafeCUPrefetch; }
+
+  bool hasCUStores() const { return HasCUStores; }
 
   // Has s_cmpk_* instructions.
   bool hasSCmpK() const { return getGeneration() < GFX12; }

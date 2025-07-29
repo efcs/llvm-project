@@ -32,16 +32,8 @@
 #include "test_macros.h"
 #include "test_allocator.h"
 
-#if TEST_HAS_BUILTIN_IDENTIFIER(contract_assert)
-#  include <contracts>
-#endif
-
 #if TEST_STD_VER < 11
 #  error "C++11 or greater is required to use this header"
-#endif
-
-#if TEST_HAS_BUILTIN_IDENTIFIER(contract_assert)
-#  define USE_CONTRACTS
 #endif
 
 // When printing the assertion message to `stderr`, delimit it with a marker to make it easier to match the message
@@ -52,15 +44,32 @@ static constexpr const char* Marker = "###";
 using MatchResult = std::pair<bool, std::string>;
 using Matcher     = std::function<MatchResult(const std::string& /*text*/)>;
 
-MatchResult MatchAssertionMessage(const std::string& text, std::string_view expected_message) {
+// Using the marker makes matching more precise, but we cannot output the marker when the `observe` semantic is used
+// (because it doesn't allow customizing the logging function). If the marker is not available, fall back to using less
+// precise matching by just the error message.
+MatchResult MatchAssertionMessage(const std::string& text, std::string_view expected_message, bool use_marker) {
   // Extract information from the error message. This has to stay synchronized with how we format assertions in the
   // library.
-  std::regex assertion_format(".*###\\n(.*):(\\d+): assertion (.*) failed: (.*)\\n###");
+  std::string assertion_format_string = [&] {
+    if (use_marker)
+      return (".*###\\n(.*):(\\d+): assertion (.*) failed: (.*)\\n###");
+    return ("(.*):(\\d+): assertion (.*) failed: (.*)\\n");
+  }();
+  std::regex assertion_format(assertion_format_string);
 
   std::smatch match_result;
-  bool has_match = std::regex_match(text, match_result, assertion_format);
-  assert(has_match);
-  assert(match_result.size() == 5);
+  // If a non-terminating assertion semantic is used, more than one assertion might be triggered before the process
+  // dies, so we cannot expect the entire target string to match.
+  bool has_match = std::regex_search(text, match_result, assertion_format);
+  if (!has_match || match_result.size() != 5) {
+    std::stringstream matching_error;
+    matching_error                                                     //
+        << "Failed to parse the assertion message.\n"                  //
+        << "Using marker:        " << use_marker << "\n"               //
+        << "Expected message:   '" << expected_message.data() << "'\n" //
+        << "Stderr contents:    '" << text.c_str() << "'\n";
+    return MatchResult(/*success=*/false, matching_error.str());
+  }
 
   const std::string& file = match_result[1];
   int line                = std::stoi(match_result[2]);
@@ -80,65 +89,9 @@ MatchResult MatchAssertionMessage(const std::string& text, std::string_view expe
   return MatchResult(/*success=*/true, /*maybe_error=*/"");
 }
 
-MatchResult MatchAnyMessage(const std::string& text, std::string const& expected_message) {
-  // Extract information from the error message. This has to stay synchronized with how we format assertions in the
-  // library.
-  std::regex assertion_format(expected_message);
-
-  std::smatch match_result;
-  bool has_match = std::regex_search(text, match_result, assertion_format);
-
-  if (!has_match) {
-    std::stringstream matching_error;
-    matching_error                                                     //
-        << "Expected message:   '" << expected_message.data() << "'\n" //
-        << "Actual message:     '" << text << "'\n";                   //
-    return MatchResult(/*success=*/false, matching_error.str());
-  }
-
-  return MatchResult(/*success=*/true, /*maybe_error=*/"");
-}
-
-MatchResult ContainsMessage(const std::string& text, std::string const& expected_message) {
-  // Extract information from the error message. This has to stay synchronized with how we format assertions in the
-  // library.
-  bool has_match = text.find(expected_message) != std::string::npos;
-  if (!has_match) {
-    std::stringstream matching_error;
-    matching_error                                                     //
-        << "Expected message:   '" << expected_message << "'\n" //
-        << "Actual message:     '" << text << "'\n";                   //
-    return MatchResult(/*success=*/false, matching_error.str());
-  }
-
-  return MatchResult(/*success=*/true, /*maybe_error=*/"");
-}
-
-Matcher MakeAssertionMessageMatcher(std::string_view assertion_message) {
+Matcher MakeAssertionMessageMatcher(std::string_view assertion_message, bool use_marker = true) {
   return [=](const std::string& text) { //
-    return MatchAssertionMessage(text, assertion_message);
-  };
-}
-
-Matcher MakeAnyMessageMatcher(std::string assertion_message) {
-  return [=](const std::string& text) { //
-    return MatchAnyMessage(text, assertion_message);
-  };
-}
-
-std::string ReplaceWhitespaceAndQuotes(std::string const& S) {
-  std::string N;
-  N.reserve(S.size());
-  for (char c : S) {
-    if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '"'))
-      N += c;
-  }
-  return N;
-}
-
-Matcher MakeContainsMessageMatcher(std::string assertion_message) {
-  return [=](const std::string& text) { //
-    return ContainsMessage(ReplaceWhitespaceAndQuotes(text), ReplaceWhitespaceAndQuotes(assertion_message));
+    return MatchAssertionMessage(text, assertion_message, use_marker);
   };
 }
 
@@ -148,23 +101,42 @@ Matcher MakeAnyMatcher() {
   };
 }
 
-enum class DeathCause : unsigned {
-  // Valid causes
+enum class DeathCause {
+  // Valid causes.
   VerboseAbort = 1,
   StdAbort,
-  StdTerminate ,
+  StdTerminate,
   Trap,
-  // Invalid causes
+  // Causes that might be invalid or might stem from undefined behavior (relevant for non-terminating assertion
+  // semantics).
   DidNotDie,
-  SetupFailure ,
-  Unknown,
+  Segfault,
+  ArithmeticError,
+  // Always invalid causes.
+  SetupFailure,
+  Unknown
 };
 
-
-
 bool IsValidCause(DeathCause cause) {
-  return cause == DeathCause::VerboseAbort || cause == DeathCause::StdAbort || cause == DeathCause::StdTerminate ||
-         cause == DeathCause::Trap ;
+  switch (cause) {
+  case DeathCause::VerboseAbort:
+  case DeathCause::StdAbort:
+  case DeathCause::StdTerminate:
+  case DeathCause::Trap:
+    return true;
+  default:
+    return false;
+  }
+}
+
+bool IsTestSetupErrorCause(DeathCause cause) {
+  switch (cause) {
+  case DeathCause::SetupFailure:
+  case DeathCause::Unknown:
+    return true;
+  default:
+    return false;
+  }
 }
 
 std::string ToString(DeathCause cause) {
@@ -179,10 +151,14 @@ std::string ToString(DeathCause cause) {
     return "trap";
   case DeathCause::DidNotDie:
     return "<invalid cause (child did not die)>";
+  case DeathCause::Segfault:
+    return "<invalid cause (segmentation fault)>";
+  case DeathCause::ArithmeticError:
+    return "<invalid cause (fatal arithmetic error)>";
   case DeathCause::SetupFailure:
-    return "<invalid cause (child failed to set up test environment)>";
+    return "<test setup error (child failed to set up test environment)>";
   case DeathCause::Unknown:
-    return "<invalid cause (cause unknown)>";
+    return "<test setup error (test doesn't know how to interpret the death cause)>";
   }
 
   assert(false && "Unreachable");
@@ -284,9 +260,38 @@ public:
     return DeathTestResult(Outcome::Success, cause);
   }
 
-  void PrintFailureDetails(std::string_view failure_description, std::string_view stmt, DeathCause cause) const {
-    std::fprintf(
-        stderr, "Failure: EXPECT_DEATH( %s ) failed!\n(reason: %s)\n\n", stmt.data(), failure_description.data());
+  // When non-terminating assertion semantics are used, the program will invoke UB which might or might not crash the
+  // process; we make sure that the execution produces the expected error message but otherwise consider the test run
+  // successful whether the child process dies or not.
+  template <class Func>
+  DeathTestResult RunWithoutGuaranteedDeath(Func&& func, const Matcher& matcher) {
+    std::signal(SIGABRT, [](int) { StopChildProcess(DeathCause::StdAbort); });
+    std::set_terminate([] { StopChildProcess(DeathCause::StdTerminate); });
+
+    DeathCause cause = Run(func);
+
+    if (IsTestSetupErrorCause(cause)) {
+      return DeathTestResult(Outcome::InvalidCause, cause, ToString(cause));
+    }
+
+    MatchResult match_result = matcher(GetChildStdErr());
+    if (!match_result.first) {
+      auto failure_description = std::string("Child produced a different error message\n") + match_result.second;
+      return DeathTestResult(Outcome::UnexpectedErrorMessage, cause, failure_description);
+    }
+
+    return DeathTestResult(Outcome::Success, cause);
+  }
+
+  void PrintFailureDetails(std::string_view invocation,
+                           std::string_view failure_description,
+                           std::string_view stmt,
+                           DeathCause cause) const {
+    std::fprintf(stderr,
+                 "Failure: %s( %s ) failed!\n(reason: %s)\n\n",
+                 invocation.data(),
+                 stmt.data(),
+                 failure_description.data());
 
     if (cause != DeathCause::Unknown) {
       std::fprintf(stderr, "child exit code: %d\n", GetChildExitCode());
@@ -370,9 +375,15 @@ private:
 
     if (WIFSIGNALED(status_value)) {
       exit_code_ = WTERMSIG(status_value);
-      // `__builtin_trap` generqtes `SIGILL` on x86 and `SIGTRAP` on ARM.
+      // `__builtin_trap` generates `SIGILL` on x86 and `SIGTRAP` on ARM.
       if (exit_code_ == SIGILL || exit_code_ == SIGTRAP) {
         return DeathCause::Trap;
+      }
+      if (exit_code_ == SIGSEGV) {
+        return DeathCause::Segfault;
+      }
+      if (exit_code_ == SIGFPE) {
+        return DeathCause::ArithmeticError;
       }
     }
 
@@ -416,7 +427,7 @@ bool ExpectDeath(
   DeathTest test_case;
   DeathTestResult test_result = test_case.Run(expected_causes, func, matcher);
   if (!test_result.success()) {
-    test_case.PrintFailureDetails(test_result.failure_description(), stmt, test_result.cause());
+    test_case.PrintFailureDetails("EXPECT_DEATH", test_result.failure_description(), stmt, test_result.cause());
   }
 
   return test_result.success();
@@ -437,8 +448,21 @@ bool ExpectDeath(DeathCause expected_cause, const char* stmt, Func&& func) {
   return ExpectDeath(std::array<DeathCause, 1>{expected_cause}, stmt, func, MakeAnyMatcher());
 }
 
-constexpr std::array<DeathCause, 4> AnyDeathCause = {DeathCause::VerboseAbort, DeathCause::StdAbort,
-                                                       DeathCause::StdTerminate, DeathCause::Trap};
+template <class Func>
+bool ExpectLog(const char* stmt, Func&& func, const Matcher& matcher) {
+  DeathTest test_case;
+  DeathTestResult test_result = test_case.RunWithoutGuaranteedDeath(func, matcher);
+  if (!test_result.success()) {
+    test_case.PrintFailureDetails("EXPECT_LOG", test_result.failure_description(), stmt, test_result.cause());
+  }
+
+  return test_result.success();
+}
+
+template <class Func>
+bool ExpectLog(const char* stmt, Func&& func) {
+  return ExpectLog(stmt, func, MakeAnyMatcher());
+}
 
 // clang-format off
 
@@ -454,17 +478,28 @@ constexpr std::array<DeathCause, 4> AnyDeathCause = {DeathCause::VerboseAbort, D
 #define EXPECT_STD_TERMINATE(...)                 \
     assert(  ExpectDeath(DeathCause::StdTerminate, #__VA_ARGS__, __VA_ARGS__)  )
 
-#if defined(USE_CONTRACTS)
-#undef USE_CONTRACTS
-#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
-    assert(( ExpectDeath(::AnyDeathCause, #expr, [&]() { (void)(expr); }, MakeContainsMessageMatcher(message)) ))
-#elif (defined(_LIBCPP_HARDENING_MODE) && _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG)
+#if defined(_LIBCPP_ASSERTION_SEMANTIC)
+
+#if _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_ENFORCE
 #define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
     assert(( ExpectDeath(DeathCause::VerboseAbort, #expr, [&]() { (void)(expr); }, MakeAssertionMessageMatcher(message)) ))
+#elif _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_QUICK_ENFORCE
+#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
+    assert(( ExpectDeath(DeathCause::Trap,         #expr, [&]() { (void)(expr); }) ))
+#elif _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_OBSERVE
+#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
+    assert(( ExpectLog(#expr, [&]() { (void)(expr); }, MakeAssertionMessageMatcher(message, /*use_marker=*/false)) ))
+#elif _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_IGNORE
+#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
+    assert(( ExpectLog(#expr, [&]() { (void)(expr); }) ))
+#else
+#error "Unknown value for _LIBCPP_ASSERTION_SEMANTIC"
+#endif // _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_ENFORCE
+
 #else
 #define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
     assert(( ExpectDeath(DeathCause::Trap,         #expr, [&]() { (void)(expr); }) ))
-#endif // _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_DEBUG
+#endif // defined(_LIBCPP_ASSERTION_SEMANTIC)
 
 // clang-format on
 
