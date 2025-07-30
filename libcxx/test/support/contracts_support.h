@@ -80,8 +80,6 @@ constexpr std::string_view enum_to_string(DetectionKind D) {
     return "exception";
   case DetectionKind::unspecified:
     return "unspecified";
-  case DetectionKind::__unknown:
-    return "<unknown>";
   }
 }
 
