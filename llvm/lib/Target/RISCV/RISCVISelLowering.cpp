@@ -2739,27 +2739,6 @@ bool RISCVTargetLowering::isLegalElementTypeForRVV(EVT ScalarTy) const {
   }
 }
 
-bool RISCVTargetLowering::isLegalLoadStoreElementTypeForRVV(
-    EVT ScalarTy) const {
-  if (!ScalarTy.isSimple())
-    return false;
-  switch (ScalarTy.getSimpleVT().SimpleTy) {
-  case MVT::iPTR:
-    return Subtarget.is64Bit() ? Subtarget.hasVInstructionsI64() : true;
-  case MVT::i8:
-  case MVT::i16:
-  case MVT::i32:
-  case MVT::f16:
-  case MVT::bf16:
-  case MVT::f32:
-    return true;
-  case MVT::i64:
-  case MVT::f64:
-    return Subtarget.hasVInstructionsI64();
-  default:
-    return false;
-  }
-}
 
 unsigned RISCVTargetLowering::combineRepeatedFPDivisors() const {
   return NumRepeatedDivisors;
@@ -20751,6 +20730,53 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
         return DAG.getAllOnesConstant(DL, VT);
       return DAG.getConstant(0, DL, VT);
     }
+    case Intrinsic::riscv_vsseg2_mask:
+    case Intrinsic::riscv_vsseg3_mask:
+    case Intrinsic::riscv_vsseg4_mask:
+    case Intrinsic::riscv_vsseg5_mask:
+    case Intrinsic::riscv_vsseg6_mask:
+    case Intrinsic::riscv_vsseg7_mask:
+    case Intrinsic::riscv_vsseg8_mask: {
+      SDValue Tuple = N->getOperand(2);
+      unsigned NF = Tuple.getValueType().getRISCVVectorTupleNumFields();
+
+      if (Subtarget.hasOptimizedSegmentLoadStore(NF) || !Tuple.hasOneUse() ||
+          Tuple.getOpcode() != RISCVISD::TUPLE_INSERT ||
+          !Tuple.getOperand(0).isUndef())
+        return SDValue();
+
+      SDValue Val = Tuple.getOperand(1);
+      unsigned Idx = Tuple.getConstantOperandVal(2);
+
+      unsigned SEW = Val.getValueType().getScalarSizeInBits();
+      assert(Log2_64(SEW) == N->getConstantOperandVal(6) &&
+             "Type mismatch without bitcast?");
+      unsigned Stride = SEW / 8 * NF;
+      unsigned Offset = SEW / 8 * Idx;
+
+      SDValue Ops[] = {
+          /*Chain=*/N->getOperand(0),
+          /*IntID=*/
+          DAG.getTargetConstant(Intrinsic::riscv_vsse_mask, DL, XLenVT),
+          /*StoredVal=*/Val,
+          /*Ptr=*/
+          DAG.getNode(ISD::ADD, DL, XLenVT, N->getOperand(3),
+                      DAG.getConstant(Offset, DL, XLenVT)),
+          /*Stride=*/DAG.getConstant(Stride, DL, XLenVT),
+          /*Mask=*/N->getOperand(4),
+          /*VL=*/N->getOperand(5)};
+
+      auto *OldMemSD = cast<MemIntrinsicSDNode>(N);
+      // Match getTgtMemIntrinsic for non-unit stride case
+      EVT MemVT = OldMemSD->getMemoryVT().getScalarType();
+      MachineFunction &MF = DAG.getMachineFunction();
+      MachineMemOperand *MMO = MF.getMachineMemOperand(
+          OldMemSD->getMemOperand(), Offset, MemoryLocation::UnknownSize);
+
+      SDVTList VTs = DAG.getVTList(MVT::Other);
+      return DAG.getMemIntrinsicNode(ISD::INTRINSIC_VOID, DL, VTs, Ops, MemVT,
+                                     MMO);
+    }
     }
   }
   case ISD::EXPERIMENTAL_VP_REVERSE:
@@ -20886,7 +20912,7 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
         /*VL=*/Tuple.getOperand(5),
         /*Policy=*/Tuple.getOperand(6)};
 
-    auto TupleMemSD = cast<MemIntrinsicSDNode>(Tuple);
+    auto *TupleMemSD = cast<MemIntrinsicSDNode>(Tuple);
     // Match getTgtMemIntrinsic for non-unit stride case
     EVT MemVT = TupleMemSD->getMemoryVT().getScalarType();
     MachineFunction &MF = DAG.getMachineFunction();
@@ -20898,6 +20924,12 @@ SDValue RISCVTargetLowering::PerformDAGCombine(SDNode *N,
                                              Ops, MemVT, MMO);
     DAG.ReplaceAllUsesOfValueWith(Tuple.getValue(1), Result.getValue(1));
     return Result.getValue(0);
+  }
+  case RISCVISD::TUPLE_INSERT: {
+    // tuple_insert tuple, undef, idx -> tuple
+    if (N->getOperand(1).isUndef())
+      return N->getOperand(0);
+    break;
   }
   }
 
@@ -22423,6 +22455,7 @@ SDValue RISCVTargetLowering::LowerFormalArguments(
   case CallingConv::C:
   case CallingConv::Fast:
   case CallingConv::SPIR_KERNEL:
+  case CallingConv::PreserveMost:
   case CallingConv::GRAAL:
   case CallingConv::RISCV_VectorCall:
 #define CC_VLS_CASE(ABI_VLEN) case CallingConv::RISCV_VLSCall_##ABI_VLEN:
@@ -24316,7 +24349,7 @@ bool RISCVTargetLowering::isLegalStridedLoadStore(EVT DataType,
     return false;
 
   EVT ScalarType = DataType.getScalarType();
-  if (!isLegalLoadStoreElementTypeForRVV(ScalarType))
+  if (!isLegalElementTypeForRVV(ScalarType))
     return false;
 
   if (!Subtarget.enableUnalignedVectorMem() &&
