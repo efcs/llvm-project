@@ -478,7 +478,7 @@ void Value::assertModuleIsMaterializedImpl() const {
 
 #ifndef NDEBUG
 static bool contains(SmallPtrSetImpl<ConstantExpr *> &Cache, ConstantExpr *Expr,
-                     Constant *C) {
+                     Constant *C)  {
   if (!Cache.insert(Expr).second)
     return false;
 
@@ -514,7 +514,7 @@ static bool contains(Value *Expr, Value *V) {
 void Value::doRAUW(Value *New, ReplaceMetadataUses ReplaceMetaUses) {
   assert(hasUseList() && "Cannot replace constant data");
   assert(New && "Value::replaceAllUsesWith(<null>) is invalid!");
-  assert(!contains(New, this) &&
+  assert(!contains(const_cast<Value*>(New), const_cast<Value*>(this)) &&
          "this->replaceAllUsesWith(expr(this)) is NOT valid!");
   assert(New->getType() == getType() &&
          "replaceAllUses of value with new value of different type!");

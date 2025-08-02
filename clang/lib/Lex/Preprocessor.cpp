@@ -583,9 +583,30 @@ void Preprocessor::EnterMainSourceFile() {
     }
   }
 
+  const char* const ContractPredefines = R"CPP(
+    struct __clang_source_location_impl {
+      const char* _M_file_name;
+      const char* _M_function_name;
+      unsigned _M_line;
+      unsigned _M_column;
+    };
+
+    struct __basic_descriptor {
+       const char* __name_;
+       unsigned __offset_;
+    };
+
+    struct __basic_descriptor_table {
+      unsigned __len_;
+      struct __basic_descriptor* __table_;
+    };
+
+)CPP";
+  std::string NewPredefines = Predefines + ContractPredefines;
   // Preprocess Predefines to populate the initial preprocessor state.
   std::unique_ptr<llvm::MemoryBuffer> SB =
-    llvm::MemoryBuffer::getMemBufferCopy(Predefines, "<built-in>");
+    llvm::MemoryBuffer::getMemBufferCopy(NewPredefines, "<built-in>");
+
   assert(SB && "Cannot create predefined source buffer");
   FileID FID = SourceMgr.createFileID(std::move(SB));
   assert(FID.isValid() && "Could not create FileID for predefines?");

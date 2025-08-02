@@ -33,6 +33,7 @@
 #include "clang/AST/TypeLoc.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
@@ -3251,6 +3252,7 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
                                                         SourceLocation loc,
                                                         ValueDecl *var);
 
+/// Complete semantic analysis for a reference to the given declaration.
 ExprResult Sema::BuildDeclarationNameExpr(
     const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
     NamedDecl *FoundD, const TemplateArgumentListInfo *TemplateArgs,
@@ -3311,6 +3313,8 @@ ExprResult Sema::BuildDeclarationNameExpr(
   // a reference to 'V' is simply (unexpanded) 'T'. The type, like the value,
   // is expanded by some outer '...' in the context of the use.
   type = type.getNonPackExpansionType();
+
+  // bool TypeWasSetByLambdaCapture = false;
 
   switch (D->getKind()) {
     // Ignore all the non-ValueDecl kinds.
@@ -3390,6 +3394,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     }
     [[fallthrough]];
 
+
   case Decl::ImplicitParam:
   case Decl::ParmVar: {
     // These are always l-values.
@@ -3403,9 +3408,16 @@ ExprResult Sema::BuildDeclarationNameExpr(
       QualType CapturedType = getCapturedDeclRefType(cast<ValueDecl>(VD), Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
+        // TypeWasSetByLambdaCapture = true;
     }
     break;
   }
+
+  case Decl::ResultName: {// FIXME(EricWF): Is this even close to correct?
+    valueKind = VK_LValue;
+    type = type.getNonReferenceType();
+    break;
+ }
 
   case Decl::Function: {
     if (unsigned BID = cast<FunctionDecl>(VD)->getBuiltinID()) {
@@ -3487,9 +3499,22 @@ ExprResult Sema::BuildDeclarationNameExpr(
     break;
   }
 
+  const ContractConstification Constification = getContractConstification(VD);
+  bool ApplyConstification = Constification == CC_ApplyConst;
+
+  if (ApplyConstification)
+    type = type.withConst();
+
   auto *E =
       BuildDeclRefExpr(VD, type, valueKind, NameInfo, &SS, FoundD,
                        /*FIXME: TemplateKWLoc*/ SourceLocation(), TemplateArgs);
+
+  if (ApplyConstification)
+    E->setIsConstified(true);
+
+  if (Constification == CC_ApplyConst)
+    E->setIsInContractContext(true);
+
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
   // RecoveryExpr to avoid follow-up semantic analysis (thus prevent bogus
@@ -13485,7 +13510,7 @@ static bool IsReadonlyMessage(Expr *E, Sema &S) {
 /// Is the given expression (which must be 'const') a reference to a
 /// variable which was originally non-const, but which has become
 /// 'const' due to being captured within a block?
-enum NonConstCaptureKind { NCCK_None, NCCK_Block, NCCK_Lambda };
+enum NonConstCaptureKind { NCCK_None, NCCK_Block, NCCK_Lambda, NCCK_Contract };
 static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   assert(E->isLValue() && E->getType().isConstQualified());
   E = E->IgnoreParens();
@@ -13514,10 +13539,35 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
 
   assert(Var->hasLocalStorage() && "capture added 'const' to non-local?");
 
+  if (DRE->isConstified() || DRE->isInContractContext())
+    return NCCK_Contract;
+  //DRE->dumpColor();
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
-  // Decide whether the first capture was for a block or a lambda.
+  unsigned ScopeIndex = S.FunctionScopes.size();
+  ((void)ScopeIndex);
+
+  if (S.getContractConstification(Var) == CC_ApplyConst)
+    return NCCK_Contract;
+
+#if 1
+  bool PassedThroughContract = false;
+
+  if (ScopeIndex - 1u < S.FunctionScopes.size()) {
+    PassedThroughContract |= S.FunctionScopes[ScopeIndex - 1]->isInContract();
+  }
+#endif
+
+    // Decide whether the first capture was for a block or a lambda.
   while (DC) {
+#if 1
+    if (DC->isFunctionOrMethod()) {
+      --ScopeIndex;
+      assert(ScopeIndex >= S.FunctionScopesStart);
+      assert(ScopeIndex < S.FunctionScopes.size());
+      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->isInContract();
+    }
+#endif
     // For init-capture, it is possible that the variable belongs to the
     // template pattern of the current context.
     if (auto *FD = dyn_cast<FunctionDecl>(DC))
@@ -13529,9 +13579,21 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
     Prev = DC;
     DC = DC->getParent();
   }
+#if 1
+  if (!DC) {
+    --ScopeIndex;
+    if (ScopeIndex < S.FunctionScopes.size())
+      PassedThroughContract |= S.FunctionScopes[ScopeIndex]->isInContract();
+
+  }
+#endif
   // Unless we have an init-capture, we've gone one step too far.
   if (!Var->isInitCapture())
     DC = Prev;
+
+  if (PassedThroughContract)
+    return NCCK_Contract;
+
   return (isa<BlockDecl>(DC) ? NCCK_Block : NCCK_Lambda);
 }
 
@@ -13551,6 +13613,11 @@ enum {
   ConstMethod,
   NestedConstMember,
   ConstUnknown,  // Keep as last element
+};
+
+enum {
+  ConstifiedVariable,
+  ConstifiedCXXThis,
 };
 
 /// Emit the "read-only variable not assignable" error and print notes to give
@@ -13584,7 +13651,6 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           assert(DiagnosticEmitted && "Expected diagnostic not emitted.");
           break;
         }
-
         if (!IsTypeModifiable(Field->getType(), IsDereference)) {
           if (!DiagnosticEmitted) {
             S.Diag(Loc, diag::err_typecheck_assign_const)
@@ -13651,6 +13717,10 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
         }
         S.Diag(VD->getLocation(), diag::note_typecheck_assign_const)
             << ConstVariable << VD << VD->getType() << VD->getSourceRange();
+      } else if (DRE->isConstified()) {
+        S.Diag(Loc, diag::err_typecheck_assign_constified)
+            << ExprRange << /*IsMemberExpr=*/false << VD;
+        DiagnosticEmitted = true;
       }
     }
   } else if (isa<CXXThisExpr>(E)) {
@@ -13664,6 +13734,10 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           }
           S.Diag(MD->getLocation(), diag::note_typecheck_assign_const)
               << ConstMethod << MD << MD->getSourceRange();
+        } else if (S.getCurrentContractEntry()) {
+          S.Diag(Loc, diag::err_typecheck_assign_constified)
+              << ExprRange << /*IsMemberExpr*/ true;
+          DiagnosticEmitted = true;
         }
       }
     }
@@ -13674,6 +13748,12 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
 
   // Can't determine a more specific message, so display the generic error.
   S.Diag(Loc, diag::err_typecheck_assign_const) << ExprRange << ConstUnknown;
+
+  // If we're inside a contract statement, note that in case it's helpful. Maybe
+  // the variable was constified?
+  if (S.isContractAssertionContext() &&
+      !S.getCurrentContractKeywordLoc().isInvalid())
+    S.Diag(S.getCurrentContractKeywordLoc(), diag::note_contract_context);
 }
 
 enum OriginalExprKind {
@@ -13768,6 +13848,8 @@ static bool CheckForModifiableLvalue(Expr *E, SourceLocation Loc, Sema &S) {
     if (NonConstCaptureKind NCCK = isReferenceToNonConstCapture(S, E)) {
       if (NCCK == NCCK_Block)
         DiagID = diag::err_block_decl_ref_not_modifiable_lvalue;
+      else if (NCCK == NCCK_Contract)
+        DiagID = diag::err_lambda_decl_ref_not_modifiable_lvalue_contract;
       else
         DiagID = diag::err_lambda_decl_ref_not_modifiable_lvalue;
       break;
@@ -14593,7 +14675,7 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
         }
       }
     } else if (!isa<FunctionDecl, NonTypeTemplateParmDecl, BindingDecl,
-                    MSGuidDecl, UnnamedGlobalConstantDecl>(dcl))
+                    MSGuidDecl, UnnamedGlobalConstantDecl, ResultNameDecl>(dcl))
       llvm_unreachable("Unknown/unexpected decl type");
   }
 
@@ -16830,6 +16912,67 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
   return new (Context) GNUNullExpr(Ty, TokenLoc);
 }
 
+static CXXRecordDecl *CreateClangSourceLocationImpl(Sema &S, SourceLocation Loc) {
+  CXXRecordDecl *ImplDecl = nullptr;
+
+  // Fetch the std::source_location::__impl decl.
+
+    LookupResult ResultSL(S, &S.PP.getIdentifierTable().get("__clang_source_location_impl"),
+                          Loc, Sema::LookupOrdinaryName);
+    auto *DC = S.TUScope->getLookupEntity();
+    if (S.LookupQualifiedName(ResultSL, DC)) {
+      ImplDecl = ResultSL.getAsSingle<CXXRecordDecl>();
+    }
+
+
+  if (!ImplDecl || !ImplDecl->isCompleteDefinition()) {
+    S.Diag(Loc, diag::err_std_source_location_impl_not_found);
+    return nullptr;
+  }
+
+  // Verify that __impl is a trivial struct type, with no base classes, and with
+  // only the four expected fields.
+  if (ImplDecl->isUnion() || !ImplDecl->isStandardLayout() ||
+      ImplDecl->getNumBases() != 0) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  unsigned Count = 0;
+  for (FieldDecl *F : ImplDecl->fields()) {
+    StringRef Name = F->getName();
+
+    if (Name == "_M_file_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_function_name") {
+      if (F->getType() !=
+          S.Context.getPointerType(S.Context.CharTy.withConst()))
+        break;
+      Count++;
+    } else if (Name == "_M_line") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else if (Name == "_M_column") {
+      if (!F->getType()->isIntegerType())
+        break;
+      Count++;
+    } else {
+      Count = 100; // invalid
+      break;
+    }
+  }
+  if (Count != 4) {
+    S.Diag(Loc, diag::err_std_source_location_impl_malformed);
+    return nullptr;
+  }
+
+  return ImplDecl;
+}
+
 static CXXRecordDecl *LookupStdSourceLocationImpl(Sema &S, SourceLocation Loc) {
   CXXRecordDecl *ImplDecl = nullptr;
 
@@ -16915,7 +17058,17 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
   case SourceLocIdentKind::Column:
     ResultTy = Context.UnsignedIntTy;
     break;
-  case SourceLocIdentKind::SourceLocStruct:
+  case SourceLocIdentKind::SourceLocPointer: {
+    if (!ClangSourceLocationImplDecl) {
+      ClangSourceLocationImplDecl = CreateClangSourceLocationImpl(*this, BuiltinLoc);
+      if (!ClangSourceLocationImplDecl)
+        return ExprError();
+    }
+    ResultTy = Context.getPointerType(
+        Context.getRecordType(ClangSourceLocationImplDecl).withConst());
+    break;
+  }
+  case SourceLocIdentKind::SourceLocStruct: {
     if (!StdSourceLocationImplDecl) {
       StdSourceLocationImplDecl =
           LookupStdSourceLocationImpl(*this, BuiltinLoc);
@@ -16925,6 +17078,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
     ResultTy = Context.getPointerType(
         Context.getRecordType(StdSourceLocationImplDecl).withConst());
     break;
+  }
   }
 
   return BuildSourceLocExpr(Kind, ResultTy, BuiltinLoc, RPLoc, CurContext);
@@ -18713,8 +18867,12 @@ static bool isVariableAlreadyCapturedInScopeInfo(CapturingScopeInfo *CSI,
         !(isa<CapturedRegionScopeInfo>(CSI) &&
           cast<CapturedRegionScopeInfo>(CSI)->CapRegionKind == CR_OpenMP))
       DeclRefType.addConst();
+    if (Cap.isCapturedAcrossContract()) {
+      DeclRefType.addConst();
+    }
     return true;
   }
+
   return false;
 }
 
@@ -18742,7 +18900,6 @@ static DeclContext *getParentOfCapturingContextOrNull(DeclContext *DC,
 static bool isVariableCapturable(CapturingScopeInfo *CSI, ValueDecl *Var,
                                  SourceLocation Loc, const bool Diagnose,
                                  Sema &S) {
-
   assert((isa<VarDecl, BindingDecl>(Var)) &&
          "Only variables and structured bindings can be captured");
 
@@ -18881,7 +19038,8 @@ static bool captureInBlock(BlockScopeInfo *BSI, ValueDecl *Var,
   // Actually capture the variable.
   if (BuildAndDiagnose)
     BSI->addCapture(Var, HasBlocksAttr, ByRef, Nested, Loc, SourceLocation(),
-                    CaptureType, Invalid);
+                    CaptureType, /*AcrossContract=*/false, SourceLocation(),
+                    Invalid);
 
   return !Invalid;
 }
@@ -18921,10 +19079,32 @@ static bool captureInCapturedRegion(
   // Actually capture the variable.
   if (BuildAndDiagnose)
     RSI->addCapture(Var, /*isBlock*/ false, ByRef, RefersToCapturedVariable,
-                    Loc, SourceLocation(), CaptureType, Invalid);
+                    Loc, SourceLocation(), CaptureType,
+                    /*AcrossContract=*/false, SourceLocation(), Invalid);
 
   return !Invalid;
 }
+
+struct ConstificationInfo {
+  SourceLocation ContractLoc;
+  bool NeedsConstification = false;
+
+  ConstificationInfo() = default;
+  ConstificationInfo(ConstificationInfo const&) = delete;
+  ConstificationInfo& operator=(ConstificationInfo const&) = delete;
+
+  void disableDueToCopyCapture() {
+    NeedsConstification = false;
+  }
+  bool isRefCaptureThroughContract() const { return NeedsConstification; }
+
+  bool isDisabled() const { return !NeedsConstification; }
+
+  void enableDueToContract(SourceLocation Loc) {
+    ContractLoc = Loc;
+    NeedsConstification = true;
+  }
+};
 
 /// Capture the given variable in the lambda.
 static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
@@ -18933,13 +19113,26 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
                             const bool RefersToCapturedVariable,
                             const TryCaptureKind Kind,
                             SourceLocation EllipsisLoc, const bool IsTopScope,
-                            Sema &S, bool Invalid) {
+                            Sema &S, ConstificationInfo& ConstInfo, bool Invalid) {
   // Determine whether we are capturing by reference or by value.
   bool ByRef = false;
   if (IsTopScope && Kind != TryCaptureKind::Implicit) {
     ByRef = (Kind == TryCaptureKind::ExplicitByRef);
   } else {
     ByRef = (LSI->ImpCaptureStyle == LambdaScopeInfo::ImpCap_LambdaByref);
+  }
+
+  bool ShouldConstify = false;
+  SourceLocation ConstLoc;
+  if (ByRef) {
+    if (ConstInfo.isRefCaptureThroughContract()) {
+      ShouldConstify = true;
+      ConstLoc = ConstInfo.ContractLoc;
+    }
+  } else {
+    if (ConstInfo.isRefCaptureThroughContract()) {
+      ConstInfo.disableDueToCopyCapture();
+    }
   }
 
   if (BuildAndDiagnose && S.Context.getTargetInfo().getTriple().isWasm() &&
@@ -18962,7 +19155,12 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     // to do the former, while EDG does the latter. Core issue 1249 will
     // clarify, but for now we follow GCC because it's a more permissive and
     // easily defensible position.
-    CaptureType = S.Context.getLValueReferenceType(DeclRefType);
+    QualType DRET = DeclRefType.getNonReferenceType();
+
+    if (ShouldConstify)
+      DRET.addConst();
+
+    CaptureType = S.Context.getLValueReferenceType(DRET);
   } else {
     // C++11 [expr.prim.lambda]p14:
     //   For each entity captured by copy, an unnamed non-static
@@ -18975,8 +19173,9 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     //   corresponding data member is also a reference to a
     //   function. - end note ]
     if (const ReferenceType *RefType = CaptureType->getAs<ReferenceType>()){
-      if (!RefType->getPointeeType()->isFunctionType())
+      if (!RefType->getPointeeType()->isFunctionType()) {
         CaptureType = RefType->getPointeeType();
+      }
     }
 
     // Forbid the lambda copy-capture of autoreleasing variables.
@@ -19007,9 +19206,9 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
   }
 
   // Compute the type of a reference to this captured variable.
-  if (ByRef)
+  if (ByRef) {
     DeclRefType = CaptureType.getNonReferenceType();
-  else {
+  } else {
     // C++ [expr.prim.lambda]p5:
     //   The closure type for a lambda-expression has a public inline
     //   function call operator [...]. This function call operator is
@@ -19029,7 +19228,8 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
   // Add the capture.
   if (BuildAndDiagnose)
     LSI->addCapture(Var, /*isBlock=*/false, ByRef, RefersToCapturedVariable,
-                    Loc, EllipsisLoc, CaptureType, Invalid);
+                    Loc, EllipsisLoc, CaptureType, ShouldConstify, ConstLoc,
+                     Invalid);
 
   return !Invalid;
 }
@@ -19139,7 +19339,9 @@ static void buildLambdaCaptureFixit(Sema &Sema, LambdaScopeInfo *LSI,
 bool Sema::tryCaptureVariable(
     ValueDecl *Var, SourceLocation ExprLoc, TryCaptureKind Kind,
     SourceLocation EllipsisLoc, bool BuildAndDiagnose, QualType &CaptureType,
-    QualType &DeclRefType, const unsigned *const FunctionScopeIndexToStopAt) {
+    QualType &DeclRefType, const unsigned *const FunctionScopeIndexToStopAt,
+    std::optional<ContractTag> InContract) {
+
   // An init-capture is notionally from the context surrounding its
   // declaration, but its parent DC is the lambda class.
   DeclContext *VarDC = Var->getDeclContext();
@@ -19217,6 +19419,7 @@ bool Sema::tryCaptureVariable(
   bool Nested = false;
   bool Explicit = (Kind != TryCaptureKind::Implicit);
   unsigned FunctionScopesIndex = MaxFunctionScopesIndex;
+
   do {
 
     LambdaScopeInfo *LSI = nullptr;
@@ -19230,8 +19433,10 @@ bool Sema::tryCaptureVariable(
     if (LSI && !LSI->AfterParameterList) {
       // This allows capturing parameters from a default value which does not
       // seems correct
-      if (isa<ParmVarDecl>(Var) && !Var->getDeclContext()->isFunctionOrMethod())
+      if (isa<ParmVarDecl>(Var) && !Var->getDeclContext()->isFunctionOrMethod()) {
+        assert(false);
         return true;
+      }
     }
     // If the variable is declared in the current context, there is no need to
     // capture it.
@@ -19399,6 +19604,72 @@ bool Sema::tryCaptureVariable(
       DC = ParentDC;
   } while (!VarDC->Equals(DC));
 
+
+#if 0
+  const unsigned VarDeclScopeIndex = FunctionScopesIndex;
+
+  struct ContractScope {
+    unsigned Index;
+    SourceLocation Loc;
+  };
+
+  SmallVector<ContractScope, 4> ContractFunctionScopeIdxs;
+  auto *CurContract = getCurrentContractEntry();
+  auto *Currentcontract = Contract
+  while (CurContract) {
+    ContractFunctionScopeIdxs.push_back(
+        {CurContract->FunctionIndex, CurContract->KeywordLoc});
+    CurContract = CurContract->Previous;
+  }
+  // Get rid of contracts in function scopes that we don't care about. Either
+  // because they're non-lexical, or because they fully enclose the variable
+  // declaration we care about.
+  llvm::erase_if(ContractFunctionScopeIdxs, [&](const ContractScope &ScopeLoc) {
+    if (ScopeLoc.Index > MaxFunctionScopesIndex)
+      return true;
+    if (ScopeLoc.Index < VarDeclScopeIndex)
+      return true;
+    return false;
+  });
+
+  SourceLocation InterveiningContractLoc;
+  auto HasInterveningContract = [&](unsigned CurScopeIndex) -> bool {
+    for (auto &IndexLoc : ContractFunctionScopeIdxs) {
+      if (IndexLoc.Index < CurScopeIndex) {
+        InterveiningContractLoc = IndexLoc.Loc;
+        return true;
+      }
+    }
+    return false;
+  };
+  SourceLocation ContractBelowLoc;
+  auto HasContractBelow = [&](unsigned CurScopeIndex) -> bool {
+    for (auto &IndexLoc : ContractFunctionScopeIdxs) {
+      if (IndexLoc.Index >= CurScopeIndex) {
+        ContractBelowLoc = IndexLoc.Loc;
+        return true;
+      }
+    }
+    return false;
+  };
+#endif
+
+
+  ConstificationInfo ConstTracker;
+
+  if (getContractConstification(Var) == CC_ApplyConst) {
+    ConstTracker.enableDueToContract(ExprLoc);
+  }
+
+  if (FunctionScopesIndex < FunctionScopes.size() &&
+     FunctionScopesIndex >= FunctionScopesStart &&
+      FunctionScopes[FunctionScopesIndex]->isInContract())
+    ConstTracker.enableDueToContract(ContractScopeStack[FunctionScopes[FunctionScopesIndex]->ContractScopeIndex].KeywordLoc);
+
+  if (InContract.has_value() && InContract.value() == ContractTag::Yes) {
+    ConstTracker.enableDueToContract(ExprLoc);
+  }
+
   // Walk back down the scope stack, (e.g. from outer lambda to inner lambda)
   // computing the type of the capture at each step, checking type-specific
   // requirements, and adding captures if requested.
@@ -19432,10 +19703,14 @@ bool Sema::tryCaptureVariable(
       Nested = true;
     } else {
       LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
+
       Invalid =
           !captureInLambda(LSI, Var, ExprLoc, BuildAndDiagnose, CaptureType,
                            DeclRefType, Nested, Kind, EllipsisLoc,
-                           /*IsTopScope*/ I == N - 1, *this, Invalid);
+                           /*IsTopScope*/ I == N - 1, *this,
+                           ConstTracker, Invalid);
+      if (LSI->isInContract())
+        ConstTracker.enableDueToContract(getContractLocForFunctionScope(LSI));
       Nested = true;
     }
 
@@ -19446,12 +19721,14 @@ bool Sema::tryCaptureVariable(
 }
 
 bool Sema::tryCaptureVariable(ValueDecl *Var, SourceLocation Loc,
-                              TryCaptureKind Kind, SourceLocation EllipsisLoc) {
+                              TryCaptureKind Kind, SourceLocation EllipsisLoc,
+                              ContractTag IsInContract) {
   QualType CaptureType;
   QualType DeclRefType;
   return tryCaptureVariable(Var, Loc, Kind, EllipsisLoc,
                             /*BuildAndDiagnose=*/true, CaptureType,
-                            DeclRefType, nullptr);
+                            DeclRefType, nullptr,
+                            IsInContract);
 }
 
 bool Sema::NeedToCaptureVariable(ValueDecl *Var, SourceLocation Loc) {
@@ -19612,11 +19889,16 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
     // Rebuild as a non-odr-use DeclRefExpr.
     MarkNotOdrUsed();
-    return DeclRefExpr::Create(
+    auto *NewDRE = DeclRefExpr::Create(
         S.Context, DRE->getQualifierLoc(), DRE->getTemplateKeywordLoc(),
         DRE->getDecl(), DRE->refersToEnclosingVariableOrCapture(),
         DRE->getNameInfo(), DRE->getType(), DRE->getValueKind(),
         DRE->getFoundDecl(), CopiedTemplateArgs(DRE), NOUR);
+    if (DRE->isInContractContext())
+      NewDRE->setIsInContractContext(true);
+    if (DRE->isConstified())
+      NewDRE->setIsConstified(true);
+    return NewDRE;
   }
 
   case Expr::FunctionParmPackExprClass: {
@@ -19850,7 +20132,7 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
 ExprResult Sema::CheckLValueToRValueConversionOperand(Expr *E) {
   // Check whether the operand is or contains an object of non-trivial C union
-  // type.
+  // type.f
   if (E->getType().isVolatileQualified() &&
       (E->getType().hasNonTrivialToPrimitiveDestructCUnion() ||
        E->getType().hasNonTrivialToPrimitiveCopyCUnion()))
@@ -20141,7 +20423,7 @@ void Sema::MarkVariableReferenced(SourceLocation Loc, VarDecl *Var) {
   DoMarkVarDeclReferenced(*this, Loc, Var, nullptr, RefsMinusAssignments);
 }
 
-// C++ [temp.dep.expr]p3:
+// C++ [temp.dep.expr]p3:u
 //   An id-expression is type-dependent if it contains:
 //     - an identifier associated by name lookup with an entity captured by copy
 //       in a lambda-expression that has an explicit object parameter whose type

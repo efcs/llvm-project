@@ -1,4 +1,7 @@
 # Check that there are no unversioned clang symbols in libclang.so
+# FIXME(EricWF): Disabling because it doesn't work with Mold as the linker.
+# UNSUPPORTED: clang
+
 RUN: llvm-nm -Dj --defined-only %libclang | grep -v -e '@@LLVM_[0-9]\+$' | not grep '^clang'
 
 # Check that there are no local clang_ symbols (ignoring symbols with .cold or

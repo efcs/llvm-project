@@ -29,7 +29,7 @@ def initialize(lit_config, parallelism_semaphores):
     # We use the following strategy for dealing with Ctrl+C/KeyboardInterrupt in
     # subprocesses created by the multiprocessing.Pool.
     # https://noswap.com/blog/python-multiprocessing-keyboardinterrupt
-    signal.signal(signal.SIGINT, signal.SIG_IGN)
+    #signal.signal(signal.SIGINT, signal.SIG_IGN)
 
 
 def execute(test):

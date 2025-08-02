@@ -48,6 +48,7 @@ namespace clang {
   class ObjCDeclSpec;
   class Sema;
   class Declarator;
+  class ContractStmt;
   struct TemplateIdAnnotation;
 
 /// Represents a C++ nested-name-specifier or a global scope specifier.
@@ -1836,33 +1837,34 @@ enum class FunctionDefinitionKind {
 };
 
 enum class DeclaratorContext {
-  File,                // File scope declaration.
-  Prototype,           // Within a function prototype.
-  ObjCResult,          // An ObjC method result type.
-  ObjCParameter,       // An ObjC method parameter type.
-  KNRTypeList,         // K&R type definition list for formals.
-  TypeName,            // Abstract declarator for types.
-  FunctionalCast,      // Type in a C++ functional cast expression.
-  Member,              // Struct/Union field.
-  Block,               // Declaration within a block in a function.
-  ForInit,             // Declaration within first part of a for loop.
-  SelectionInit,       // Declaration within optional init stmt of if/switch.
-  Condition,           // Condition declaration in a C++ if/switch/while/for.
-  TemplateParam,       // Within a template parameter list.
-  CXXNew,              // C++ new-expression.
-  CXXCatch,            // C++ catch exception-declaration
-  ObjCCatch,           // Objective-C catch exception-declaration
-  BlockLiteral,        // Block literal declarator.
-  LambdaExpr,          // Lambda-expression declarator.
-  LambdaExprParameter, // Lambda-expression parameter declarator.
-  ConversionId,        // C++ conversion-type-id.
-  TrailingReturn,      // C++11 trailing-type-specifier.
-  TrailingReturnVar,   // C++11 trailing-type-specifier for variable.
-  TemplateArg,         // Any template argument (in template argument list).
-  TemplateTypeArg,     // Template type argument (in default argument).
-  AliasDecl,           // C++11 alias-declaration.
-  AliasTemplate,       // C++11 alias-declaration template.
-  RequiresExpr,        // C++2a requires-expression.
+  File,                   // File scope declaration.
+  Prototype,              // Within a function prototype.
+  ObjCResult,             // An ObjC method result type.
+  ObjCParameter,          // An ObjC method parameter type.
+  KNRTypeList,            // K&R type definition list for formals.
+  TypeName,               // Abstract declarator for types.
+  FunctionalCast,         // Type in a C++ functional cast expression.
+  Member,                 // Struct/Union field.
+  Block,                  // Declaration within a block in a function.
+  ForInit,                // Declaration within first part of a for loop.
+  SelectionInit,          // Declaration within optional init stmt of if/switch.
+  Condition,              // Condition declaration in a C++ if/switch/while/for.
+  TemplateParam,          // Within a template parameter list.
+  CXXNew,                 // C++ new-expression.
+  CXXCatch,               // C++ catch exception-declaration
+  ObjCCatch,              // Objective-C catch exception-declaration
+  BlockLiteral,           // Block literal declarator.
+  LambdaExpr,             // Lambda-expression declarator.
+  LambdaExprParameter,    // Lambda-expression parameter declarator.
+  ConversionId,           // C++ conversion-type-id.
+  TrailingReturn,         // C++11 trailing-type-specifier.
+  TrailingReturnVar,      // C++11 trailing-type-specifier for variable.
+  TemplateArg,            // Any template argument (in template argument list).
+  TemplateTypeArg,        // Template type argument (in default argument).
+  AliasDecl,              // C++11 alias-declaration.
+  AliasTemplate,          // C++11 alias-declaration template.
+  RequiresExpr,           // C++2a requires-expression.
+  //ContractPostcondition,  // C++2a requires-type. FIXME(EricWF)
   Association          // C11 _Generic selection expression association.
 };
 
@@ -1958,6 +1960,13 @@ private:
   /// requires-clause, or null if no such clause was specified.
   Expr *TrailingRequiresClause;
 
+public:
+  /// \brief All pre and post contracts specified by the function declaration
+  ContractSpecifierDecl *Contracts = nullptr;
+
+  CachedTokens LateParsedContracts;
+
+private:
   /// If this declarator declares a template, its template parameter lists.
   ArrayRef<TemplateParameterList *> TemplateParameterLists;
 
@@ -2113,6 +2122,9 @@ public:
     CommaLoc = SourceLocation();
     EllipsisLoc = SourceLocation();
     PackIndexingExpr = nullptr;
+    Contracts = nullptr;
+    assert(LateParsedContracts.empty() && "Late-parsed contracts unhandled");
+    LateParsedContracts.clear();
   }
 
   /// mayOmitIdentifier - Return true if the identifier is either optional or
@@ -2616,7 +2628,7 @@ public:
 
     SetRangeEnd(TRC->getEndLoc());
   }
-
+  
   /// \brief Sets a trailing requires clause for this declarator.
   Expr *getTrailingRequiresClause() {
     return TrailingRequiresClause;
@@ -2626,6 +2638,18 @@ public:
   /// declarator.
   bool hasTrailingRequiresClause() const {
     return TrailingRequiresClause != nullptr;
+  }
+
+  /// \brief Add a pre contract for this declarator
+  /// \brief Get all pre contracts for this declarator
+  ContractSpecifierDecl *getContracts() const { return Contracts; }
+
+  void addLateParsedContract(CachedTokens &Toks) {
+    LateParsedContracts.append(Toks);
+  }
+
+  const CachedTokens &getLateParsedContracts() const {
+    return LateParsedContracts;
   }
 
   /// Sets the template parameter lists that preceded the declarator.

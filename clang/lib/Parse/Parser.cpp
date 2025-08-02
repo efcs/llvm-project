@@ -1,4 +1,4 @@
-//===--- Parser.cpp - C Language Family Parser ----------------------------===//
+//===--- Parser.cpp - C Languaa Family Parser ----------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -417,7 +417,7 @@ bool Parser::SkipUntil(ArrayRef<tok::TokenKind> Toks, SkipUntilFlags Flags) {
 // Scope manipulation
 //===----------------------------------------------------------------------===//
 
-void Parser::EnterScope(unsigned ScopeFlags) {
+void Parser::EnterScope(unsigned long ScopeFlags) {
   if (NumCachedScopes) {
     Scope *N = ScopeCache[--NumCachedScopes];
     N->Init(getCurScope(), ScopeFlags);
@@ -443,7 +443,7 @@ void Parser::ExitScope() {
     ScopeCache[NumCachedScopes++] = OldScope;
 }
 
-Parser::ParseScopeFlags::ParseScopeFlags(Parser *Self, unsigned ScopeFlags,
+Parser::ParseScopeFlags::ParseScopeFlags(Parser *Self, unsigned long ScopeFlags,
                                  bool ManageFlags)
   : CurScope(ManageFlags ? Self->getCurScope() : nullptr) {
   if (CurScope) {
@@ -519,6 +519,10 @@ void Parser::Initialize() {
   Ident_GNU_final = nullptr;
   Ident_import = nullptr;
   Ident_module = nullptr;
+  Ident_pre = nullptr;
+  Ident___pre = nullptr;
+  Ident_post = nullptr;
+  Ident___post = nullptr;
 
   Ident_super = &PP.getIdentifierTable().get("super");
 

@@ -31,6 +31,7 @@
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
 #include "clang/CodeGen/SwiftCallingConv.h"
+#include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringExtras.h"
 #include "llvm/Analysis/ValueTracking.h"
 #include "llvm/IR/Assumptions.h"
@@ -3972,6 +3973,7 @@ void CodeGenFunction::EmitFunctionEpilog(
     return;
   }
 
+
   // Functions with no result always return void.
   if (!ReturnValue.isValid()) {
     auto *I = Builder.CreateRetVoid();
@@ -4150,9 +4152,11 @@ void CodeGenFunction::EmitFunctionEpilog(
       if (ITy != nullptr && isa<RecordType>(RetTy.getCanonicalType()))
         RV = EmitCMSEClearRecord(RV, ITy, RetTy);
     }
+    EmitPostContracts(RV);
     EmitReturnValueCheck(RV);
     Ret = Builder.CreateRet(RV);
   } else {
+    EmitPostContracts(nullptr);
     Ret = Builder.CreateRetVoid();
   }
 
@@ -4164,6 +4168,36 @@ void CodeGenFunction::EmitFunctionEpilog(
     addInstToSpecificSourceAtom(Ret, Backup, RetKeyInstructionsSourceAtom);
   else
     addInstToNewSourceAtom(Ret, Backup);
+}
+
+void CodeGenFunction::EmitPostContracts(llvm::Value *RV) {
+  SmallVector<const ContractStmt *, 4> PostContracts;
+  const FunctionDecl *FD = dyn_cast_or_null<FunctionDecl>(CurCodeDecl);
+
+  if (!FD || !FD->hasContracts())
+    return;
+
+  ContractSpecifierDecl *CSD = FD->getContracts();
+  assert(CSD);
+
+  std::optional<OpaqueValueExpr> OVEStore;
+  std::optional<OpaqueValueMapping> OVEBind;
+  if (auto CRD = CSD->getCanonicalResultName(); CRD && RV) {
+    OVEStore.emplace(CRD->getLocation(), CRD->getType(), VK_LValue, OK_Ordinary,
+                     nullptr);
+    // llvm::Value *SLocPtr = Builder.CreateLoad(ReturnLocation,
+    // "return.sloc.load");
+    OVEBind.emplace(*this, &OVEStore.value(),
+                    MakeAddrLValue(ReturnValue, CRD->getType()));
+  }
+
+  disableDebugInfo();
+  auto Reenabler = llvm::make_scope_exit([this]() { enableDebugInfo(); });
+  for (auto *CA : FD->postconditions()) {
+    // FIXME(EricWF): We're disabling
+    EmitStmt(CA);
+  }
+  enableDebugInfo();
 }
 
 void CodeGenFunction::EmitReturnValueCheck(llvm::Value *RV) {

@@ -893,6 +893,11 @@ option (LLVM_ENABLE_OCAMLDOC "Build OCaml bindings documentation." ON)
 option (LLVM_ENABLE_BINDINGS "Build bindings." ON)
 option (LLVM_ENABLE_TELEMETRY "Enable the telemetry library. If set to OFF, library cannot be enabled after build (eg., at runtime)" ON)
 
+option(ERICWF_DEBUG "Enable debug output that ericwf has added and needs to remove" OFF)
+if (ERICWF_DEBUG)
+    add_compile_definitions(ERICWF_DEBUG_ENABLED)
+endif()
+
 set(LLVM_INSTALL_DOXYGEN_HTML_DIR "${CMAKE_INSTALL_DOCDIR}/llvm/doxygen-html"
     CACHE STRING "Doxygen-generated HTML documentation install directory")
 set(LLVM_INSTALL_OCAMLDOC_HTML_DIR "${CMAKE_INSTALL_DOCDIR}/llvm/ocaml-html"
@@ -1539,6 +1544,7 @@ if (LLVM_INCLUDE_UTILS AND LLVM_INCLUDE_TOOLS)
   add_subdirectory(utils/llvm-locstats)
 endif()
 
+
 if (XCODE)
   # For additional targets that you would like to add schemes, specify e.g:
   #
@@ -1550,4 +1556,8 @@ if (XCODE)
   foreach(target ${LLVM_XCODE_EXTRA_TARGET_SCHEMES})
     set_target_properties(${target} PROPERTIES XCODE_GENERATE_SCHEME ON)
   endforeach()
+endif()
+
+if (ERICWF_DEBUG)
+  add_subdirectory(${LLVM_THIRD_PARTY_DIR}/ericwf-tests/ ${CMAKE_CURRENT_BINARY_DIR}/third-party/ericwf-tests)
 endif()

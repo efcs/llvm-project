@@ -1,5 +1,5 @@
 include(HandleLitArguments)
-add_subdirectory(tools)
+
 
 # Install the library at a fake location so we can run the test suite against it.
 # This ensures that we run the test suite against a setup that matches what we ship

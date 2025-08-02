@@ -17,6 +17,10 @@
 #  pragma GCC system_header
 #endif
 
+
+#define _LIBCPP_CONTRACT_ASSERT(group_str, expression) ({ contract_assert [[clang::contract_group(group_str)]] (expression); static_cast<void>(0); })
+
+
 #define _LIBCPP_ASSERT(expression, message)                                                                            \
   (__builtin_expect(static_cast<bool>(expression), 1)                                                                  \
        ? (void)0                                                                                                       \
@@ -36,6 +40,23 @@
 
 // clang-format off
 // Fast hardening mode checks.
+
+#if __has_keyword(contract_assert)
+
+#  define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)       _LIBCPP_CONTRACT_ASSERT("std.valid_input_range", expression)
+#  define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)    _LIBCPP_CONTRACT_ASSERT("std.valid_element_access", expression)
+#  define _LIBCPP_ASSERT_NON_NULL(expression, message)                _LIBCPP_CONTRACT_ASSERT("std.non_null", expression)
+#  define _LIBCPP_ASSERT_NON_OVERLAPPING_RANGES(expression, message)  _LIBCPP_CONTRACT_ASSERT("std.non_overlapping_ranges", expression)
+#  define _LIBCPP_ASSERT_VALID_DEALLOCATION(expression, message)      _LIBCPP_CONTRACT_ASSERT("std.valid_deallocation", expression)
+#  define _LIBCPP_ASSERT_VALID_EXTERNAL_API_CALL(expression, message) _LIBCPP_CONTRACT_ASSERT("std.valid_external_api_call", expression)
+#  define _LIBCPP_ASSERT_COMPATIBLE_ALLOCATOR(expression, message)    _LIBCPP_CONTRACT_ASSERT("std.compatible_allocator", expression)
+#  define _LIBCPP_ASSERT_ARGUMENT_WITHIN_DOMAIN(expression, message)  _LIBCPP_CONTRACT_ASSERT("std.argument_within_domain", expression)
+#  define _LIBCPP_ASSERT_PEDANTIC(expression, message)                _LIBCPP_CONTRACT_ASSERT("std.pedantic", expression)
+#  define _LIBCPP_ASSERT_SEMANTIC_REQUIREMENT(expression, message)    _LIBCPP_CONTRACT_ASSERT("std.semantic_requirement", expression)
+#  define _LIBCPP_ASSERT_INTERNAL(expression, message)                _LIBCPP_CONTRACT_ASSERT("std.internal", expression)
+#  define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)           _LIBCPP_CONTRACT_ASSERT("std.uncategorized", expression)
+
+#else
 
 #if _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_FAST
 
@@ -114,5 +135,6 @@
 
 #endif // _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_FAST
 // clang-format on
+#endif
 
 #endif // _LIBCPP___ASSERT

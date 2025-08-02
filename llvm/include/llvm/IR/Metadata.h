@@ -951,7 +951,7 @@ private:
   }
 
   void untrack() {
-    assert(static_cast<void *>(this) == &MD && "Expected same address");
+    assert(static_cast<const void *>(this) == &MD && "Expected same address");
     if (MD)
       MetadataTracking::untrack(MD);
   }

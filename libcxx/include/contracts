@@ -1,0 +1,103 @@
+#ifndef _LIBCPP_CONTRACTS
+#define _LIBCPP_CONTRACTS
+
+#include <__config>
+#include <source_location>
+#include <version>
+#include <__new/nothrow_t.h>
+#include <__utility/unreachable.h>
+
+
+#if !defined(_LIBCPP_HAS_NO_PRAGMA_SYSTEM_HEADER)
+#pragma GCC system_header
+#endif
+
+namespace std::contracts {
+
+enum class assertion_kind : unsigned char { __unknown = 0, pre = 1, post = 2, assert = 3, manual = 4, cassert = 5 };
+using _AssertKind = assertion_kind;
+enum class evaluation_semantic : unsigned char { __unknown = 0, enforce = 1, observe = 2 };
+using _EvaluationSemantic = evaluation_semantic;
+enum class detection_mode : unsigned char { unspecified = 0, predicate_false = 1, evaluation_exception = 2, };
+using _DetectionMode = detection_mode;
+
+struct _ContractViolationImpl;
+
+class contract_violation {
+  // no user−accessible constructor
+  friend struct _ContractViolationImpl;
+
+public:
+  ~contract_violation()                                    = default;
+  contract_violation(const contract_violation&)            = delete;
+  contract_violation& operator=(const contract_violation&) = delete;
+
+  _LIBCPP_EXPORTED_FROM_ABI std::source_location location() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI const char* comment() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI _DetectionMode detection_mode() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI assertion_kind kind() const noexcept;
+  _LIBCPP_EXPORTED_FROM_ABI evaluation_semantic semantic() const noexcept;
+
+private:
+  explicit contract_violation(const _ContractViolationImpl* impl) noexcept : __pimpl_(impl) {}
+
+  const _ContractViolationImpl* __pimpl_;
+};
+
+_LIBCPP_EXPORTED_FROM_ABI void invoke_default_contract_violation_handler(const contract_violation&) noexcept;
+
+_LIBCPP_EXPORTED_FROM_ABI void __handle_manual_contract_violation(
+  assertion_kind __kind,
+  evaluation_semantic __semantic,
+  detection_mode __mode,
+  const char* __comment,
+  std::source_location __loc,
+  bool __can_throw
+);
+
+
+inline void handle_observed_contract_violation(
+    const char* __comment,
+    const std::source_location &__loc = std::source_location::current()) {
+  __handle_manual_contract_violation(assertion_kind::manual,
+                                     evaluation_semantic::observe, detection_mode::unspecified,
+                                     __comment, __loc,
+                                     /*__can_throw=*/true);
+}
+
+inline void handle_observed_contract_violation(
+    nothrow_t,
+    const char* __comment,
+    const std::source_location& __loc = std::source_location::current()) noexcept {
+__handle_manual_contract_violation(assertion_kind::manual,
+    evaluation_semantic::observe, detection_mode::unspecified,
+    __comment, __loc, /*__can_throw=*/false);
+
+}
+
+[[noreturn]]  inline void handle_enforced_contract_violation(
+    const char* __comment,
+    const std::source_location &__loc = std::source_location::current()) {
+  __handle_manual_contract_violation(assertion_kind::manual,
+                                     evaluation_semantic::enforce, detection_mode::unspecified,
+                                     __comment, __loc, /*__can_throw=*/true);
+  __libcpp_unreachable();
+}
+
+
+[[noreturn]] inline void handle_enforced_contract_violation(
+    std::nothrow_t,
+    const char* __comment,
+    const std::source_location& __loc = std::source_location::current()
+    ) noexcept {
+  __handle_manual_contract_violation(assertion_kind::manual,
+      evaluation_semantic::enforce, detection_mode::unspecified,
+      __comment, __loc, /*__can_throw=*/false);
+  __libcpp_unreachable();
+}
+
+} // namespace std::contracts
+
+_LIBCPP_WEAK void handle_contract_violation(const std::contracts::contract_violation&);
+
+#endif // _LIBCPP_CONTRACTS

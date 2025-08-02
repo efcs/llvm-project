@@ -150,7 +150,7 @@ private:
   int Idx;
   using Self = SuccIterator<InstructionT, BlockT>;
 
-  inline bool index_is_valid(int Idx) {
+  inline bool index_is_valid(int Idx) const {
     // Note that we specially support the index of zero being valid even in the
     // face of a null instruction.
     return Idx >= 0 && (Idx == 0 || Idx <= (int)Inst->getNumSuccessors());

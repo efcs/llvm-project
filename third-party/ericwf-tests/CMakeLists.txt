@@ -1,0 +1,16 @@
+
+if (FALSE)
+FILE(GLOB TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxx/test/std/contracts/*.cpp)
+LIST(APPEND TEST_SOURCES ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxx/src/contracts.cpp)
+message(STATUS "Test sources: ${TEST_SOURCES}")
+message(STATUS "CMake Compiler: ${CMAKE_C_COMPILER}" )
+set(LIBCXX_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxx)
+set(LIBCXXABI_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../libcxxabi)
+set(INSTALL_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/../../build/install/)
+set(CMAKE_C_COMPILER ${INSTALL_ROOT}/bin/clang)
+set(CMAKE_CXX_COMPILER ${INSTALL_ROOT}/bin/clang++)
+
+add_library(test_objects OBJECT ${TEST_SOURCES})
+target_compile_options(test_objects PUBLIC -fcontracts -std=c++26 -nostdinc++)
+target_include_directories(test_objects PUBLIC ${INSTALL_ROOT}/include/c++/v1 ${INSTALL_ROOT}/include/x86_64-unknown-linux-gnu/c++/v1 ${LIBCXX_ROOT}/test/support)
+endif()

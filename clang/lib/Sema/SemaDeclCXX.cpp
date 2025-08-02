@@ -708,6 +708,9 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
       Old->isDefined(OldDefinition, true))
     CheckForFunctionRedefinition(New, OldDefinition);
 
+  if (CheckEquivalentContractSequence(Old, New))
+    Invalid = true;
+
   return Invalid;
 }
 
@@ -2240,6 +2243,13 @@ CheckConstexprFunctionStmt(Sema &SemaRef, const FunctionDecl *Dcl, Stmt *S,
                                       Cxx1yLoc, Cxx2aLoc, Cxx2bLoc, Kind))
         return false;
     }
+    return true;
+  }
+
+  case Stmt::ContractStmtClass: {
+    if (!Cxx1yLoc.isValid())
+      Cxx1yLoc = S->getBeginLoc();
+
     return true;
   }
 
@@ -10942,6 +10952,10 @@ void Sema::ActOnFinishDelayedCXXMethodDeclaration(Scope *S, Decl *MethodD) {
   // Check the default arguments, which we may have added.
   if (!Method->isInvalidDecl())
     CheckCXXDefaultArguments(Method);
+
+  if (!Method->isInvalidDecl() && Method->hasContracts())
+    ActOnContractsOnFinishFunctionDecl(Method,
+                                       Method->isThisDeclarationADefinition());
 }
 
 // Emit the given diagnostic for each non-address-space qualifier.

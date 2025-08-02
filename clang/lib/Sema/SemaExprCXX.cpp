@@ -1091,9 +1091,22 @@ bool Sema::CheckCXXThrowOperand(SourceLocation ThrowLoc,
   return false;
 }
 
+static QualType adjustCVQualifiersForCXXThisWithinContract(QualType ThisTy,
+                                                           ASTContext &ASTCtx) {
+  QualType ClassType = ThisTy->getPointeeType();
+  if (not ClassType.isConstQualified()) {
+    // If the 'this' object is const-qualified, we need to remove the
+    // const-qualification for the contract check.
+    ClassType.addConst();
+    return ASTCtx.getPointerType(ClassType);
+  }
+  return ThisTy;
+}
+
 static QualType adjustCVQualifiersForCXXThisWithinLambda(
     ArrayRef<FunctionScopeInfo *> FunctionScopes, QualType ThisTy,
-    DeclContext *CurSemaContext, ASTContext &ASTCtx) {
+    DeclContext *CurSemaContext, Sema &SemaRef) {
+  ASTContext &ASTCtx = SemaRef.Context;
 
   QualType ClassType = ThisTy->getPointeeType();
   LambdaScopeInfo *CurLSI = nullptr;
@@ -1152,6 +1165,7 @@ static QualType adjustCVQualifiersForCXXThisWithinLambda(
         ClassType.addConst();
       return ASTCtx.getPointerType(ClassType);
     }
+
   }
 
   // 2) We've run out of ScopeInfos but check 1. if CurDC is a lambda (which
@@ -1219,13 +1233,20 @@ QualType Sema::getCurrentThisType() {
     // per [expr.prim.general]p4.
     ThisTy = Context.getPointerType(ClassTy);
   }
+  if (!ThisTy.isNull() &&
+      currentEvaluationContext().isContractAssertionContext()) {
+    ThisTy = adjustCVQualifiersForCXXThisWithinContract(ThisTy, Context);
+  }
+
+  if (!ThisTy.isNull())
+    ThisTy = adjustCXXThisTypeForContracts(ThisTy);
 
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'
   // might need to be adjusted if the lambda or any of its enclosing lambda's
   // captures '*this' by copy.
   if (!ThisTy.isNull() && isLambdaCallOperator(CurContext))
     return adjustCVQualifiersForCXXThisWithinLambda(FunctionScopes, ThisTy,
-                                                    CurContext, Context);
+                                                    CurContext, *this);
   return ThisTy;
 }
 
@@ -1356,6 +1377,26 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
   }
   if (!BuildAndDiagnose) return false;
 
+#if 0
+  auto MinConstificationContext = [&]() -> std::optional<unsigned> {
+    auto *Ent = CurrentContractEntry;
+    while (Ent) {
+      if (!Ent->Previous) {
+        if (int(Ent->FunctionIndex) > MaxFunctionScopesIndex) {
+          return std::nullopt;
+        }
+        return Ent->FunctionIndex;
+      }
+      Ent = Ent->Previous;
+    }
+    return std::nullopt;
+  }();
+#endif
+  auto ContractScopes = getContractScopes();
+  std::optional<unsigned> MinConstificationContext;
+  if (!ContractScopes.empty())
+    MinConstificationContext.emplace(ContractScopes.front().FunctionIndex);
+
   // If we got here, then the closure at MaxFunctionScopesIndex on the
   // FunctionScopes stack, can capture the *enclosing object*, so capture it
   // (including implicit by-reference captures in any enclosing closures).
@@ -1370,6 +1411,7 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
          "Only a lambda can capture the enclosing object (referred to by "
          "*this) by copy");
   QualType ThisTy = getCurrentThisType();
+
   for (int idx = MaxFunctionScopesIndex; NumCapturingClosures;
        --idx, --NumCapturingClosures) {
     CapturingScopeInfo *CSI = cast<CapturingScopeInfo>(FunctionScopes[idx]);
@@ -1377,6 +1419,15 @@ bool Sema::CheckCXXThisCapture(SourceLocation Loc, const bool Explicit,
     // The type of the corresponding data member (not a 'this' pointer if 'by
     // copy').
     QualType CaptureType = ByCopy ? ThisTy->getPointeeType() : ThisTy;
+
+    // Or if we're capturing this by reference and there's an interviening
+    // contract, we need to capture the constified version of the 'this' object.
+    if (!ByCopy && MinConstificationContext &&
+        static_cast<unsigned>(idx) > *MinConstificationContext) {
+      assert(!ThisTy.isNull());
+      CaptureType =
+          Context.getPointerType(CaptureType->getPointeeType().withConst());
+    }
 
     bool isNested = NumCapturingClosures > 1;
     CSI->addThisCapture(isNested, Loc, CaptureType, ByCopy);
@@ -7608,6 +7659,12 @@ static void CheckIfAnyEnclosingLambdasMustCaptureAnyPotentialCaptures(
         !IsFullExprInstantiationDependent)
       return;
 
+#if 1
+    if (auto *DRE = dyn_cast<DeclRefExpr>(VarExpr))
+      if (DRE->isInContractContext())
+        return;
+#endif
+      
     VarDecl *UnderlyingVar = Var->getPotentiallyDecomposedVarDecl();
     if (!UnderlyingVar)
       return;

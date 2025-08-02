@@ -1537,6 +1537,9 @@ void TextNodeDumper::VisitDeclRefExpr(const DeclRefExpr *Node) {
 
   if (Node->isImmediateEscalating())
     OS << " immediate-escalating";
+
+  if (Node->isInContractContext())
+    OS << " in-contract";
 }
 
 void clang::TextNodeDumper::VisitDependentScopeDeclRefExpr(
@@ -2289,20 +2292,21 @@ void TextNodeDumper::VisitFunctionDecl(const FunctionDecl *D) {
   if (D->isIneligibleOrNotSelected())
     OS << (isa<CXXDestructorDecl>(D) ? " not_selected" : " ineligible");
 
-  if (const auto *FPT = D->getType()->getAs<FunctionProtoType>()) {
-    FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
-    switch (EPI.ExceptionSpec.Type) {
-    default:
-      break;
-    case EST_Unevaluated:
-      OS << " noexcept-unevaluated " << EPI.ExceptionSpec.SourceDecl;
-      break;
-    case EST_Uninstantiated:
-      OS << " noexcept-uninstantiated " << EPI.ExceptionSpec.SourceTemplate;
-      break;
+  if (!D->getType().isNull()) {
+    if (const auto *FPT = D->getType()->getAs<FunctionProtoType>()) {
+      FunctionProtoType::ExtProtoInfo EPI = FPT->getExtProtoInfo();
+      switch (EPI.ExceptionSpec.Type) {
+      default:
+        break;
+      case EST_Unevaluated:
+        OS << " noexcept-unevaluated " << EPI.ExceptionSpec.SourceDecl;
+        break;
+      case EST_Uninstantiated:
+        OS << " noexcept-uninstantiated " << EPI.ExceptionSpec.SourceTemplate;
+        break;
+      }
     }
   }
-
   if (const auto *MD = dyn_cast<CXXMethodDecl>(D)) {
     if (MD->size_overridden_methods() != 0) {
       auto dumpOverride = [=](const CXXMethodDecl *D) {
@@ -2438,6 +2442,17 @@ void TextNodeDumper::VisitVarDecl(const VarDecl *D) {
 void TextNodeDumper::VisitBindingDecl(const BindingDecl *D) {
   dumpName(D);
   dumpType(D->getType());
+}
+
+void TextNodeDumper::VisitResultNameDecl(const clang::ResultNameDecl *D) {
+  dumpName(D);
+  dumpType(D->getType());
+  if (!D->isCanonicalResultName()) {
+    OS << " canonical ";
+    dumpPointer(D->getCanonicalResultName());
+  } else {
+    dumpPointer(D);
+  }
 }
 
 void TextNodeDumper::VisitCapturedDecl(const CapturedDecl *D) {
@@ -3159,6 +3174,38 @@ void TextNodeDumper::VisitOpenACCRoutineDeclAttr(
 void TextNodeDumper::VisitEmbedExpr(const EmbedExpr *S) {
   AddChild("begin", [=] { OS << S->getStartingElementPos(); });
   AddChild("number of elements", [=] { OS << S->getDataElementCount(); });
+}
+
+
+void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  switch (S->getContractKind()) {
+  case ContractKind::Post:
+    OS << " post";
+    break;
+  case ContractKind::Pre:
+    OS << " pre";
+    break;
+  case ContractKind::Assert:
+    OS << " contract_assert";
+    break;
+  }
+  if (Context) {
+    switch (S->getSemantic(*Context)) {
+    case ContractEvaluationSemantic::Ignore:
+      OS << " ignore";
+      break;
+    case ContractEvaluationSemantic::Enforce:
+      OS << " enforce";
+      break;
+    case ContractEvaluationSemantic::QuickEnforce:
+      OS << " quick_enforce";
+      break;
+    case ContractEvaluationSemantic::Observe:
+      OS << " observe";
+      break;
+    }
+  }
 }
 
 void TextNodeDumper::VisitAtomicExpr(const AtomicExpr *AE) {

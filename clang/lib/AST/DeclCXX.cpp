@@ -2474,10 +2474,11 @@ CXXMethodDecl::Create(ASTContext &C, CXXRecordDecl *RD, SourceLocation StartLoc,
                       TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                       bool isInline, ConstexprSpecKind ConstexprKind,
                       SourceLocation EndLocation,
-                      const AssociatedConstraint &TrailingRequiresClause) {
+                      const AssociatedConstraint &TrailingRequiresClause,
+                          ContractSpecifierDecl *Contracts) {
   return new (C, RD) CXXMethodDecl(
       CXXMethod, C, RD, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
-      isInline, ConstexprKind, EndLocation, TrailingRequiresClause);
+      isInline, ConstexprKind, EndLocation, TrailingRequiresClause, Contracts);
 }
 
 CXXMethodDecl *CXXMethodDecl::CreateDeserialized(ASTContext &C,
@@ -2486,7 +2487,7 @@ CXXMethodDecl *CXXMethodDecl::CreateDeserialized(ASTContext &C,
       CXXMethodDecl(CXXMethod, C, nullptr, SourceLocation(),
                     DeclarationNameInfo(), QualType(), nullptr, SC_None, false,
                     false, ConstexprSpecKind::Unspecified, SourceLocation(),
-                    /*TrailingRequiresClause=*/{});
+                    /*TrailingRequiresClause=*/{}, /*Contracts=*/nullptr);
 }
 
 CXXMethodDecl *CXXMethodDecl::getDevirtualizedMethod(const Expr *Base,
@@ -2916,10 +2917,11 @@ CXXConstructorDecl::CXXConstructorDecl(
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited,
-    const AssociatedConstraint &TrailingRequiresClause)
+    const AssociatedConstraint &TrailingRequiresClause,
+    ContractSpecifierDecl *Contracts)
     : CXXMethodDecl(CXXConstructor, C, RD, StartLoc, NameInfo, T, TInfo,
                     SC_None, UsesFPIntrin, isInline, ConstexprKind,
-                    SourceLocation(), TrailingRequiresClause) {
+                    SourceLocation(), TrailingRequiresClause, Contracts) {
   setNumCtorInitializers(0);
   setInheritingConstructor(static_cast<bool>(Inherited));
   setImplicit(isImplicitlyDeclared);
@@ -2943,7 +2945,8 @@ CXXConstructorDecl *CXXConstructorDecl::CreateDeserialized(ASTContext &C,
   auto *Result = new (C, ID, Extra) CXXConstructorDecl(
       C, nullptr, SourceLocation(), DeclarationNameInfo(), QualType(), nullptr,
       ExplicitSpecifier(), false, false, false, ConstexprSpecKind::Unspecified,
-      InheritedConstructor(), /*TrailingRequiresClause=*/{});
+      InheritedConstructor(), /*TrailingRequiresClause=*/{}, /*Contracts=*/{});
+
   Result->setInheritingConstructor(isInheritingConstructor);
   Result->CXXConstructorDeclBits.HasTrailingExplicitSpecifier =
       hasTrailingExplicit;
@@ -2957,16 +2960,19 @@ CXXConstructorDecl *CXXConstructorDecl::Create(
     ExplicitSpecifier ES, bool UsesFPIntrin, bool isInline,
     bool isImplicitlyDeclared, ConstexprSpecKind ConstexprKind,
     InheritedConstructor Inherited,
-    const AssociatedConstraint &TrailingRequiresClause) {
+    const AssociatedConstraint &TrailingRequiresClause,
+    ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConstructorName &&
          "Name must refer to a constructor");
   unsigned Extra =
       additionalSizeToAlloc<InheritedConstructor, ExplicitSpecifier>(
           Inherited ? 1 : 0, ES.getExpr() ? 1 : 0);
-  return new (C, RD, Extra) CXXConstructorDecl(
-      C, RD, StartLoc, NameInfo, T, TInfo, ES, UsesFPIntrin, isInline,
-      isImplicitlyDeclared, ConstexprKind, Inherited, TrailingRequiresClause);
+  return new (C, RD, Extra)
+      CXXConstructorDecl(C, RD, StartLoc, NameInfo, T, TInfo, ES, UsesFPIntrin,
+                         isInline, isImplicitlyDeclared, ConstexprKind,
+                         Inherited, TrailingRequiresClause, Contracts);
 }
 
 CXXConstructorDecl::init_const_iterator CXXConstructorDecl::init_begin() const {
@@ -3084,7 +3090,9 @@ CXXDestructorDecl *CXXDestructorDecl::CreateDeserialized(ASTContext &C,
   return new (C, ID) CXXDestructorDecl(
       C, nullptr, SourceLocation(), DeclarationNameInfo(), QualType(), nullptr,
       false, false, false, ConstexprSpecKind::Unspecified,
-      /*TrailingRequiresClause=*/{});
+      /*TrailingRequiresClause=*/{},
+      /*Contracts=*/{});
+
 }
 
 CXXDestructorDecl *CXXDestructorDecl::Create(
@@ -3092,13 +3100,15 @@ CXXDestructorDecl *CXXDestructorDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, bool isImplicitlyDeclared,
     ConstexprSpecKind ConstexprKind,
-    const AssociatedConstraint &TrailingRequiresClause) {
+    const AssociatedConstraint &TrailingRequiresClause,
+    ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXDestructorName &&
          "Name must refer to a destructor");
   return new (C, RD) CXXDestructorDecl(
       C, RD, StartLoc, NameInfo, T, TInfo, UsesFPIntrin, isInline,
-      isImplicitlyDeclared, ConstexprKind, TrailingRequiresClause);
+      isImplicitlyDeclared, ConstexprKind, TrailingRequiresClause, Contracts);
 }
 
 void CXXDestructorDecl::setOperatorDelete(FunctionDecl *OD, Expr *ThisArg) {
@@ -3148,13 +3158,15 @@ CXXConversionDecl *CXXConversionDecl::Create(
     const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
     bool UsesFPIntrin, bool isInline, ExplicitSpecifier ES,
     ConstexprSpecKind ConstexprKind, SourceLocation EndLocation,
-    const AssociatedConstraint &TrailingRequiresClause) {
+    const AssociatedConstraint &TrailingRequiresClause,
+        ContractSpecifierDecl *Contracts) {
+
   assert(NameInfo.getName().getNameKind()
          == DeclarationName::CXXConversionFunctionName &&
          "Name must refer to a conversion function");
   return new (C, RD) CXXConversionDecl(
       C, RD, StartLoc, NameInfo, T, TInfo, UsesFPIntrin, isInline, ES,
-      ConstexprKind, EndLocation, TrailingRequiresClause);
+      ConstexprKind, EndLocation, TrailingRequiresClause, Contracts);
 }
 
 bool CXXConversionDecl::isLambdaToBlockPointerConversion() const {
@@ -3807,4 +3819,117 @@ static const char *getAccessName(AccessSpecifier AS) {
 const StreamingDiagnostic &clang::operator<<(const StreamingDiagnostic &DB,
                                              AccessSpecifier AS) {
   return DB << getAccessName(AS);
+}
+
+ResultNameDecl *ResultNameDecl::Create(ASTContext &C, DeclContext *DC,
+                                       SourceLocation IdLoc, IdentifierInfo *Id,
+                                       QualType T,
+                                       ResultNameDecl *CanonicalResultNameDecl,
+                                       bool HasInventedPlaceholderType, unsigned FunctionScopeDepth) {
+  return new (C, DC) ResultNameDecl(DC, IdLoc, Id, T, CanonicalResultNameDecl,
+                                    HasInventedPlaceholderType, FunctionScopeDepth);
+}
+
+ResultNameDecl *ResultNameDecl::CreateDeserialized(ASTContext &C, GlobalDeclID ID) {
+  return new (C, ID) ResultNameDecl(nullptr, SourceLocation(), nullptr, QualType());
+}
+
+void ResultNameDecl::anchor() {}
+
+bool ContractSpecifierDecl::IsPostconditionPred(const ContractStmt *CS) {
+  return CS->getContractKind() == ContractKind::Post;
+}
+
+bool ContractSpecifierDecl::IsPreconditionPred(const ContractStmt *CS) {
+  return CS->getContractKind() == ContractKind::Pre;
+}
+
+void ContractSpecifierDecl::anchor() {}
+
+bool ContractSpecifierDecl::hasCanonicalResultName() const {
+  return getCanonicalResultName() != nullptr;
+}
+
+SourceRange ContractSpecifierDecl::getSourceRange() const {
+  if (contracts().empty())
+    return SourceRange(getLocation(), getLocation());
+  return SourceRange(getLocation(), contracts().back()->getEndLoc());
+}
+
+ContractSpecifierDecl *ContractSpecifierDecl::Create(
+    ASTContext &C, DeclContext *DC, SourceLocation Loc,
+    ArrayRef<ContractStmt *> Contracts, bool IsInvalid) {
+  assert((Contracts.size() > 0 || IsInvalid) &&
+         "ContractSpecifierDecl must have at least one contract");
+  size_t Extra = additionalSizeToAlloc<ContractStmt *>(Contracts.size());
+  return new (C, DC, Extra)
+      ContractSpecifierDecl(DC, Loc, Contracts, IsInvalid);
+}
+ContractSpecifierDecl *ContractSpecifierDecl::CreateDeserialized(
+    clang::ASTContext &C, clang::GlobalDeclID ID, unsigned NumContracts) {
+  size_t Extra = additionalSizeToAlloc<ContractStmt *>(NumContracts);
+  auto *Result = new (C, ID, Extra)
+      ContractSpecifierDecl(nullptr, SourceLocation(), NumContracts);
+  return Result;
+}
+
+ResultNameDecl *
+ContractSpecifierDecl::ExtractResultName(const ContractStmt *CS) {
+  assert(CS && "Null pointer?");
+  if (CS->hasResultName())
+    return CS->getResultName();
+  return nullptr;
+}
+
+ContractSpecifierDecl::ContractSpecifierDecl(DeclContext *DC,
+                                             SourceLocation Loc,
+                                             ArrayRef<ContractStmt *> Contracts,
+                                             bool IsInvalid)
+    : Decl(Decl::ContractSpecifier, DC, Loc), NumContracts(Contracts.size()) {
+  if (IsInvalid)
+    this->setInvalidDecl(true);
+  assert((Contracts.size() > 0 || IsInvalid) &&
+         "ContractSpecifierSequence must have at least one contract");
+  setContracts(Contracts);
+}
+
+const ResultNameDecl *ContractSpecifierDecl::getCanonicalResultName() const {
+  for (auto *RN : result_names()) {
+    // The first result name should be the canonical one.
+    assert(RN->isCanonicalResultName() &&
+           "Unexpected non-canonical result name");
+    return RN;
+  }
+  return nullptr;
+}
+
+void ContractSpecifierDecl::setContracts(ArrayRef<ContractStmt *> Contracts) {
+  assert((Contracts.size() > 0 || isInvalidDecl()) &&
+         "ContractSpecifierDecl must have at least one contract");
+  assert(Contracts.size() == NumContracts &&
+      "ContractSpecifierDecl must have at least one contract");
+
+  std::copy(Contracts.begin(), Contracts.end(),
+            getTrailingObjects());
+  auto *DC = getDeclContext();
+  // Update the result names to point to the correct canonical result name.
+  ResultNameDecl *CanonicalResultName = nullptr;
+  for (auto *RND : result_names()) {
+    if (CanonicalResultName)
+      RND->setCanonicalResultName(CanonicalResultName);
+    else
+      CanonicalResultName = RND;
+    RND->setDeclContext(DC);
+  }
+}
+
+void ContractSpecifierDecl::setOwningFunction(DeclContext *FD) {
+  setDeclContext(FD);
+  for (auto *RND : result_names())
+    RND->setDeclContext(FD);
+}
+
+bool ContractSpecifierDecl::hasInventedPlaceholdersTypes() const {
+  auto *CRND = getCanonicalResultName();
+  return CRND && CRND->hasInventedPlaceholderType();
 }

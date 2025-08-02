@@ -429,6 +429,8 @@ public:
   void VisitOpenACCRoutineDecl(const OpenACCRoutineDecl *D);
   void VisitOpenACCRoutineDeclAttr(const OpenACCRoutineDeclAttr *A);
   void VisitEmbedExpr(const EmbedExpr *S);
+  void VisitResultNameDecl(const ResultNameDecl *D);
+  void VisitContractStmt(const ContractStmt *S);
   void VisitAtomicExpr(const AtomicExpr *AE);
   void VisitConvertVectorExpr(const ConvertVectorExpr *S);
 };

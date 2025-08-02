@@ -14,6 +14,7 @@
 #define LLVM_CLANG_SEMA_SCOPE_H
 
 #include "clang/AST/Decl.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/Basic/Diagnostic.h"
 #include "llvm/ADT/PointerIntPair.h"
 #include "llvm/ADT/SmallPtrSet.h"
@@ -42,7 +43,7 @@ class Scope {
 public:
   /// ScopeFlags - These are bitfields that are or'd together when creating a
   /// scope, which defines the sorts of things the scope contains.
-  enum ScopeFlags {
+  enum ScopeFlags : unsigned long {
     // A bitfield value representing no scopes.
     NoScope = 0,
 
@@ -167,7 +168,17 @@ public:
 
     /// This is a scope of friend declaration.
     FriendScope = 0x80000000,
+
+    /// The scope introduced by a pre, post, or contract_assert.
+    //
+    // FIXME(Ericwf): This scope in unlike others, where it doesn't applied
+    // to the entire scope, but only to the statement that introduced it.
+    // This is a bit of a hack, but it's the simplest way to get the
+    // functionality we need.
+    ContractAssertScope = 0x100000000,
   };
+  using UT = std::underlying_type_t<ScopeFlags>;
+  static_assert(std::is_unsigned_v<UT>, "ScopeFlags must be an unsigned type");
 
 private:
   /// The parent scope for this scope.  This is null for the translation-unit
@@ -176,7 +187,7 @@ private:
 
   /// Flags - This contains a set of ScopeFlags, which indicates how the scope
   /// interrelates with other control flow statements.
-  unsigned Flags;
+  unsigned long Flags;
 
   /// Depth - This is the depth of this scope.  The translation-unit scope has
   /// depth 0.
@@ -255,18 +266,18 @@ private:
   /// available for this variable in the current scope.
   llvm::SmallPtrSet<VarDecl *, 8> ReturnSlots;
 
-  void setFlags(Scope *Parent, unsigned F);
+  void setFlags(Scope *Parent, unsigned long F);
 
 public:
-  Scope(Scope *Parent, unsigned ScopeFlags, DiagnosticsEngine &Diag)
+  Scope(Scope *Parent, unsigned long ScopeFlags, DiagnosticsEngine &Diag)
       : ErrorTrap(Diag) {
     Init(Parent, ScopeFlags);
   }
 
   /// getFlags - Return the flags for this scope.
-  unsigned getFlags() const { return Flags; }
+  unsigned long getFlags() const { return Flags; }
 
-  void setFlags(unsigned F) { setFlags(getParent(), F); }
+  void setFlags(unsigned long F) { setFlags(getParent(), F); }
 
   /// isBlockScope - Return true if this scope correspond to a closure.
   bool isBlockScope() const { return Flags & BlockScope; }
@@ -299,11 +310,19 @@ public:
   void setIsConditionVarScope(bool InConditionVarScope) {
     Flags = (Flags & ~ConditionVarScope) |
             (InConditionVarScope ? ConditionVarScope : NoScope);
+
   }
 
   bool isConditionVarScope() const {
     return Flags & ConditionVarScope;
   }
+
+  void setIsContractScope(bool InContractScope) {
+    Flags = (Flags & ~ContractAssertScope) |
+            (InContractScope ? ContractAssertScope : NoScope);
+  }
+
+  bool isContractScope() const { return Flags & ContractAssertScope; }
 
   /// getBreakParent - Return the closest scope that a break statement
   /// would be affected by.
@@ -583,6 +602,10 @@ public:
     return getFlags() & ScopeFlags::ContinueScope;
   }
 
+  bool isContractAssertScope() const {
+    return getFlags() & ScopeFlags::ContractAssertScope;
+  }
+
   /// Determine whether this scope is a C++ 'try' block.
   bool isTryScope() const { return getFlags() & Scope::TryScope; }
 
@@ -639,11 +662,11 @@ public:
   void applyNRVO();
 
   /// Init - This is used by the parser to implement scope caching.
-  void Init(Scope *parent, unsigned flags);
+  void Init(Scope *parent, unsigned long flags);
 
   /// Sets up the specified scope flags and adjusts the scope state
   /// variables accordingly.
-  void AddFlags(unsigned Flags);
+  void AddFlags(unsigned long Flags);
 
   void dumpImpl(raw_ostream &OS) const;
   void dump() const;

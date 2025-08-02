@@ -132,6 +132,16 @@ namespace {
           return;
         }
 
+        if (const auto *RND = dyn_cast<ResultNameDecl>(D)) {
+          // Pointer equality cannot be used on result names either, since the result name on different declarations
+          // should be considered equivalent.
+          // FIXME(EricWF): We may need to compare more than just the type and identifier, consider
+          //
+          VisitType(RND->getType());
+          ID.AddInteger(RND->getFunctionScopeDepth());
+          return;
+        }
+
         if (const TemplateTypeParmDecl *TTP =
                 dyn_cast<TemplateTypeParmDecl>(D)) {
           ID.AddInteger(TTP->getDepth());
@@ -2362,6 +2372,8 @@ void StmtProfiler::VisitDependentCoawaitExpr(const DependentCoawaitExpr *S) {
 void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
   VisitExpr(S);
 }
+
+void StmtProfiler::VisitContractStmt(const ContractStmt *S) { VisitStmt(S); }
 
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
   VisitExpr(E);

@@ -498,6 +498,22 @@ void ASTStmtReader::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
     SubExpr = Record.readSubStmt();
 }
 
+void ASTStmtReader::VisitContractStmt(ContractStmt *S) {
+  VisitStmt(S);
+  Record.skipInts(1);
+  unsigned NumAttrs = Record.readInt();
+
+  S->KeywordLoc = Record.readSourceLocation();
+  S->setCondition(Record.readExpr());
+  if (S->hasResultName())
+    S->setResultName(cast<DeclStmt>(Record.readStmt()));
+  AttrVec Attrs;
+  Record.readAttributes(Attrs);
+  assert(Attrs.size() == NumAttrs);
+  ((void)NumAttrs);
+  std::copy(Attrs.begin(), Attrs.end(), S->getAttrPtr());
+}
+
 void ASTStmtReader::VisitCapturedStmt(CapturedStmt *S) {
   VisitStmt(S);
   Record.skipInts(1);
@@ -4410,6 +4426,17 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case EXPR_DEPENDENT_COAWAIT:
       S = new (Context) DependentCoawaitExpr(Empty);
       break;
+
+    case STMT_CXX_CONTRACT: {
+      BitsUnpacker ContractBits(Record[ASTStmtReader::NumStmtFields]);
+      ContractKind CK = static_cast<ContractKind>(ContractBits.getNextBits(2));
+      bool HasResultName = ContractBits.getNextBit();
+
+      unsigned NumAttrs = Record[ASTStmtReader::NumStmtFields + 1];
+
+      S = ContractStmt::CreateEmpty(Context, CK, HasResultName, NumAttrs);
+      break;
+    }
 
     case EXPR_CONCEPT_SPECIALIZATION: {
       S = new (Context) ConceptSpecializationExpr(Empty);

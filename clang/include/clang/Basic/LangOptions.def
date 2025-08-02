@@ -112,6 +112,8 @@ LANGOPT(NoMathBuiltin     , 1, 0, NotCompatible, "disable math builtin functions
 LANGOPT(GNUAsm            , 1, 1, NotCompatible, "GNU-style inline assembly")
 LANGOPT(Coroutines        , 1, 0, NotCompatible, "C++20 coroutines")
 LANGOPT(CoroAlignedAllocation, 1, 0, NotCompatible, "prefer Aligned Allocation according to P2014 Option 2")
+LANGOPT(Contracts         , 1, 1, NotCompatible, "C++2c contracts")
+LANGOPT(ContractExceptions, 1, 1, NotCompatible, "Contracts report a violation on exception")
 LANGOPT(DllExportInlines  , 1, 1, NotCompatible, "dllexported classes dllexport inline methods")
 LANGOPT(ExperimentalLibrary, 1, 0, NotCompatible, "enable unstable and experimental library features")
 

@@ -1090,7 +1090,8 @@ public:
 
   /// Get the address of a UnnamedGlobalConstant
   ConstantAddress
-  GetAddrOfUnnamedGlobalConstantDecl(const UnnamedGlobalConstantDecl *GCD);
+  GetAddrOfUnnamedGlobalConstantDecl(const UnnamedGlobalConstantDecl *GCD,
+                                     StringRef Name = ".constant");
 
   /// Get the address of a template parameter object.
   ConstantAddress

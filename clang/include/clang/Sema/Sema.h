@@ -3183,6 +3183,79 @@ public:
   //
   //
 
+  /// \name C++ Contracts
+  /// Implementations are in SemaContract.cpp
+  ///@{
+
+public:
+  StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
+                                 Expr *Cond, ResultNameDecl *ResultNameDecl,
+                                 ParsedAttributes &Attrs);
+
+  ResultNameDecl *ActOnResultNameDeclarator(ContractKind CK, Scope *S,
+                                            QualType T, SourceLocation IDLoc,
+                                            IdentifierInfo *II, unsigned FunctionScopeDepth);
+
+  ExprResult ActOnContractAssertCondition(Expr *Cond);
+
+  StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
+                               Expr *Cond, DeclStmt *ResultName,
+                               ArrayRef<const Attr *> Attrs);
+
+  ContractSpecifierDecl *
+  BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                             DeclContext *DC, SourceLocation Loc,
+                             bool IsInvalid);
+
+  // Check two function declarations for equivalent contract sequences.
+  // Return true if a diagnostic was issued, false otherwise.
+  bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
+                                       FunctionDecl *NewDecl);
+
+  void CheckLambdaCapturesForContracts(LambdaExpr *LE);
+
+  /// Perform semantic analysis for a contract specifier on the specified function.
+  /// For function templates, these checks should be performed with the instantiation of
+  /// the body, and not the declaration.
+  void CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition,
+    bool IsInstantiation);
+
+  // FIXME(EricWF): Remove me. These are just convinence hooks while I move
+  // things around in the implementation.
+  ContractSpecifierDecl *
+  ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
+                                       SourceLocation Loc, bool IsInvalid);
+
+  void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
+  void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
+
+  /// Rebuild the contract specifier against another declaration of the function
+  /// (using the new functions parameters)
+  ContractSpecifierDecl *
+  RebuildContractSpecifierForDecl(FunctionDecl *FirstDecl,
+                                  FunctionDecl *Definition);
+
+  ///
+  DeclResult
+  RebuildContractsWithPlaceholderReturnType(FunctionDecl *Definition);
+
+  void InstantiateContractSpecifier(
+      SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
+      const FunctionDecl *Pattern,
+      const MultiLevelTemplateArgumentList &TemplateArgs);
+
+  std::optional<unsigned>
+  getFunctionScopeIndexForDeclaration(const ValueDecl *VD);
+  const DeclContext *getDeclContextForFunctionScopeIndex(unsigned ScopeIndex);
+  void WalkUpContractScopesTest() const;
+  ///@}
+
+  //
+  //
+  // -------------------------------------------------------------------------
+  //
+  //
+
   /// \name C++ Scope Specifiers
   /// Implementations are in SemaCXXScopeSpec.cpp
   ///@{
@@ -3486,6 +3559,7 @@ public:
       S.CurContext = ContextToPush;
       if (NewThisContext)
         S.CXXThisTypeOverride = QualType();
+
       // Any saved FunctionScopes do not refer to this context.
       S.FunctionScopesStart = S.FunctionScopes.size();
       S.InventedParameterInfosStart = S.InventedParameterInfos.size();
@@ -6780,7 +6854,6 @@ public:
     bool InDiscardedStatement;
     bool InImmediateFunctionContext;
     bool InImmediateEscalatingFunctionContext;
-
     bool IsCurrentlyCheckingDefaultArgumentOrInitializer = false;
 
     // We are in a constant context, but we also allow
@@ -6793,11 +6866,17 @@ public:
     /// example, in a for-range initializer).
     bool InLifetimeExtendingContext = false;
 
+
+    /// Whether we're currently evaluating the predicate of a contract assertion
+    bool InContractAssertion = false;
+    bool IsContainedWithinContract = false;
+
     /// Whether evaluating an expression for a switch case label.
     bool IsCaseExpr = false;
 
     /// Whether we should rebuild CXXDefaultArgExpr and CXXDefaultInitExpr.
     bool RebuildDefaultArgOrDefaultInit = false;
+
 
     // When evaluating immediate functions in the initializer of a default
     // argument or default member initializer, this is the declaration whose
@@ -6867,6 +6946,10 @@ public:
                isPotentiallyEvaluated()) &&
               InDiscardedStatement);
     }
+
+    bool isContractAssertionContext() const { return InContractAssertion; }
+
+    bool isContainedWithinContract() const { return IsContainedWithinContract; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -6895,6 +6978,90 @@ public:
     return ExprEvalContexts.back().ExprContext ==
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
+
+  bool isContractAssertionContext() const;
+
+  struct ContractScopeRecord {
+    // The index of this entry within the ContractScopeStack.
+    unsigned Index;
+    ContractKind Kind;
+
+    // Whether this scope was pushed prior to the function declaration
+    // being available, and so the ContextAtPush is not the function itself yet,
+    // but the context in which the function is being declared.
+    ContractScopeOffset ScopeOffset;
+
+    SourceLocation KeywordLoc;
+    DeclContext *ContextAtPush;
+    QualType PreviousCXXThisType;
+    /// The _index_ of the current function scope when we entered the contract
+    /// (or -1 if there was none?)
+    unsigned FunctionIndex;
+    unsigned StartFunctionIndex;
+
+    sema::FunctionScopeInfo *FunctionScopeAtPush = nullptr;
+    bool AddedConstToCXXThis = false;
+    bool WasInContractContext = false;
+    bool HadNoFunctionScope = false;
+    unsigned FunctionScopeStartAtPush = 0;
+    const DeclContext *getFunctionContext(bool AllowLambda = true) const;
+
+  };
+
+  SmallVector<ContractScopeRecord, 4> ContractScopeStack;
+  llvm::DenseMap<const DeclContext*, unsigned> ContractScopeIndexMap;
+
+  const ContractScopeRecord *getFirstEnclosingContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getLastEnclosingContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getFirstEnclosedContractScopeForContext(const DeclContext *DC) const;
+  const ContractScopeRecord *getLastEnclosedContractScopeForContext(const DeclContext *DC) const;
+
+  SourceLocation getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const;
+
+  void PushContractScope(ContractKind CK, ContractScopeOffset ScopeOffset, SourceLocation Loc);
+  ContractScopeRecord PopContractScope();
+
+  const ContractScopeRecord *getContractScopeForContext(const DeclContext *DC) const;
+
+  ArrayRef<ContractScopeRecord> getContractScopes() const;
+  ArrayRef<ContractScopeRecord> getAllContractScopes() const;
+
+
+  ArrayRef<ContractScopeRecord>
+  getInterveningContractScopes(const ValueDecl *VD) const;
+  SmallVector<sema::FunctionScopeInfo *>
+  getInterveningFunctionScopesForContracts(const ValueDecl *VD) const;
+
+  struct ContractScopeRAII {
+    ContractScopeRAII(Sema &S, ContractKind CK, ContractScopeOffset Offset, SourceLocation ContractLoc);
+    ~ContractScopeRAII();
+
+  private:
+    ContractScopeRAII(ContractScopeRAII const &) = delete;
+    ContractScopeRAII &operator=(ContractScopeRAII const &) = delete;
+
+    Sema &S;
+  };
+
+  // The contract whos condition is the current expression evaluation context.
+  // or null if we're not inside a contract.
+  const ContractScopeRecord *getCurrentContractEntry() const;
+
+  SourceLocation getCurrentContractKeywordLoc() {
+    assert(getCurrentContractEntry() && "No current contract?");
+    return getCurrentContractEntry()->KeywordLoc;
+  }
+
+  // Return whether to constify the specified variable in the current context.
+  ContractConstification getContractConstification(const ValueDecl *VD);
+
+  /// Return true if the usage of this variable in the current context would "cross" a contract boundary.
+  /// Meaning the variable is declared above the contract scope and used below it.
+  bool isUsageAcrossContract(const ValueDecl *VD);
+
+  /// Return the correctly constified 'this' type, accounting for any constification contexts
+  /// that may be in effect.
+  QualType adjustCXXThisTypeForContracts(QualType QT);
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
@@ -7056,12 +7223,14 @@ public:
                           TryCaptureKind Kind, SourceLocation EllipsisLoc,
                           bool BuildAndDiagnose, QualType &CaptureType,
                           QualType &DeclRefType,
-                          const unsigned *const FunctionScopeIndexToStopAt);
+                          const unsigned *const FunctionScopeIndexToStopAt,
+                          std::optional<ContractTag> IsConstified = std::nullopt);
 
   /// Try to capture the given variable.
   bool tryCaptureVariable(ValueDecl *Var, SourceLocation Loc,
                           TryCaptureKind Kind = TryCaptureKind::Implicit,
-                          SourceLocation EllipsisLoc = SourceLocation());
+                          SourceLocation EllipsisLoc = SourceLocation(),
+                          ContractTag IsConstified = ContractTag::No);
 
   /// Checks if the variable must be captured.
   bool NeedToCaptureVariable(ValueDecl *Var, SourceLocation Loc);
@@ -8248,6 +8417,12 @@ public:
   /// \<source_location>.
   RecordDecl *StdSourceLocationImplDecl;
 
+  /// A Clang builtin type matching the layout of libc++ and libstdc++'s
+  /// "std::source_location::__impl". This is used by
+  /// __builtin_source_location_pointer to produce source locations without
+  /// the <source_location> header.
+  RecordDecl *ClangSourceLocationImplDecl;
+
   /// A stack of expression evaluation contexts.
   SmallVector<ExpressionEvaluationContextRecord, 8> ExprEvalContexts;
 
@@ -8377,6 +8552,11 @@ public:
   /// current context not being a non-static member function. In such cases,
   /// this provides the type used for 'this'.
   QualType CXXThisTypeOverride;
+
+  /// Whether the current CXXThisTypeOverride has `const` added to it by a
+  /// contract constification context when the current 'this' type would have
+  /// otherwise been non-const. Used when issuing diagnostics.
+  bool ContractAddedConstToCXXThis = false;
 
   /// RAII object used to temporarily allow the C++ 'this' expression
   /// to be used, with the given qualifiers on the current class type.

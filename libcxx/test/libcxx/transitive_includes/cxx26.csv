@@ -196,6 +196,9 @@ condition_variable limits
 condition_variable ratio
 condition_variable typeinfo
 condition_variable version
+contracts cstdint
+contracts source_location
+contracts version
 coroutine compare
 coroutine cstdint
 coroutine cstring

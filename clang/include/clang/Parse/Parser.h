@@ -402,7 +402,7 @@ public:
     // ParseScope - Construct a new object to manage a scope in the
     // parser Self where the new Scope is created with the flags
     // ScopeFlags, but only when we aren't about to enter a compound statement.
-    ParseScope(Parser *Self, unsigned ScopeFlags, bool EnteredScope = true,
+    ParseScope(Parser *Self, unsigned long ScopeFlags, bool EnteredScope = true,
                bool BeforeCompoundStmt = false)
         : Self(Self) {
       if (EnteredScope && !BeforeCompoundStmt)
@@ -437,7 +437,7 @@ public:
 
   public:
     MultiParseScope(Parser &Self) : Self(Self) {}
-    void Enter(unsigned ScopeFlags) {
+    void Enter(unsigned long ScopeFlags) {
       Self.EnterScope(ScopeFlags);
       ++NumScopes;
     }
@@ -451,7 +451,7 @@ public:
   };
 
   /// EnterScope - Start a new scope.
-  void EnterScope(unsigned ScopeFlags);
+  void EnterScope(unsigned long ScopeFlags);
 
   /// ExitScope - Pop a scope off the scope stack.
   void ExitScope();
@@ -842,14 +842,14 @@ private:
   /// RAII object used to modify the scope flags for the current scope.
   class ParseScopeFlags {
     Scope *CurScope;
-    unsigned OldFlags = 0;
+    unsigned long OldFlags = 0;
     ParseScopeFlags(const ParseScopeFlags &) = delete;
     void operator=(const ParseScopeFlags &) = delete;
 
   public:
     /// Set the flags for the current scope to ScopeFlags. If ManageFlags is
     /// false, this object does nothing.
-    ParseScopeFlags(Parser *Self, unsigned ScopeFlags, bool ManageFlags = true);
+    ParseScopeFlags(Parser *Self, unsigned long ScopeFlags, bool ManageFlags = true);
 
     /// Restore the flags for the current scope to what they were before this
     /// object overrode them.
@@ -1268,6 +1268,8 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2709,7 +2711,8 @@ private:
                                bool IsAmbiguous, bool RequiresArg = false);
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope,
+      bool AddConst = false);
 
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.
@@ -7338,7 +7341,7 @@ public:
   /// [GNU]   '__label__' identifier-list ';'
   /// \endverbatim
   ///
-  StmtResult ParseCompoundStatement(bool isStmtExpr, unsigned ScopeFlags);
+  StmtResult ParseCompoundStatement(bool isStmtExpr, unsigned long ScopeFlags);
 
   /// Parse any pragmas at the start of the compound expression. We handle these
   /// separately since some pragmas (FP_CONTRACT) must appear before any C
@@ -8933,6 +8936,60 @@ private:
                             bool OuterMightBeMessageSend = false);
 
   ///@}
+
+//===--------------------------------------------------------------------===//
+  // C++ Contracts
+public:
+  mutable IdentifierInfo *Ident_pre = nullptr;
+  mutable IdentifierInfo *Ident_post = nullptr;
+  mutable IdentifierInfo *Ident___pre = nullptr;
+  mutable IdentifierInfo *Ident___post = nullptr;
+
+  enum ContractEnterScopeKind {
+    CES_None = 0,
+    CES_Prototype = 0x1,
+    CES_Parameters = 0x2,
+    CES_CXXThis = 0x4,
+    CES_Function = 0x8,
+    CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
+  };
+
+  std::optional<ContractKind> getContractKeyword(const Token &Token) const;
+  std::optional<ContractKind> getContractKeyword() const {
+    return getContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword() const {
+    return isFunctionContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).value_or(ContractKind::Assert) !=
+        ContractKind::Assert;
+  }
+
+  bool isAnyContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).has_value();
+  }
+
+private:
+  StmtResult ParseContractAssertStatement();
+
+  void ParseContractSpecifierSequence(Declarator &DeclarationInfo,
+                                      bool EnterScope,
+                                      QualType TrailingReturnType = QualType());
+
+  StmtResult ParseFunctionContractSpecifierImpl(
+      llvm::function_ref<QualType()> ReturnTypeResolver, ContractScopeOffset ScopeOffset, bool &IsInvalid);
+
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
+                                   ContractEnterScopeKind EnterScopeKinds);
+
+
+  ContractSpecifierDecl *ParseLexedFunctionContractsInScope(CachedTokens &Toks,
+                                                            QualType RetType);
 };
 
 } // end namespace clang

@@ -49,6 +49,9 @@ class source_location {
     unsigned _M_line;
     unsigned _M_column;
   };
+
+  // This is a terrible hack to allow contract_violation to construct a source_location
+  // from a different typed-ed struct with the same layout and members (so it should be well defined)
   const __impl* __ptr_ = nullptr;
   // GCC returns the type 'const void*' from the builtin, while clang returns
   // `const __impl*`. Per C++ [expr.const], casts from void* are not permitted
@@ -56,6 +59,13 @@ class source_location {
   // type unless the builtin returned that, anyhow, and the invalid cast is
   // unavoidable.
   using __bsl_ty _LIBCPP_NODEBUG = decltype(__builtin_source_location());
+
+public:
+  static std::source_location __create_from_pointer(const void* __ptr) {
+    std::source_location __loc;
+    __loc.__ptr_ = static_cast<const __impl*>(__ptr);
+    return __loc;
+  }
 
 public:
   // The defaulted __ptr argument is necessary so that the builtin is evaluated

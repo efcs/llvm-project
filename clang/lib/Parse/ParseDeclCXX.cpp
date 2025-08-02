@@ -13,6 +13,7 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/PrettyDeclStackTrace.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
@@ -1887,6 +1888,23 @@ void Parser::ParseClassSpecifier(tok::TokenKind TagTokKind,
         ConsumeBracket();
         if (!SkipUntil(tok::r_square, StopAtSemi))
           break;
+      } else if (isFunctionContractKeyword() &&
+                 (NextToken().is(tok::l_paren) ||
+                  (NextToken().is(tok::l_square) &&
+                   GetLookAheadToken(2).is(tok::l_square)))) {
+        // A contract may have a C++11 attribute between the keyword and the
+        // opening paren.
+        ConsumeToken();
+        if (Tok.is(tok::l_square)) {
+          ConsumeBracket();
+          if (!SkipUntil(tok::r_square, StopAtSemi))
+            break;
+        }
+        if (Tok.is(tok::l_paren)) {
+          ConsumeParen();
+          if (!SkipUntil(tok::r_paren, StopAtSemi))
+            break;
+        }
       } else if (Tok.is(tok::kw_alignas) && NextToken().is(tok::l_paren)) {
         ConsumeToken();
         ConsumeParen();
@@ -2367,6 +2385,8 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
     }
   }
 
+  NeedLateParse |= !DeclaratorInfo.getLateParsedContracts().empty();
+
   if (NeedLateParse) {
     // Push this method onto the stack of late-parsed method
     // declarations.
@@ -2387,6 +2407,8 @@ void Parser::HandleMemberFunctionDeclDelays(Declarator &DeclaratorInfo,
       LateMethod->ExceptionSpecTokens = FTI.ExceptionSpecTokens;
       FTI.ExceptionSpecTokens = nullptr;
     }
+
+    LateMethod->ContractTokens = std::move(DeclaratorInfo.LateParsedContracts);
   }
 }
 
@@ -2584,6 +2606,8 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
       MaybeParseAndDiagnoseDeclSpecAfterCXX11VirtSpecifierSeq(DeclaratorInfo,
                                                               VS);
   }
+
+  ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {
@@ -4157,6 +4181,9 @@ ExceptionSpecificationType Parser::ParseDynamicExceptionSpecification(
   return Exceptions.empty() ? EST_DynamicNone : EST_Dynamic;
 }
 
+
+/// ParseTrailingReturnType - Parse a trailing return type on a new-style
+/// function declaration.
 TypeResult Parser::ParseTrailingReturnType(SourceRange &Range,
                                            bool MayBeFollowedByDirectInit) {
   assert(Tok.is(tok::arrow) && "expected arrow");
@@ -4265,7 +4292,8 @@ void Parser::PopParsingClass(Sema::ParsingClassState state) {
   ClassStack.pop();
   if (Victim->TopLevelClass) {
     // Deallocate all of the nested classes of this class,
-    // recursively: we don't need to keep any of this information.
+    // recursively: we don't need
+    // to keep any of this information.
     DeallocateParsedClasses(Victim);
     return;
   }

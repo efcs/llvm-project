@@ -73,6 +73,7 @@ namespace {
     void VisitVarDecl(VarDecl *D);
     void VisitLabelDecl(LabelDecl *D);
     void VisitParmVarDecl(ParmVarDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
     void VisitFileScopeAsmDecl(FileScopeAsmDecl *D);
     void VisitTopLevelStmtDecl(TopLevelStmtDecl *D);
     void VisitImportDecl(ImportDecl *D);
@@ -850,6 +851,16 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       // that's supported.
       TrailingRequiresClause.ConstraintExpr->printPretty(
           Out, nullptr, SubPolicy, Indentation, "\n", &Context);
+    }
+
+    const ContractSpecifierDecl *Contracts = D->getContracts();
+    if (Contracts) {
+      Out << " [[";
+      for (const auto *Contract : Contracts->contracts()) {
+        Contract->printPretty(Out, nullptr, SubPolicy, Indentation, "\n",
+                              &Context);
+      }
+      Out << "]]";
     }
   } else {
     Ty.print(Out, Policy, Proto);
@@ -1946,6 +1957,21 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
   }
 }
 
+void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
+  StringRef Name = "";
+  if (IdentifierInfo *II = RND->getIdentifier()) {
+    Name =
+        Policy.CleanUglifiedParameters ? II->deuglifiedName() : II->getName();
+  }
+  printDeclType(RND->getType(), Name, false);
+  Out << RND->getDeclName();
+  if (!RND->isCanonicalResultName()) {
+    Out << " = ";
+    RND->getCanonicalResultName()->printQualifiedName(Out);
+    Out << " " << RND << " ";
+  }
+}
+
 void DeclPrinter::VisitOpenACCDeclareDecl(OpenACCDeclareDecl *D) {
   if (!D->isInvalidDecl()) {
     Out << "#pragma acc declare";
@@ -1956,6 +1982,7 @@ void DeclPrinter::VisitOpenACCDeclareDecl(OpenACCDeclareDecl *D) {
     }
   }
 }
+
 void DeclPrinter::VisitOpenACCRoutineDecl(OpenACCRoutineDecl *D) {
   if (!D->isInvalidDecl()) {
     Out << "#pragma acc routine";
@@ -1977,5 +2004,6 @@ void DeclPrinter::VisitOpenACCRoutineDecl(OpenACCRoutineDecl *D) {
       OpenACCClausePrinter Printer(Out, Policy);
       Printer.VisitClauseList(D->clauses());
     }
+
   }
 }

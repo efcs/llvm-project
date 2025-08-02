@@ -64,7 +64,7 @@ void ImportedFunctionsInliningStatistics::recordInline(const Function &Caller,
   if (!CallerNode.Imported) {
     // We could avoid second lookup, but it would make the code ultra ugly.
     auto It = NodesMap.find(Caller.getName());
-    assert(It != NodesMap.end() && "The node should be already there.");
+    assert(NodesMapTy::const_iterator(It) != NodesMap.end() && "The node should be already there.");
     // Save Caller as a starting node for traversal. The string has to be one
     // from map because Caller can disappear (and function name with it).
     NonImportedCallers.push_back(It->first());

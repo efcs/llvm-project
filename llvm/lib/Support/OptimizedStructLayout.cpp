@@ -329,6 +329,7 @@ llvm::performOptimizedStructLayout(MutableArrayRef<Field> Fields) {
   // to the layout at the given offset.
   auto addToLayout = [&](AlignmentQueue *Queue, Field *Last, Field *Cur,
                          uint64_t Offset) -> bool {
+    ((void)LastEnd);
     assert(Offset == alignTo(LastEnd, Cur->Alignment));
 
     // Splice out.  This potentially invalidates Queue.
@@ -348,6 +349,7 @@ llvm::performOptimizedStructLayout(MutableArrayRef<Field> Fields) {
   // Note that this never fails if EndOffset is not provided.
   auto tryAddFillerFromQueue = [&](AlignmentQueue *Queue, uint64_t StartOffset,
                                    std::optional<uint64_t> EndOffset) -> bool {
+    ((void)LastEnd);
     assert(Queue->Head);
     assert(StartOffset == alignTo(LastEnd, Queue->Alignment));
     assert(!EndOffset || StartOffset < *EndOffset);

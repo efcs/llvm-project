@@ -16,6 +16,7 @@
 
 #include "clang/Basic/CFProtectionOptions.h"
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/ContractOptions.h"
 #include "clang/Basic/LLVM.h"
 #include "clang/Basic/LangStandard.h"
 #include "clang/Basic/ObjCRuntime.h"
@@ -488,6 +489,8 @@ public:
     CX_None
   };
 
+  using ContractEvaluationSemantic = clang::ContractEvaluationSemantic;
+
   /// Controls which variables have static destructors registered.
   enum class RegisterStaticDestructorsKind {
     /// Register static destructors for all variables.
@@ -613,10 +616,18 @@ public:
   /// The default stream kind used for HIP kernel launching.
   GPUDefaultStreamKind GPUDefaultStream;
 
+  /// C++ contracts evaluation mode
+  ContractEvaluationSemantic ContractEvalSemantic;
+
+  /// A list of options pretaining to c++ contracts and clang attributes about
+  /// them.
+  ContractOptions ContractOpts;
+
   /// Which overflow patterns should be excluded from sanitizer instrumentation
   unsigned OverflowPatternExclusionMask = 0;
 
   std::vector<std::string> OverflowPatternExclusionValues;
+
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

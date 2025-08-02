@@ -1130,5 +1130,11 @@ const internal::VariadicDynCastAllOfMatcher<OMPClause, OMPDefaultClause>
 const internal::VariadicDynCastAllOfMatcher<Decl, CXXDeductionGuideDecl>
     cxxDeductionGuideDecl;
 
+
+const internal::VariadicDynCastAllOfMatcher<Stmt, ContractStmt> contractStmt;
+const internal::VariadicDynCastAllOfMatcher<Decl, ResultNameDecl> resultNameDecl;
+const internal::VariadicDynCastAllOfMatcher<Decl, ContractSpecifierDecl>
+    contractSpecifierDecl;
+
 } // end namespace ast_matchers
 } // end namespace clang

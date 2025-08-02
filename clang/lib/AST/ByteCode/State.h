@@ -128,6 +128,9 @@ public:
   /// constant value.
   bool InConstantContext = false;
 
+  // Whether we're allowed to evaluate contracts
+  bool EvaluateContracts = true;
+
 private:
   void addCallStack(unsigned Limit);
 

@@ -58,6 +58,8 @@ namespace clang {
 class ASTContext;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
+class ContractStmt;
+class ContractSpecifierDecl;
 class DependentFunctionTemplateSpecializationInfo;
 class EnumDecl;
 class Expr;
@@ -70,6 +72,7 @@ class Module;
 class NamespaceDecl;
 class ParmVarDecl;
 class RecordDecl;
+class ResultNameDecl;
 class Stmt;
 class StringLiteral;
 class TagDecl;
@@ -80,6 +83,7 @@ class TypeAliasTemplateDecl;
 class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
+enum class ContractKind;
 
 // Holds a constraint expression along with a pack expansion index, if
 // expanded.
@@ -778,8 +782,8 @@ struct QualifierInfo {
 /// Contains type source information through TypeSourceInfo.
 class DeclaratorDecl : public ValueDecl {
   // A struct representing a TInfo, a trailing requires-clause and a syntactic
-  // qualifier, to be used for the (uncommon) case of out-of-line declarations
-  // and constrained function decls.
+  // qualifier, to be used for the (uncommon) case of out-of-line declarations,
+  // constrained function decls or functions with contracts.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo = nullptr;
     AssociatedConstraint TrailingRequiresClause;
@@ -908,8 +912,14 @@ struct EvaluatedStmt {
   bool HasICEInit : 1;
   bool CheckedForICEInit : 1;
 
+  // The APvalue stored here may need re-evaluation under contracts, in which
+  // case we need to track if we've already regisetered this value for
+  // destruction.
+  bool RegisteredForDestruction : 1;
+
   bool HasSideEffects : 1;
   bool CheckedForSideEffects : 1;
+
 
   LazyDeclStmtPtr Value;
   APValue Evaluated;
@@ -917,8 +927,9 @@ struct EvaluatedStmt {
   EvaluatedStmt()
       : WasEvaluated(false), IsEvaluating(false),
         HasConstantInitialization(false), HasConstantDestruction(false),
-        HasICEInit(false), CheckedForICEInit(false), HasSideEffects(false),
-        CheckedForSideEffects(false) {}
+        HasICEInit(false), CheckedForICEInit(false),
+        RegisteredForDestruction(false), HasSideEffects(false), CheckedForSideEffects(false) {}
+
 };
 
 /// Represents a variable declaration or definition.
@@ -1413,7 +1424,8 @@ public:
 
 private:
   APValue *evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitialization) const;
+                             bool IsConstantInitialization,
+                             bool EnableContracts) const;
 
 public:
   /// Return the already-evaluated value of this variable's
@@ -1445,8 +1457,13 @@ public:
   /// Evaluate the initializer of this variable to determine whether it's a
   /// constant initializer. Should only be called once, after completing the
   /// definition of the variable.
-  bool checkForConstantInitialization(
-      SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+  bool
+  checkForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                 bool EnableContracts = true) const;
+
+  bool
+  recheckForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
+                                   bool EnableContracts = true) const;
 
   void setInitStyle(InitializationStyle Style) {
     VarDeclBits.InitStyle = Style;
@@ -2058,6 +2075,10 @@ private:
   /// no formals.
   ParmVarDecl **ParamInfo = nullptr;
 
+  /// The contract sequence specified on this function declaration if there is
+  /// any, otherwise nullptr
+  ContractSpecifierDecl *Contracts = nullptr;
+
   /// The active member of this union is determined by
   /// FunctionDeclBits.HasDefaultedOrDeletedInfo.
   union {
@@ -2065,6 +2086,7 @@ private:
     LazyDeclStmtPtr Body;
     /// Information about a future defaulted function definition.
     DefaultedOrDeletedFunctionInfo *DefaultedOrDeletedInfo;
+    ///
   };
 
   unsigned ODRHash;
@@ -2154,7 +2176,8 @@ protected:
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
-               const AssociatedConstraint &TrailingRequiresClause);
+               const AssociatedConstraint &TrailingRequiresClause,
+               ContractSpecifierDecl *Contracts = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2190,12 +2213,14 @@ public:
          TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
-         const AssociatedConstraint &TrailingRequiresClause = {}) {
+         const AssociatedConstraint &TrailingRequiresClause = {},
+         ContractSpecifierDecl *Contracts = nullptr) {
+
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
                                 UsesFPIntrin, isInlineSpecified,
                                 hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause);
+                                TrailingRequiresClause, Contracts);
   }
 
   static FunctionDecl *
@@ -2203,7 +2228,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         const AssociatedConstraint &TrailingRequiresClause);
+         const AssociatedConstraint &TrailingRequiresClause, ContractSpecifierDecl *Contracts);
+
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -2761,6 +2787,10 @@ public:
     return const_cast<FunctionDecl*>(this)->getCanonicalDecl();
   }
 
+
+  FunctionDecl *getDeclForContracts();
+  const FunctionDecl *getDeclForContracts() const;
+
   unsigned getBuiltinID(bool ConsiderWrapperFunctions = false) const;
 
   // ArrayRef interface to parameters.
@@ -3134,6 +3164,22 @@ public:
     return {};
   }
 
+  /// Set the function level contracts for this function. Update the specifier
+  /// decl and it's children to have this declaration as a declaration context.
+  void setContracts(ContractSpecifierDecl *CSD);
+
+  bool hasContracts() const { return Contracts != nullptr; }
+
+  ContractSpecifierDecl *getContracts() const { return Contracts; }
+
+  using ContractRange = llvm::iterator_range<llvm::filter_iterator<
+      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
+
+  // Convenience functions to get the preconditions and postconditions.
+  ArrayRef<ContractStmt *> contracts() const;
+  ContractRange preconditions() const;
+  ContractRange postconditions() const;
+
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }
   static bool classofKind(Kind K) {
@@ -3180,6 +3226,9 @@ class FieldDecl : public DeclaratorDecl, public Mergeable<FieldDecl> {
   unsigned Mutable : 1;
   LLVM_PREFERRED_TYPE(InitStorageKind)
   unsigned StorageKind : 2;
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned IsConstifiedCapture : 1;
+
   mutable unsigned CachedFieldIndex : 28;
 
   /// If this is a bitfield with a default member initializer, this
@@ -3219,6 +3268,7 @@ protected:
         CachedFieldIndex(0), Init() {
     if (BW)
       setBitWidth(BW);
+    IsConstifiedCapture = false;
   }
 
 public:
@@ -3380,6 +3430,11 @@ public:
 
   /// Set the captured variable length array type for this field.
   void setCapturedVLAType(const VariableArrayType *VLAType);
+
+  bool isConstifiedCapture() const { return IsConstifiedCapture; }
+  void setIsConstifiedCapture(bool Value = true) {
+    IsConstifiedCapture = Value;
+  }
 
   /// Returns the parent of this field declaration, which
   /// is the struct in which this field is defined.

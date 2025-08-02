@@ -441,6 +441,9 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx, ValueDecl *D,
   DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = false;
   DeclRefExprBits.NonOdrUseReason = NOUR;
   DeclRefExprBits.IsImmediateEscalating = false;
+  DeclRefExprBits.IsInContractContext = false;
+  DeclRefExprBits.IsConstified = false;
+
   DeclRefExprBits.Loc = L;
   setDependence(computeDependence(this, Ctx));
 }
@@ -481,6 +484,8 @@ DeclRefExpr::DeclRefExpr(const ASTContext &Ctx,
   }
   DeclRefExprBits.IsImmediateEscalating = false;
   DeclRefExprBits.HadMultipleCandidates = 0;
+  DeclRefExprBits.IsConstified = false;
+  DeclRefExprBits.IsInContractContext = false;
   setDependence(computeDependence(this, Ctx));
 }
 
@@ -2274,6 +2279,8 @@ StringRef SourceLocExpr::getBuiltinStr() const {
     return "__builtin_COLUMN";
   case SourceLocIdentKind::SourceLocStruct:
     return "__builtin_source_location";
+  case SourceLocIdentKind::SourceLocPointer:
+    return "__builtin_source_location_pointer";
   }
   llvm_unreachable("unexpected IdentKind!");
 }
@@ -2343,6 +2350,7 @@ APValue SourceLocExpr::EvaluateInContext(const ASTContext &Ctx,
     return APValue(Ctx.MakeIntValue(PLoc.getLine(), Ctx.UnsignedIntTy));
   case SourceLocIdentKind::Column:
     return APValue(Ctx.MakeIntValue(PLoc.getColumn(), Ctx.UnsignedIntTy));
+  case SourceLocIdentKind::SourceLocPointer:
   case SourceLocIdentKind::SourceLocStruct: {
     // Fill in a std::source_location::__impl structure, by creating an
     // artificial file-scoped CompoundLiteralExpr, and returning a pointer to

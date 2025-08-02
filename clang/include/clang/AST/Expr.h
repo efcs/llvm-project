@@ -740,7 +740,8 @@ public:
   bool EvaluateAsInitializer(APValue &Result, const ASTContext &Ctx,
                              const VarDecl *VD,
                              SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                             bool IsConstantInitializer) const;
+                             bool IsConstantInitializer,
+                             bool EvaluateContracts = true) const;
 
   /// EvaluateWithSubstitution - Evaluate an expression as if from the context
   /// of a call to the given function with the given arguments, inside an
@@ -1245,6 +1246,17 @@ public:
   }
 };
 
+// This enum is silly, but avoids creating overload sets where many adjacent
+// arguments are all convertible to/from bool or int.
+enum class ContractConstification {
+  CC_None,
+  CC_ApplyConst,
+};
+
+constexpr ContractConstification CC_None = ContractConstification::CC_None;
+constexpr ContractConstification CC_ApplyConst =
+    ContractConstification::CC_ApplyConst;
+
 /// A reference to a declared variable, function, enum, etc.
 /// [C99 6.5.1p2]
 ///
@@ -1268,6 +1280,9 @@ public:
 ///   DeclRefExprBits.RefersToEnclosingVariableOrCapture
 ///       Specifies when this declaration reference expression (validly)
 ///       refers to an enclosed local or a captured variable.
+///   DeclRefExprBits.IsInConstificationContext
+///     Specifies when this declaration reference expression is in a context
+///     where constification is applied.
 class DeclRefExpr final
     : public Expr,
       private llvm::TrailingObjects<DeclRefExpr, NestedNameSpecifierLoc,
@@ -1496,6 +1511,16 @@ public:
       bool Set, const ASTContext &Context) {
     DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = Set;
     setDependence(computeDependence(this, Context));
+  }
+
+  void setIsConstified(bool Value) { DeclRefExprBits.IsConstified = Value; }
+  bool isConstified() const { return DeclRefExprBits.IsConstified; }
+
+  void setIsInContractContext(bool Value) {
+    DeclRefExprBits.IsInContractContext = Value;
+  }
+  bool isInContractContext() const {
+    return DeclRefExprBits.IsInContractContext;
   }
 
   static bool classof(const Stmt *T) {
@@ -4945,12 +4970,16 @@ enum class SourceLocIdentKind {
   FileName,
   Line,
   Column,
-  SourceLocStruct
+  SourceLocStruct,
+  SourceLocPointer
 };
+// We use 3 bits to represent this in the AST
+static_assert(static_cast<int>(SourceLocIdentKind::SourceLocPointer) < 8);
+
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
 /// __builtin_FUNCTION(), __builtin_FUNCSIG(), __builtin_FILE(),
-/// __builtin_FILE_NAME() or __builtin_source_location().
+/// __builtin_FILE_NAME(), __builtin_source_location(), or __builtin_source_location()2.
 class SourceLocExpr final : public Expr {
   SourceLocation BuiltinLoc, RParenLoc;
   DeclContext *ParentContext;
@@ -4982,6 +5011,7 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
+    case SourceLocIdentKind::SourceLocPointer:
       return false;
     case SourceLocIdentKind::Line:
     case SourceLocIdentKind::Column:
@@ -5016,6 +5046,7 @@ public:
     case SourceLocIdentKind::Function:
     case SourceLocIdentKind::FuncSig:
     case SourceLocIdentKind::SourceLocStruct:
+    case SourceLocIdentKind::SourceLocPointer:
       return true;
     default:
       return false;

@@ -50,6 +50,7 @@
 #include "clang/Basic/AddressSpaces.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/CommentOptions.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/ExceptionSpecificationType.h"
 #include "clang/Basic/IdentifierTable.h"
 #include "clang/Basic/LLVM.h"
@@ -65,6 +66,7 @@
 #include "clang/Basic/TargetCXXABI.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/XRayLists.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/APFixedPoint.h"
 #include "llvm/ADT/APInt.h"
 #include "llvm/ADT/APSInt.h"
@@ -88,6 +90,7 @@
 #include "llvm/Support/raw_ostream.h"
 #include "llvm/TargetParser/AArch64TargetParser.h"
 #include "llvm/TargetParser/Triple.h"
+
 #include <algorithm>
 #include <cassert>
 #include <cstddef>
@@ -10113,6 +10116,253 @@ CreateSystemZBuiltinVaListDecl(const ASTContext *Context) {
   return Context->buildImplicitTypedef(VaListTagArrayType, "__builtin_va_list");
 }
 
+enum ContractViolationDescriptorType {
+  DT_CStr,
+  DT_VoidPtr,
+  DT_Unsigned,
+  DT_Int,
+  DT_DescriptorTable
+};
+
+const char *
+GetContractViolationDescriptorTypeString(ContractViolationDescriptorType DT) {
+  switch (DT) {
+  case ContractViolationDescriptorType::DT_CStr:
+    return "const char*";
+  case ContractViolationDescriptorType::DT_VoidPtr:
+    return "void*";
+  case ContractViolationDescriptorType::DT_Unsigned:
+    return "unsigned";
+  case ContractViolationDescriptorType::DT_Int:
+    return "int";
+  case ContractViolationDescriptorType::DT_DescriptorTable:
+    return "descriptor_table*";
+  }
+}
+
+QualType GetContractViolationDescriptorType(ContractViolationDescriptorType DT,
+                                            const ASTContext *Context) {
+  switch (DT) {
+  case ContractViolationDescriptorType::DT_CStr:
+    return Context->getPointerType(Context->getConstType(Context->CharTy));
+  case ContractViolationDescriptorType::DT_VoidPtr:
+    return Context->VoidPtrTy;
+  case ContractViolationDescriptorType::DT_Unsigned:
+    return Context->UnsignedIntTy;
+  case ContractViolationDescriptorType::DT_Int:
+    return Context->IntTy;
+  case ContractViolationDescriptorType::DT_DescriptorTable:
+    return Context->VoidPtrTy;
+  }
+  llvm_unreachable("unhandled case");
+}
+
+struct ContractViolationDescriptorEntry {
+  const char *Name;
+  ContractViolationDescriptorType Type;
+};
+
+[[maybe_unused]] constexpr ContractViolationDescriptorEntry
+    ContractViolationDescriptorTableV1[] = {{"__file_", DT_CStr},
+                                            {"__function_", DT_CStr},
+                                            {"__line_", DT_Unsigned},
+                                            {"__column_", DT_Unsigned},
+                                            {"__message_", DT_CStr},
+                                            {"__contract_kind_", DT_Unsigned}
+
+};
+
+struct ContractViolationDescriptorTable {
+  unsigned version;
+
+  std::vector<ContractViolationDescriptorEntry> Entries;
+};
+
+[[maybe_unused]] static RecordDecl *
+CreateBuiltinContractViolationDescriptorEntryDecl(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT = Context->buildImplicitRecord(
+      "__builtin_contract_violation_descriptor_entry_t");
+  ViolationInfoT->startDefinition();
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  using Pt = std::pair<QualType, const char *>;
+  std::array<std::pair<QualType, const char *>, 3> FieldInfo = {
+      Pt{ConstStrLiteralTy, "__name_"}, Pt{ConstStrLiteralTy, "__type_"},
+      Pt{ConstStrLiteralTy, "__additional_info_"}};
+  const auto NumFields = FieldInfo.size();
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+
+  return ViolationInfoT;
+}
+
+[[maybe_unused]] static RecordDecl *
+CreateBuiltinContractDestriptorTable(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT = Context->buildImplicitRecord(
+      "__builtin_contract_violation_descriptor_entry_t");
+  ViolationInfoT->startDefinition();
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  using Pt = std::pair<QualType, const char *>;
+  std::array<std::pair<QualType, const char *>, 3> FieldInfo = {
+      Pt{ConstStrLiteralTy, "__name_"},
+      Pt{ConstStrLiteralTy, "__type_"},
+      Pt{ConstStrLiteralTy, "__size_"},
+  };
+  const auto NumFields = FieldInfo.size();
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+
+  return ViolationInfoT;
+}
+
+static RecordDecl *
+CreateBuiltinContractViolationRecordDecl(const ASTContext *Context) {
+  RecordDecl *ViolationInfoT =
+      Context->buildImplicitRecord("__builtin_contract_violation_info_t");
+  ViolationInfoT->startDefinition();
+
+  QualType ConstStrLiteralTy =
+      Context->getPointerType(Context->getConstType(Context->CharTy));
+  using Pt = std::pair<QualType, const char *>;
+  std::array<std::pair<QualType, const char *>, 7> FieldInfo = {
+      Pt{Context->UnsignedIntTy, "__version_"},
+
+      // This prefix of  {file, function, line, colunm} is important, as it
+      // matches the layout of the source_location impl struct. This means we
+      // can use it to produce a valid source location object.
+      //
+      Pt{ConstStrLiteralTy, "__file_"}, Pt{ConstStrLiteralTy, "__function_"},
+      Pt{Context->UnsignedIntTy, "__line_"},
+      Pt{Context->UnsignedIntTy, "__column_"},
+
+      Pt{ConstStrLiteralTy, "__message_"},
+      Pt{Context->UnsignedIntTy, "__contract_kind_"}};
+  const auto NumFields = FieldInfo.size();
+
+  // Create fields
+  for (unsigned i = 0; i < NumFields; ++i) {
+    FieldDecl *Field = FieldDecl::Create(
+        const_cast<ASTContext &>(*Context), ViolationInfoT, SourceLocation(),
+        SourceLocation(), &Context->Idents.get(FieldInfo[i].second),
+        FieldInfo[i].first,
+        /*TInfo=*/nullptr,
+        /*BitWidth=*/nullptr,
+        /*Mutable=*/false, ICIS_NoInit);
+    Field->setAccess(AS_public);
+    ViolationInfoT->addDecl(Field);
+  }
+  ViolationInfoT->completeDefinition();
+
+  return ViolationInfoT;
+}
+
+UnnamedGlobalConstantDecl *
+ASTContext::BuildViolationObject(const ContractStmt *CS,
+                                 const FunctionDecl *CurDecl) {
+  assert(CS);
+  SourceLocation Loc = CS->getBeginLoc();
+
+  auto &Ctx = *this;
+
+  PresumedLoc PLoc = Ctx.getSourceManager().getPresumedLoc(
+      Ctx.getSourceManager().getExpansionRange(Loc).getEnd());
+
+  auto MakeStringLiteral = [&](StringRef Tmp) {
+    using LValuePathEntry = APValue::LValuePathEntry;
+    StringLiteral *Res = Ctx.getPredefinedStringLiteralFromCache(Tmp);
+    // Decay the string to a pointer to the first character.
+    LValuePathEntry Path[1] = {LValuePathEntry::ArrayIndex(0)};
+    return APValue(Res, CharUnits::Zero(), Path, /*OnePastTheEnd=*/false);
+  };
+
+  const RecordDecl *ImplDecl =
+      dyn_cast_or_null<RecordDecl>(getBuiltinContractViolationRecordDecl());
+  assert(ImplDecl);
+
+  APValue Value(APValue::UninitStruct(), 0, 8);
+  for (const FieldDecl *F : ImplDecl->fields()) {
+    StringRef Name = F->getName();
+    if (Name == "__version_") {
+      llvm::APSInt IntVal = Ctx.MakeIntValue(3, F->getType());
+      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+    } else if (Name == "__message_") {
+      Value.getStructField(F->getFieldIndex()) =
+          MakeStringLiteral(CS->getMessage(Ctx));
+    } else if (Name == "__file_") {
+      SmallString<256> Path(PLoc.getFilename());
+      clang::Preprocessor::processPathForFileMacro(Path, Ctx.getLangOpts(),
+                                                   Ctx.getTargetInfo());
+      Value.getStructField(F->getFieldIndex()) = MakeStringLiteral(Path);
+    } else if (Name == "__function_") {
+      // Note: this emits the PrettyFunction name -- different than what
+      // __builtin_FUNCTION() above returns!
+      Value.getStructField(F->getFieldIndex()) = MakeStringLiteral(
+          CurDecl && !isa<TranslationUnitDecl>(CurDecl)
+              ? StringRef(PredefinedExpr::ComputeName(
+                    PredefinedIdentKind::PrettyFunction, CurDecl))
+              : "");
+    } else if (Name == "__line_") {
+      llvm::APSInt IntVal = Ctx.MakeIntValue(PLoc.getLine(), F->getType());
+      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+    } else if (Name == "__column_") {
+      llvm::APSInt IntVal = Ctx.MakeIntValue(PLoc.getColumn(), F->getType());
+      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+
+    } else if (Name == "__contract_kind_") {
+      unsigned ContractKindValue = [&]() {
+        switch (CS->getContractKind()) {
+        case ContractKind::Pre:
+          return 1;
+        case ContractKind::Post:
+          return 2;
+        case ContractKind::Assert:
+          return 3;
+        }
+        llvm_unreachable("unhandled ContractKind");
+      }();
+
+      llvm::APSInt IntVal = Ctx.MakeIntValue(ContractKindValue, F->getType());
+      Value.getStructField(F->getFieldIndex()) = APValue(IntVal);
+    } else {
+      assert(false &&
+             "unexpected field in __builtin_contract_violation_info_t");
+      llvm_unreachable("can't touch this");
+    }
+  }
+  QualType QT =
+      Ctx.getBuiltinContractViolationRecordType().getUnqualifiedType();
+  UnnamedGlobalConstantDecl *GV = Ctx.getUnnamedGlobalConstantDecl(QT, Value);
+
+  return GV;
+}
+
 static TypedefDecl *CreateHexagonBuiltinVaListDecl(const ASTContext *Context) {
   // typedef struct __va_list_tag {
   RecordDecl *VaListTagDecl;
@@ -10236,6 +10486,16 @@ TypedefDecl *ASTContext::getBuiltinVaListDecl() const {
   return BuiltinVaListDecl;
 }
 
+Decl *ASTContext::getBuiltinContractViolationRecordDecl() const {
+  if (!BuiltinContractViolationRecordDecl) {
+    BuiltinContractViolationRecordDecl =
+        CreateBuiltinContractViolationRecordDecl(this);
+    assert(BuiltinContractViolationRecordDecl->isImplicit());
+  }
+
+  return BuiltinContractViolationRecordDecl;
+}
+
 Decl *ASTContext::getVaListTagDecl() const {
   // Force the creation of VaListTagDecl by building the __builtin_va_list
   // declaration.
@@ -10244,6 +10504,7 @@ Decl *ASTContext::getVaListTagDecl() const {
 
   return VaListTagDecl;
 }
+
 
 TypedefDecl *ASTContext::getBuiltinMSVaListDecl() const {
   if (!BuiltinMSVaListDecl)

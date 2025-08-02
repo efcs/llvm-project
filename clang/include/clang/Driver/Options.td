@@ -1627,6 +1627,33 @@ defm auto_import : BoolFOption<"auto-import",
 def offload_EQ : CommaJoined<["--"], "offload=">, Flags<[NoXarchOption]>, Alias<offload_targets_EQ>,
   HelpText<"Specify comma-separated list of offloading target triples (CUDA and HIP only)">;
 
+// C++ Contracts
+defm contracts : BoolFOption<"contracts",
+  LangOpts<"Contracts">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option, CLOption],
+          "Enable support for C++ Contracts">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
+
+
+def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-semantic=">,
+  HelpText<"Specify contract evaluation semantic. The default value is 'enforce'.">,
+  Values<"ignore,enforce,observe,quick_enforce">,
+  Visibility<[ClangOption, CC1Option]>,
+  NormalizedValuesScope<"LangOptions::ContractEvaluationSemantic">,
+  NormalizedValues<["Ignore", "Enforce", "Observe", "QuickEnforce"]>,
+  MarshallingInfoEnum<LangOpts<"ContractOpts.DefaultSemantic">, "Enforce">;
+
+def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group-evaluation-semantic=">,
+  Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Clang extension. Enable or disable contracts by group. The argument is a comma-separated "
+           "sequence of one or more group names, each prefixed by '+' or '-'.">;
+
+defm contract_exceptions : BoolFOption<"contract-exceptions",
+  LangOpts<"ContractExceptions">, DefaultTrue,
+  PosFlag<SetTrue, [], [ClangOption],
+          "Enable contract violation on exception">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract violations on exception">>;
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",
   LangOpts<"Coroutines">, Default<cpp20.KeyPath>,

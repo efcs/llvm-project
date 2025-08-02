@@ -246,6 +246,15 @@ void BasicBlock::moveAfter(BasicBlock *MovePos) {
 }
 
 const Module *BasicBlock::getModule() const {
+  assert(this);
+  // FIXME(EricWF):
+  // See if you can remove this
+  if (!getParent()) {
+    llvm::errs() << "BasicBlock not embedded in a Function!\n near "
+                 << getName();
+    llvm::errs() << "\n";
+  }
+  assert(getParent());
   return getParent()->getParent();
 }
 
