@@ -17201,7 +17201,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
         return ExprError();
     }
     ResultTy = Context.getPointerType(
-        Context.getRecordType(ClangSourceLocationImplDecl).withConst());
+        Context.getCanonicalTagType(ClangSourceLocationImplDecl).withConst());
     break;
   }
   case SourceLocIdentKind::SourceLocStruct: {

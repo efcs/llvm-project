@@ -615,15 +615,14 @@ public:
     return getFlags() & ScopeFlags::ContinueScope;
   }
 
-<<<<<<< HEAD
   bool isContractAssertScope() const {
     return getFlags() & ScopeFlags::ContractAssertScope;
-=======
+  }
+
   /// Determine whether this is a scope which can have 'break' or 'continue'
   /// statements embedded into it.
   bool isBreakOrContinueScope() const {
     return getFlags() & (ContinueScope | BreakScope);
->>>>>>> contracts-base
   }
 
   /// Determine whether this scope is a C++ 'try' block.

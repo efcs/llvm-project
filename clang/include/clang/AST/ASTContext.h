@@ -2450,8 +2450,8 @@ public:
     return getCanonicalTagType(MSGuidTagDecl);
   }
 
-  QualType getBuiltinContractViolationRecordType() const {
-    return getRecordType(
+  CanQualType getBuiltinContractViolationRecordType() const {
+    return getCanonicalTagType(
         cast<RecordDecl>(getBuiltinContractViolationRecordDecl()));
   }
 
