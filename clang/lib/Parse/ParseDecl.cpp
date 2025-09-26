@@ -6032,10 +6032,9 @@ bool Parser::isConstructorDeclarator(bool IsUnqualified, bool DeductionGuide,
 
   // A C++11 attribute here signals that we have a constructor, and is an
   // attribute on the first constructor parameter.
-  if (getLangOpts().CPlusPlus11 &&
-      isCXX11AttributeSpecifier(/*Disambiguate*/ false,
-                                /*OuterMightBeMessageSend*/ true) !=
-          CXX11AttributeKind::NotAttributeSpecifier) {
+  if (isCXX11AttributeSpecifier(/*Disambiguate=*/false,
+                                /*OuterMightBeMessageSend=*/true) !=
+      CXX11AttributeKind::NotAttributeSpecifier) {
     return true;
   }
 
@@ -6249,7 +6248,6 @@ void Parser::ParseTypeQualifierListOpt(
     case tok::kw___funcref:
       ParseWebAssemblyFuncrefTypeAttribute(DS.getAttributes());
       continue;
-      goto DoneWithTypeQuals;
 
     case tok::kw___pascal:
       if (AttrReqs & AR_VendorAttributesParsed) {
@@ -6840,10 +6838,10 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
       bool IsFunctionDeclaration = D.isFunctionDeclaratorAFunctionDeclaration();
       // Enter function-declaration scope, limiting any declarators to the
       // function prototype scope, including parameter declarators.
-      ParseScope PrototypeScope(this,
-                                Scope::FunctionPrototypeScope|Scope::DeclScope|
-                                (IsFunctionDeclaration
-                                   ? Scope::FunctionDeclarationScope : 0));
+      ParseScope PrototypeScope(
+          this, Scope::FunctionPrototypeScope | Scope::DeclScope |
+                    (IsFunctionDeclaration ? Scope::FunctionDeclarationScope
+                                           : Scope::NoScope));
 
       // The paren may be part of a C++ direct initializer, eg. "int x(1);".
       // In such a case, check if we actually have a function declarator; if it
@@ -7125,8 +7123,9 @@ void Parser::ParseParenDeclarator(Declarator &D) {
   // function prototype scope, including parameter declarators.
   ParseScope PrototypeScope(this,
                             Scope::FunctionPrototypeScope | Scope::DeclScope |
-                            (D.isFunctionDeclaratorAFunctionDeclaration()
-                               ? Scope::FunctionDeclarationScope : 0));
+                                (D.isFunctionDeclaratorAFunctionDeclaration()
+                                     ? Scope::FunctionDeclarationScope
+                                     : Scope::NoScope));
   ParseFunctionDeclarator(D, attrs, T, false, RequiresArg);
   PrototypeScope.Exit();
 }
@@ -7423,7 +7422,7 @@ void Parser::ParseFunctionDeclaratorIdentifierList(
     Diag(Tok, diag::ext_ident_list_in_param);
 
   // Maintain an efficient lookup of params we have seen so far.
-  llvm::SmallSet<const IdentifierInfo*, 16> ParamsSoFar;
+  llvm::SmallPtrSet<const IdentifierInfo *, 16> ParamsSoFar;
 
   do {
     // If this isn't an identifier, report the error and skip until ')'.
@@ -7907,9 +7906,9 @@ void Parser::ParseMisplacedBracketDeclarator(Declarator &D) {
     D.AddTypeInfo(Chunk, TempDeclarator.getAttributePool(), SourceLocation());
   }
 
-  // The missing identifier would have been diagnosed in ParseDirectDeclarator.
+  // The missing name would have been diagnosed in ParseDirectDeclarator.
   // If parentheses are required, always suggest them.
-  if (!D.getIdentifier() && !NeedParens)
+  if (!D.hasName() && !NeedParens)
     return;
 
   SourceLocation EndBracketLoc = TempDeclarator.getEndLoc();

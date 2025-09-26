@@ -156,6 +156,9 @@ static bool useLeafFramePointerForTargetByDefault(const llvm::Triple &Triple) {
       (Triple.isAndroid() && !Triple.isARM()))
     return false;
 
+  if ((Triple.isARM() || Triple.isThumb()) && Triple.isOSBinFormatMachO())
+    return false;
+
   return true;
 }
 
@@ -2132,6 +2135,18 @@ tools::ParsePICArgs(const ToolChain &ToolChain, const ArgList &Args) {
   return std::make_tuple(RelocM, 0U, false);
 }
 
+bool tools::getStaticPIE(const ArgList &Args, const ToolChain &TC) {
+  bool HasStaticPIE = Args.hasArg(options::OPT_static_pie);
+  if (HasStaticPIE && Args.hasArg(options::OPT_no_pie)) {
+    const Driver &D = TC.getDriver();
+    const llvm::opt::OptTable &Opts = D.getOpts();
+    StringRef StaticPIEName = Opts.getOptionName(options::OPT_static_pie);
+    StringRef NoPIEName = Opts.getOptionName(options::OPT_nopie);
+    D.Diag(diag::err_drv_cannot_mix_options) << StaticPIEName << NoPIEName;
+  }
+  return HasStaticPIE;
+}
+
 // `-falign-functions` indicates that the functions should be aligned to the
 // backend's preferred alignment.
 //
@@ -2253,6 +2268,37 @@ unsigned tools::getDwarfVersion(const ToolChain &TC,
     assert(DwarfVersion && "toolchain default DWARF version must be nonzero");
   }
   return DwarfVersion;
+}
+
+DwarfFissionKind tools::getDebugFissionKind(const Driver &D,
+                                            const ArgList &Args, Arg *&Arg) {
+  Arg = Args.getLastArg(options::OPT_gsplit_dwarf, options::OPT_gsplit_dwarf_EQ,
+                        options::OPT_gno_split_dwarf);
+  if (!Arg || Arg->getOption().matches(options::OPT_gno_split_dwarf))
+    return DwarfFissionKind::None;
+
+  if (Arg->getOption().matches(options::OPT_gsplit_dwarf))
+    return DwarfFissionKind::Split;
+
+  StringRef Value = Arg->getValue();
+  if (Value == "split")
+    return DwarfFissionKind::Split;
+  if (Value == "single")
+    return DwarfFissionKind::Single;
+
+  D.Diag(diag::err_drv_unsupported_option_argument)
+      << Arg->getSpelling() << Arg->getValue();
+  return DwarfFissionKind::None;
+}
+
+bool tools::checkDebugInfoOption(const Arg *A, const ArgList &Args,
+                                 const Driver &D, const ToolChain &TC) {
+  assert(A && "Expected non-nullptr argument.");
+  if (TC.supportsDebugInfoOption(A))
+    return true;
+  D.Diag(diag::warn_drv_unsupported_debug_info_opt_for_target)
+      << A->getAsString(Args) << TC.getTripleString();
+  return false;
 }
 
 void tools::AddAssemblerKPIC(const ToolChain &ToolChain, const ArgList &Args,
@@ -2974,7 +3020,8 @@ void tools::addHIPRuntimeLibArgs(const ToolChain &TC, Compilation &C,
                                  const llvm::opt::ArgList &Args,
                                  llvm::opt::ArgStringList &CmdArgs) {
   if ((C.getActiveOffloadKinds() & Action::OFK_HIP) &&
-      !Args.hasArg(options::OPT_nostdlib) &&
+      (!Args.hasArg(options::OPT_nostdlib) ||
+       TC.getTriple().isKnownWindowsMSVCEnvironment()) &&
       !Args.hasArg(options::OPT_no_hip_rt) && !Args.hasArg(options::OPT_r)) {
     TC.AddHIPRuntimeLibArgs(Args, CmdArgs);
   } else {
@@ -3113,6 +3160,8 @@ void tools::addMCModel(const Driver &D, const llvm::opt::ArgList &Args,
       else if (CM == "medany")
         CM = "large";
       Ok = CM == "small" || CM == "medium" || CM == "large";
+    } else if (Triple.getArch() == llvm::Triple::lanai) {
+      Ok = llvm::is_contained({"small", "medium", "large"}, CM);
     }
     if (Ok) {
       CmdArgs.push_back(Args.MakeArgString("-mcmodel=" + CM));
@@ -3316,14 +3365,8 @@ void tools::handleVectorizeSLPArgs(const ArgList &Args,
 
 void tools::handleInterchangeLoopsArgs(const ArgList &Args,
                                        ArgStringList &CmdArgs) {
-  // FIXME: instead of relying on shouldEnableVectorizerAtOLevel, we may want to
-  // implement a separate function to infer loop interchange from opt level.
-  // For now, enable loop-interchange at the same opt levels as loop-vectorize.
-  bool EnableInterchange = shouldEnableVectorizerAtOLevel(Args, false);
-  OptSpecifier InterchangeAliasOption =
-      EnableInterchange ? options::OPT_O_Group : options::OPT_floop_interchange;
-  if (Args.hasFlag(options::OPT_floop_interchange, InterchangeAliasOption,
-                   options::OPT_fno_loop_interchange, EnableInterchange))
+  if (Args.hasFlag(options::OPT_floop_interchange,
+                   options::OPT_fno_loop_interchange, false))
     CmdArgs.push_back("-floop-interchange");
 }
 
@@ -3504,9 +3547,11 @@ std::string tools::complexRangeKindToStr(LangOptions::ComplexRangeKind Range) {
   case LangOptions::ComplexRangeKind::CX_Promoted:
     return "promoted";
     break;
-  default:
-    return "";
+  case LangOptions::ComplexRangeKind::CX_None:
+    return "none";
+    break;
   }
+  llvm_unreachable("Fully covered switch above");
 }
 
 std::string
