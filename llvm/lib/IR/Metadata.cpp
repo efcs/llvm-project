@@ -859,7 +859,7 @@ void MDNode::resolveCycles() {
   }
 }
 
-static bool hasSelfReference(const MDNode *N) {
+static bool hasSelfReference(MDNode *N) {
   return llvm::is_contained(N->operands(), N);
 }
 
