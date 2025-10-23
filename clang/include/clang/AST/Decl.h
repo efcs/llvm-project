@@ -84,6 +84,7 @@ class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
 enum class ContractKind;
+struct UsualDeleteParams;
 
 // Holds a constraint expression along with a pack expansion index, if
 // expanded.
@@ -2671,6 +2672,8 @@ public:
   /// Determine whether this is a type aware operator new or delete.
   bool isTypeAwareOperatorNewOrDelete() const;
   void setIsTypeAwareOperatorNewOrDelete(bool IsTypeAwareOperator = true);
+
+  UsualDeleteParams getUsualDeleteParams() const;
 
   /// Compute the language linkage.
   LanguageLinkage getLanguageLinkage() const;

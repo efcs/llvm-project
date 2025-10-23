@@ -1001,11 +1001,23 @@ InstructionCost TargetTransformInfo::getShuffleCost(
 
 TargetTransformInfo::PartialReductionExtendKind
 TargetTransformInfo::getPartialReductionExtendKind(Instruction *I) {
-  if (isa<SExtInst>(I))
-    return PR_SignExtend;
-  if (isa<ZExtInst>(I))
-    return PR_ZeroExtend;
+  if (auto *Cast = dyn_cast<CastInst>(I))
+    return getPartialReductionExtendKind(Cast->getOpcode());
   return PR_None;
+}
+
+TargetTransformInfo::PartialReductionExtendKind
+TargetTransformInfo::getPartialReductionExtendKind(
+    Instruction::CastOps CastOpc) {
+  switch (CastOpc) {
+  case Instruction::CastOps::ZExt:
+    return PR_ZeroExtend;
+  case Instruction::CastOps::SExt:
+    return PR_SignExtend;
+  default:
+    return PR_None;
+  }
+  llvm_unreachable("Unhandled cast opcode");
 }
 
 TTI::CastContextHint
@@ -1214,15 +1226,6 @@ InstructionCost TargetTransformInfo::getInterleavedMemoryOpCost(
   InstructionCost Cost = TTIImpl->getInterleavedMemoryOpCost(
       Opcode, VecTy, Factor, Indices, Alignment, AddressSpace, CostKind,
       UseMaskForCond, UseMaskForGaps);
-  assert(Cost >= 0 && "TTI should not produce negative costs!");
-  return Cost;
-}
-
-InstructionCost
-TargetTransformInfo::getFirstFaultLoadCost(Type *DataTy, Align Alignment,
-                                           TTI::TargetCostKind CostKind) const {
-  InstructionCost Cost =
-      TTIImpl->getFirstFaultLoadCost(DataTy, Alignment, CostKind);
   assert(Cost >= 0 && "TTI should not produce negative costs!");
   return Cost;
 }
