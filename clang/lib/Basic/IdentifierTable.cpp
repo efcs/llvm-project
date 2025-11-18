@@ -130,6 +130,7 @@ enum KeywordStatus {
 
 } // namespace
 
+
 // This works on a single TokenKey flag and checks the LangOpts to get the
 // KeywordStatus based exclusively on this flag, so that it can be merged in
 // getKeywordStatus. Most should be enabled/disabled, but some might imply
@@ -224,9 +225,7 @@ static KeywordStatus getKeywordStatusHelper(const LangOptions &LangOpts,
   }
 }
 
-/// Translates flags as specified in TokenKinds.def into keyword status
-/// in the given language standard.
-static KeywordStatus getKeywordStatus(const LangOptions &LangOpts,
+KeywordStatus clang::getKeywordStatus(const LangOptions &LangOpts,
                                       unsigned Flags) {
   // KEYALL means always enabled, so special case this one.
   if (Flags == KEYALL) return KS_Enabled;
