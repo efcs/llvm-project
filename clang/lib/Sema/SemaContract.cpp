@@ -1554,10 +1554,10 @@ Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
 
   auto *VD = dyn_cast<VarDecl>(ValueD);
   if (!VD)
-    return std::nullopt;
+    return {};
 
   if (!VD->isLocalVarDeclOrParm())
-    return std::nullopt;
+    return {};
 
   auto CScopes = [](auto CL) -> SmallVector<const ContractScopeRecord *> {
     SmallVector<const ContractScopeRecord*> Out;
@@ -1567,7 +1567,7 @@ Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
     return Out;
   }(getContractScopes());
   if (CScopes.empty())
-    return std::nullopt;
+    return {};
 
 
   VD = VD->getCanonicalDecl();
@@ -1580,7 +1580,7 @@ Sema::getInterveningContractScopes(const ValueDecl *ValueD) const {
 
   auto ReturnRef = [&](auto Start) -> ArrayRef<ContractScopeRecord> {
     if (Start == CScopes.end())
-      return std::nullopt;
+      return {};
     unsigned StartIdx = (*Start)->Index;
     return llvm::ArrayRef(ContractScopeStack.begin() + StartIdx, ContractScopeStack.end());
 

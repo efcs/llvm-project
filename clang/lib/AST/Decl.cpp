@@ -3796,7 +3796,7 @@ void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
 ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
   if (auto *CSD = Contracts)
     return CSD->contracts();
-  return std::nullopt;
+  return {};
 }
 
 FunctionDecl::ContractRange FunctionDecl::postconditions() const {
