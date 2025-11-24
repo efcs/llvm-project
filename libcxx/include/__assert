@@ -41,7 +41,7 @@
 // clang-format off
 // Fast hardening mode checks.
 
-#if __has_keyword(contract_assert)
+#if __has_keyword(contract_assert) && defined(_LIBCPP_LIBCPP_CONTRACT_ASSERT)
 
 #  define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)       _LIBCPP_CONTRACT_ASSERT("std.valid_input_range", expression)
 #  define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)    _LIBCPP_CONTRACT_ASSERT("std.valid_element_access", expression)

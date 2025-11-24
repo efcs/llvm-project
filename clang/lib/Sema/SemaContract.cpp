@@ -1182,6 +1182,9 @@ bool Sema::isUsageAcrossContract(const ValueDecl *VD) {
 ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
   //WalkUpContractScopesTest();
   auto &S = *this;
+  if (!S.LangOpts.ContractConstification)
+    return CC_None;
+
   assert(VD);
   const ContractScopeRecord *CSR = S.getCurrentContractEntry();
 
@@ -1279,7 +1282,7 @@ static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, boo
 }
 
 QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
-  if (!getCurrentContractEntry())
+  if (!getCurrentContractEntry() || !LangOpts.ContractConstification)
     return QT;
 
   // 'this' is constified any time the `this` object that is captured by a lambda which exists fully

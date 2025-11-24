@@ -1687,6 +1687,12 @@ defm contract_exceptions : BoolFOption<"contract-exceptions",
   NegFlag<SetFalse, [], [ClangOption, CC1Option],
     "Disable contract violations on exception">>;
 
+defm contract_constification : BoolFOption<"contract-constification",
+  LangOpts<"ContractConstification">, DefaultTrue,
+  PosFlag<SetTrue, [], [ClangOption],
+          "Enable contract violation on exception">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract violations on exception">>;
 
 // C++ Coroutines
 defm coroutines : BoolFOption<"coroutines",
