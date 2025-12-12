@@ -319,7 +319,7 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       StdTypeIdentity(nullptr),
       FullyCheckedComparisonCategories(
           static_cast<unsigned>(ComparisonCategoryType::Last) + 1),
-      StdSourceLocationImplDecl(nullptr), ClangSourceLocationImplDecl(nullptr),
+      StdSourceLocationImplDecl(nullptr),
       CXXTypeInfoDecl(nullptr),
       GlobalNewDeleteDeclared(false), DisableTypoCorrection(false),
       TyposCorrected(0), IsBuildingRecoveryCallExpr(false),
