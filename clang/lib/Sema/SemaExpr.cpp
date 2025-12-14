@@ -18959,7 +18959,7 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
   } else if (isa<BlockDecl>(VarDC)) {
     ContextKind = 1;
   }
-  ERICWF_STACK_TRACE(50);
+
   S.Diag(loc, diag::err_reference_to_local_in_enclosing_context)
     << var << ValueKind << ContextKind << VarDC;
   S.Diag(var->getLocation(), diag::note_entity_declared_at)
@@ -19021,7 +19021,6 @@ static DeclContext *getParentOfCapturingContextOrNull(DeclContext *DC,
   VarDecl *Underlying = Var->getPotentiallyDecomposedVarDecl();
   if (Underlying) {
     if (Underlying->hasLocalStorage() && Diagnose) {
-      DC->dumpDeclContext();
       diagnoseUncapturableValueReferenceOrBinding(S, Loc, Var);
     }
   }
