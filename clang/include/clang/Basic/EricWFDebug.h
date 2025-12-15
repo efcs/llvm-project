@@ -59,6 +59,17 @@ inline void printSourceLocation(const char *file, const char *func,
       llvm::errs() << #x << " = " << x;                                        \
   } while (0)
 
+#define ERICWF_DUMP(x)                                                        \
+  do {                                                                         \
+    ERICWF_PRINT_SOURCE_LOC();                                                 \
+    if constexpr (::clang::EricWFDebugEnabled)  {                               \
+      llvm::errs() << #x << " = ";                                              \
+      if (x == nullptr) { llvm::errs() << "nullptr\n;"; } \
+      else { llvm::errs() << "\n"; x->dumpColor(); } \
+    } \
+  } while (0)
+
+
 #define ERICWF_DEBUG_BLOCK                                                     \
   ERICWF_PRINT_SOURCE_LOC();                                                   \
   if constexpr (::clang::EricWFDebugEnabled)
