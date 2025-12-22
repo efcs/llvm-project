@@ -784,7 +784,7 @@ struct QualifierInfo {
 class DeclaratorDecl : public ValueDecl {
   // A struct representing a TInfo, a trailing requires-clause and a syntactic
   // qualifier, to be used for the (uncommon) case of out-of-line declarations,
-  // constrained function decls or functions with contracts.
+  // constrained function decls or functions with pre/post conditions.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo = nullptr;
     AssociatedConstraint TrailingRequiresClause;
