@@ -1340,7 +1340,7 @@ public:
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
 
-  // Decl used to define the datastructure for the contract violation object
+  // Decl used to define the data structure for the contract violation object
   // used for C++ contracts
   mutable Decl *BuiltinContractViolationRecordDecl = nullptr;
 
