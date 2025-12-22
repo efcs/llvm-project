@@ -9013,10 +9013,6 @@ private:
 
   bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
                                    ContractEnterScopeKind EnterScopeKinds);
-
-
-  ContractSpecifierDecl *ParseLexedFunctionContractsInScope(CachedTokens &Toks,
-                                                            QualType RetType);
 };
 
 } // end namespace clang

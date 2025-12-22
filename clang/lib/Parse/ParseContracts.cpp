@@ -286,57 +286,6 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
 static float EOFData = 0.0;
 
-ContractSpecifierDecl *
-Parser::ParseLexedFunctionContractsInScope(CachedTokens &ContractToks,
-                                           QualType RetType) {
-  // Add the 'stop' token.
-  Token LastContractToken = ContractToks.back();
-  Token ContractEnd;
-  ContractEnd.startToken();
-  ContractEnd.setKind(tok::eof);
-  ContractEnd.setLocation(LastContractToken.getEndLoc());
-  ContractEnd.setEofData(&EOFData);
-  ContractToks.push_back(ContractEnd);
-
-  // Parse the default argument from its saved token stream.
-  ContractToks.push_back(Tok); // So that the current token doesn't get lost
-  PP.EnterTokenStream(ContractToks, true, /*IsReinject*/ true);
-
-  // Consume the previously-pushed token.
-  ConsumeAnyToken();
-  SourceLocation StartLoc = Tok.getLocation();
-  auto ReturnTypeResolver = [&]() { return RetType; };
-
-  bool IsInvalid = false;
-  SmallVector<ContractStmt *> Contracts;
-
-  while (isFunctionContractKeyword(Tok)) {
-    assert(Actions.getCurFunction());
-    bool IsInvalidTmp = false;
-    StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
-    if (Contract.isUsable())
-      Contracts.push_back(Contract.getAs<ContractStmt>());
-    IsInvalid |= IsInvalidTmp;
-  }
-  DeclResult Req = Actions.ActOnFinishContractSpecifierSequence(
-      Contracts, StartLoc, IsInvalid);
-
-  // There could be leftover tokens (e.g. because of an error).
-  // Skip through until we reach the original token position.
-  while (Tok.isNot(tok::eof))
-    ConsumeAnyToken();
-
-  // Clean up the remaining EOF token.
-  if (Tok.is(tok::eof) && Tok.getEofData() == &EOFData)
-    ConsumeAnyToken();
-
-  ContractToks.clear();
-
-  if (Req.isInvalid())
-    return nullptr;
-  return Req.getAs<ContractSpecifierDecl>();
-}
 
 bool Parser::ParseLexedFunctionContracts(
     CachedTokens &ContractToks, Decl *FD,
