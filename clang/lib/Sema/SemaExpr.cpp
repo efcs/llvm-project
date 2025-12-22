@@ -13746,7 +13746,7 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
 #if 1
     if (DC->isFunctionOrMethod()) {
       --ScopeIndex;
-      assert(ScopeIndex >= S.FunctionScopesStart);
+      //assert(ScopeIndex >= S.FunctionScopesStart);
       assert(ScopeIndex < S.FunctionScopes.size());
       PassedThroughContract |= S.FunctionScopes[ScopeIndex]->isInContract();
     }

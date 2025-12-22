@@ -2786,7 +2786,13 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   }
 
 
-  ContractSpecifierDecl *Contracts = D->getContracts();
+  // For function template specializations, don't copy the pattern's contracts.
+  // If this becomes an implicit instantiation, InstantiateContractSpecifier
+  // will properly instantiate them later. For explicit specializations,
+  // the user provides their own contracts per [temp.expl.spec]p12.
+  ContractSpecifierDecl *Contracts = nullptr;
+  if (D->hasContracts() && !FunctionTemplate)
+    Contracts = D->getContracts();
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
   // If we're instantiating a local function declaration, put the result
@@ -3222,8 +3228,16 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
   CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
 
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
-  ContractSpecifierDecl *Contracts = D->getContracts();
 
+  // For function template specializations, don't copy the pattern's contracts.
+  // If this becomes an implicit instantiation, InstantiateContractSpecifier
+  // will properly instantiate them later. For explicit specializations,
+  // the user provides their own contracts per [temp.expl.spec]p12.
+  // Note: when TemplateParams is set, we're creating a member function template
+  // (not a specialization), so contracts should still be copied.
+  ContractSpecifierDecl *Contracts = nullptr;
+  if (D->hasContracts() && (TemplateParams || !FunctionTemplate))
+    Contracts = D->getContracts();
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);

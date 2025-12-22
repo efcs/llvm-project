@@ -1950,10 +1950,7 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     Name = Var->getIdentifier();
     Init = BuildDeclarationNameExpr(
       CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var);
-    if (Init.isUsable()) {
-
-      assert(isa<DeclRefExpr>(Init.get()));
-      DeclRefExpr *DRE = cast<DeclRefExpr>(Init.get());
+    if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(Init.get())) {
       if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture()) {
         llvm::errs() << "Setting Is Constified capture!\n";
         DRE->setIsInContractContext(true);

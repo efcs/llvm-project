@@ -9117,7 +9117,6 @@ bool InitializationSequence::Diagnose(Sema &S,
       S.Diag(Kind.getLocation(), diag::err_reference_bind_drops_quals)
           << NonRefType << SourceType << 2 /*incompatible quals*/
           << Args[0]->getSourceRange();
-      assert(false);
     }
     break;
   }

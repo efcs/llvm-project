@@ -16898,7 +16898,8 @@ Decl *Sema::ActOnFinishFunctionBody(Decl *dcl, Stmt *Body, bool IsInstantiation,
       return nullptr;
     }
 
-    ActOnContractsOnFinishFunctionBody(FD);
+    if (FD)
+        ActOnContractsOnFinishFunctionBody(FD);
 
     if (Body && FSI->HasPotentialAvailabilityViolations)
       DiagnoseUnguardedAvailabilityViolations(dcl);

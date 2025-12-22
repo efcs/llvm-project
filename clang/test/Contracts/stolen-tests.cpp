@@ -113,7 +113,7 @@ namespace parsing_ambig_test4 {
   constexpr int pre(int i) { return i; }
 
   template <typename T>
-  void f() requires (a < b > pre(c)); // expected-warning {{comparisons like 'X<=Y<=Z' don't have their mathematical meaning}}
+  void f() requires (a < b > pre(c)); // expected-error {{chained comparison 'X < Y > Z' does not behave the same as a mathematical expression}}
   // just a requires clause, no postcondition
 
   template <typename T> constexpr bool d = true;

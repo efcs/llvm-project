@@ -536,49 +536,42 @@ const ContractScopeRecord *getInterveningContractEntry(const Sema &S,
   return nullptr;
 }
 
-bool Sema::CheckEquivalentContractSequence(FunctionDecl *OrigDeclx,
+bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
                                            FunctionDecl *NewDecl) {
   // If the new declaration doesn't contain any contracts, that's fine, they can
-  // be omitted. Or if the new declaration is an explicit specialization, then it gets its own contracts.
-  // FIXME(EricWF): I don't think this takes into account when you declare an explicit specialization and then
-  // define it?
+  // be omitted.
   if (!NewDecl->hasContracts())
     return false;
 
-  ERICWF_DUMP(NewDecl->getDescribedFunctionTemplate());
-  ERICWF_DUMP(OrigDeclx->getDescribedFunctionTemplate());
-  auto OrigDecl = OrigDeclx->getCanonicalDecl();
-
-
+  // For explicit specializations, we need to find the first declaration of the
+  // explicit specialization itself that has spelled contracts, not the implicit
+  // instantiation that may be in the redeclaration chain. The implicit
+  // instantiation won't have contracts per [temp.expl.spec]p12.
+  FunctionDecl *OrigDecl = nullptr;
   if (NewDecl->getTemplateSpecializationKind() == TSK_ExplicitSpecialization) {
-    if (OrigDeclx->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
+    // If OldDecl is not an explicit specialization, then NewDecl is the first
+    // explicit specialization declaration - no previous contracts to compare.
+    if (OldDecl->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
       return false;
-    ERICWF_DUMP(NewDecl);
-    ERICWF_DUMP(OrigDeclx);
-    ERICWF_DUMP(OrigDecl);
-    for (auto *RED: NewDecl->redecls())
-      ERICWF_DUMP(RED);
-    if (OrigDecl->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
+
+    // Find the first explicit specialization declaration that has spelled
+    // contracts (i.e., contracts whose DeclContext matches the declaration).
+    // Skip the implicit instantiation which won't have contracts.
+    for (auto *Redecl : OldDecl->redecls()) {
+      if (Redecl->getTemplateSpecializationKind() == TSK_ExplicitSpecialization &&
+          Redecl->hasContracts() &&
+          Redecl->getContracts()->getDeclContext() == Redecl) {
+        OrigDecl = Redecl;
+        break;
+      }
+    }
+    // If we couldn't find an explicit specialization with spelled contracts,
+    // NewDecl is the first one - nothing to compare.
+    if (!OrigDecl)
       return false;
-    auto FTD1 = NewDecl->getDescribedTemplate();
-    auto FTD2 = OrigDecl->getDescribedTemplate();
-    if (FTD1)
-      FTD1->dumpColor();
-    if (FTD2)
-      FTD2->dumpColor();
+  } else {
+    OrigDecl = OldDecl->getCanonicalDecl();
   }
-
-   // FIXME(EricWF):
-  // This checking doesn't make sense for explicit specializations; their
-  // default arguments are determined by the declaration we're specializing,
-  // not by FD.
-  //if (NewDecl->getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
-  //  return false;
-  //if (auto *FTD = NewDecl->getDescribedFunctionTemplate())
-  //  if (FTD->isMemberSpecialization())
-   //   return false;
-
-
 
   assert(!NewDecl->getContracts()->isInvalidDecl());
   if (OrigDecl->hasContracts() && OrigDecl->getContracts()->isInvalidDecl()) {
@@ -894,39 +887,18 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
 
-  // FIXME(EricWF): What am I doing here.
   FunctionDecl *FD;
-  bool WasTemplate = false;
-  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D)) {
-    WasTemplate = true;
-    ((void)WasTemplate);
+  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D))
     FD = FunTmpl->getTemplatedDecl();
-    assert(FD);
-    auto *FDXXX = FD;
-    ERICWF_DUMP(FDXXX);
-  } else
+  else
     FD = D;
-  if (D != FD && FD->getContracts() == D->getContracts()) {
-    ERICWF_STACK_TRACE(30);
-    ERICWF_DUMP(FD);
-    ERICWF_DUMP(D);
-    D->setContracts(nullptr);
-  }
-
 
   // [temp.expl.spec]p12
   // ... and function-contract-specifier appearing in the declaration of a
   // template have no effect on an explicit specialization of
   // that template.
   const bool IsTemplateSpecialization = FD->getTemplateSpecializationKind() == TSK_ExplicitSpecialization;
-  auto *DT3 = FD->getDescribedTemplate();
-  if (DT3) {
-    ERICWF_DUMP(DT3);
-    ERICWF_DUMP(FD->getFirstDecl());
 
-  }
-  for (auto *RD : FD->redecls())
-    ERICWF_DUMP(RD);
   auto *First = FD->getFirstDecl();
 
   // If the new declaration/definition doesn't have contracts, and it's previous declarations didn't have
@@ -1154,7 +1126,7 @@ struct ContractCapturePair {
 // This is probably BAD BAD NOT GOOD.
 // But it works nicely.
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
-
+  assert(Def);
   // If we had a deduced return type on a non-template function, we can now
   // attempt to deduce the return type and rebuild the contracts with the
   // deduced return type.
@@ -1505,6 +1477,10 @@ public:
     // outside of a contract. This assumes that the inner lambda has a valid usage of the capture.
     // If it doesn't, we'll diagnose that separately.
     for (auto C : LE->captures()) {
+      // FIXME(EricWF): Figure out how to deal with VLA captures here
+      if (C.capturesVLAType())
+        continue;
+
       assert(C.capturesThis() || C.capturesVariable());
       observeUsage(C.capturesThis() ? nullptr : C.getCapturedVar(), LE, C.getLocation());
     }
