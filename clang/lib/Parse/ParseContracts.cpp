@@ -246,9 +246,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
     ExprLoc = ConsumeToken();
     QualType ReturnType;
-    if (ReturnTypeResolver) {
+    if (ReturnTypeResolver)
       ReturnType = ReturnTypeResolver();
-    }
 
     RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(), ReturnType,
                                             IdLoc, Id, getCurScope()->getFunctionPrototypeDepth());
