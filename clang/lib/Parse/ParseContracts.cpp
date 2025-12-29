@@ -284,9 +284,6 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   return Res;
 }
 
-static float EOFData = 0.0;
-
-
 bool Parser::ParseLexedFunctionContracts(
     CachedTokens &ContractToks, Decl *FD,
     Parser::ContractEnterScopeKind ScopesToEnter) {
