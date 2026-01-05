@@ -117,6 +117,7 @@ LANGOPT(CoroAlignedAllocation, 1, 0, NotCompatible, "prefer Aligned Allocation a
 LANGOPT(Contracts         , 1, 1, NotCompatible, "C++2c contracts")
 LANGOPT(ContractExceptions, 1, 1, NotCompatible, "Contracts report a violation on exception")
 LANGOPT(ContractConstification, 1, 1, NotCompatible, "Enable or Disable Contract Constification")
+LANGOPT(ContractLambdaCaptureRestrictions, 1, 1, NotCompatible, "Enable or disable Lambda capture restrictions for contracts")
 LANGOPT(DllExportInlines  , 1, 1, NotCompatible, "dllexported classes dllexport inline methods")
 LANGOPT(ExperimentalLibrary, 1, 0, NotCompatible, "enable unstable and experimental library features")
 

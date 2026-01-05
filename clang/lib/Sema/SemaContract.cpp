@@ -1506,6 +1506,8 @@ public:
 
 public:
   static void Check(Sema &Actions, LambdaExpr *LE) {
+    if (!Actions.LangOpts.ContractLambdaCaptureRestrictions)
+      return;
     LambdaCaptureChecker Checker(Actions, LE);
     Checker.Run();
   }
@@ -1741,7 +1743,7 @@ void Sema::PushContractScope(ContractKind Kind, ContractScopeOffset ScopeOffset,
     if (!CXXThisTypeOverride.isNull()) {
       assert(CXXThisTypeOverride->isPointerType());
       QualType ClassType = CXXThisTypeOverride->getPointeeType();
-      if (not ClassType.isConstQualified()) {
+      if ((not ClassType.isConstQualified()) && LangOpts.ContractConstification) {
         // If the 'this' object is const-qualified, we need to remove the
         // const-qualification for the contract check.
         ClassType.addConst();
