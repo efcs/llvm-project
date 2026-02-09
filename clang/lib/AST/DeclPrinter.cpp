@@ -22,6 +22,7 @@
 #include "clang/AST/PrettyPrinter.h"
 #include "clang/Basic/Module.h"
 #include "clang/Basic/SourceManager.h"
+#include "llvm/ADT/StringExtras.h"
 #include "llvm/Support/raw_ostream.h"
 using namespace clang;
 
@@ -125,9 +126,10 @@ namespace {
     void printTemplateArguments(ArrayRef<TemplateArgumentLoc> Args,
                                 const TemplateParameterList *Params);
     enum class AttrPosAsWritten { Default = 0, Left, Right };
-    bool
+    std::optional<std::string>
     prettyPrintAttributes(const Decl *D,
                           AttrPosAsWritten Pos = AttrPosAsWritten::Default);
+
     void prettyPrintPragmas(Decl *D);
     void printDeclType(QualType T, StringRef DeclName, bool Pack = false);
   };
@@ -253,41 +255,40 @@ static DeclPrinter::AttrPosAsWritten getPosAsWritten(const Attr *A,
   return DeclPrinter::AttrPosAsWritten::Right;
 }
 
-// returns true if an attribute was printed.
-bool DeclPrinter::prettyPrintAttributes(const Decl *D,
-                                        AttrPosAsWritten Pos /*=Default*/) {
-  bool hasPrinted = false;
+std::optional<std::string>
+DeclPrinter::prettyPrintAttributes(const Decl *D,
+                                   AttrPosAsWritten Pos /*=Default*/) {
+  if (Policy.SuppressDeclAttributes || !D->hasAttrs())
+    return std::nullopt;
 
-  if (D->hasAttrs()) {
-    const AttrVec &Attrs = D->getAttrs();
-    for (auto *A : Attrs) {
-      if (A->isInherited() || A->isImplicit())
-        continue;
-      // Print out the keyword attributes, they aren't regular attributes.
-      if (Policy.PolishForDeclaration && !A->isKeywordAttribute())
-        continue;
-      switch (A->getKind()) {
+  std::string AttrStr;
+  llvm::raw_string_ostream AOut(AttrStr);
+  llvm::ListSeparator LS(" ");
+  for (auto *A : D->getAttrs()) {
+    if (A->isInherited() || A->isImplicit())
+      continue;
+    // Print out the keyword attributes, they aren't regular attributes.
+    if (Policy.PolishForDeclaration && !A->isKeywordAttribute())
+      continue;
+    switch (A->getKind()) {
 #define ATTR(X)
 #define PRAGMA_SPELLING_ATTR(X) case attr::X:
 #include "clang/Basic/AttrList.inc"
-        break;
-      default:
-        AttrPosAsWritten APos = getPosAsWritten(A, D);
-        assert(APos != AttrPosAsWritten::Default &&
-               "Default not a valid for an attribute location");
-        if (Pos == AttrPosAsWritten::Default || Pos == APos) {
-          if (Pos != AttrPosAsWritten::Left)
-            Out << ' ';
-          A->printPretty(Out, Policy);
-          hasPrinted = true;
-          if (Pos == AttrPosAsWritten::Left)
-            Out << ' ';
-        }
-        break;
+      break;
+    default:
+      AttrPosAsWritten APos = getPosAsWritten(A, D);
+      assert(APos != AttrPosAsWritten::Default &&
+             "Default not a valid for an attribute location");
+      if (Pos == AttrPosAsWritten::Default || Pos == APos) {
+        AOut << LS;
+        A->printPretty(AOut, Policy);
       }
+      break;
     }
   }
-  return hasPrinted;
+  if (AttrStr.empty())
+    return std::nullopt;
+  return AttrStr;
 }
 
 void DeclPrinter::PrintOpenACCRoutineOnLambda(Decl *D) {
@@ -585,12 +586,15 @@ void DeclPrinter::VisitTypedefDecl(TypedefDecl *D) {
   }
   QualType Ty = D->getTypeSourceInfo()->getType();
   Ty.print(Out, Policy, D->getName(), Indentation);
-  prettyPrintAttributes(D);
+
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
 }
 
 void DeclPrinter::VisitTypeAliasDecl(TypeAliasDecl *D) {
   Out << "using " << *D;
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
   Out << " = " << D->getTypeSourceInfo()->getType().getAsString(Policy);
 }
 
@@ -605,7 +609,8 @@ void DeclPrinter::VisitEnumDecl(EnumDecl *D) {
       Out << " struct";
   }
 
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
 
   if (D->getDeclName())
     Out << ' ' << D->getDeclName();
@@ -625,7 +630,8 @@ void DeclPrinter::VisitRecordDecl(RecordDecl *D) {
     Out << "__module_private__ ";
   Out << D->getKindName();
 
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
 
   if (D->getIdentifier())
     Out << ' ' << *D;
@@ -639,7 +645,8 @@ void DeclPrinter::VisitRecordDecl(RecordDecl *D) {
 
 void DeclPrinter::VisitEnumConstantDecl(EnumConstantDecl *D) {
   Out << *D;
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
   if (Expr *Init = D->getInitExpr()) {
     Out << " = ";
     Init->printPretty(Out, nullptr, Policy, Indentation, "\n", &Context);
@@ -665,7 +672,9 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
   if (!D->getDescribedFunctionTemplate() &&
       !D->isFunctionTemplateSpecialization()) {
     prettyPrintPragmas(D);
-    prettyPrintAttributes(D, AttrPosAsWritten::Left);
+    if (std::optional<std::string> Attrs =
+            prettyPrintAttributes(D, AttrPosAsWritten::Left))
+      Out << *Attrs << ' ';
   }
 
   if (D->isFunctionTemplateSpecialization())
@@ -847,7 +856,9 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
     Ty.print(Out, Policy, Proto);
   }
 
-  prettyPrintAttributes(D, AttrPosAsWritten::Right);
+  if (std::optional<std::string> Attrs =
+          prettyPrintAttributes(D, AttrPosAsWritten::Right))
+    Out << ' ' << *Attrs;
 
   if (D->isPureVirtual())
     Out << " = 0";
@@ -939,7 +950,8 @@ void DeclPrinter::VisitFieldDecl(FieldDecl *D) {
       Out << " = ";
     Init->printPretty(Out, nullptr, Policy, Indentation, "\n", &Context);
   }
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
 }
 
 void DeclPrinter::VisitLabelDecl(LabelDecl *D) {
@@ -949,7 +961,9 @@ void DeclPrinter::VisitLabelDecl(LabelDecl *D) {
 void DeclPrinter::VisitVarDecl(VarDecl *D) {
   prettyPrintPragmas(D);
 
-  prettyPrintAttributes(D, AttrPosAsWritten::Left);
+  if (std::optional<std::string> Attrs =
+          prettyPrintAttributes(D, AttrPosAsWritten::Left))
+    Out << *Attrs << ' ';
 
   if (const auto *Param = dyn_cast<ParmVarDecl>(D);
       Param && Param->isExplicitObjectParameter())
@@ -992,7 +1006,9 @@ void DeclPrinter::VisitVarDecl(VarDecl *D) {
                        ? D->getIdentifier()->deuglifiedName()
                        : D->getName());
 
-  prettyPrintAttributes(D, AttrPosAsWritten::Right);
+  if (std::optional<std::string> Attrs =
+          prettyPrintAttributes(D, AttrPosAsWritten::Right))
+    Out << ' ' << *Attrs;
 
   Expr *Init = D->getInit();
   if (!Policy.SuppressInitializers && Init) {
@@ -1084,7 +1100,8 @@ void DeclPrinter::VisitNamespaceAliasDecl(NamespaceAliasDecl *D) {
 }
 
 void DeclPrinter::VisitEmptyDecl(EmptyDecl *D) {
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << *Attrs;
 }
 
 void DeclPrinter::VisitCXXRecordDecl(CXXRecordDecl *D) {
@@ -1094,10 +1111,9 @@ void DeclPrinter::VisitCXXRecordDecl(CXXRecordDecl *D) {
 
   Out << D->getKindName() << ' ';
 
-  // FIXME: Move before printing the decl kind to match the behavior of the
-  // attribute printing for variables and function where they are printed first.
-  if (prettyPrintAttributes(D, AttrPosAsWritten::Left))
-    Out << ' ';
+  if (std::optional<std::string> Attrs =
+          prettyPrintAttributes(D, AttrPosAsWritten::Left))
+    Out << *Attrs << ' ';
 
   if (D->getIdentifier()) {
     D->getQualifier().print(Out, Policy);
@@ -1115,7 +1131,9 @@ void DeclPrinter::VisitCXXRecordDecl(CXXRecordDecl *D) {
     }
   }
 
-  prettyPrintAttributes(D, AttrPosAsWritten::Right);
+  if (std::optional<std::string> Attrs =
+          prettyPrintAttributes(D, AttrPosAsWritten::Right))
+    Out << ' ' << *Attrs;
 
   if (D->isCompleteDefinition()) {
     Out << ' ';
@@ -1432,7 +1450,8 @@ void DeclPrinter::VisitObjCMethodDecl(ObjCMethodDecl *OMD) {
   if (OMD->isVariadic())
       Out << ", ...";
 
-  prettyPrintAttributes(OMD);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(OMD))
+    Out << ' ' << *Attrs;
 
   if (OMD->getBody() && !Policy.TerseOutput) {
     Out << ' ';
@@ -1488,10 +1507,8 @@ void DeclPrinter::VisitObjCInterfaceDecl(ObjCInterfaceDecl *OID) {
     return;
   }
   bool eolnOut = false;
-  if (OID->hasAttrs()) {
-    prettyPrintAttributes(OID);
-    Out << "\n";
-  }
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(OID))
+    Out << *Attrs << "\n";
 
   Out << "@interface " << I;
 
@@ -1788,7 +1805,8 @@ void DeclPrinter::VisitHLSLBufferDecl(HLSLBufferDecl *D) {
 
   Out << *D;
 
-  prettyPrintAttributes(D);
+  if (std::optional<std::string> Attrs = prettyPrintAttributes(D))
+    Out << ' ' << *Attrs;
 
   Out << " {\n";
   VisitDeclContext(D);
