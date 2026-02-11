@@ -32,8 +32,16 @@
 #include "test_macros.h"
 #include "test_allocator.h"
 
+#if TEST_HAS_BUILTIN_IDENTIFIER(contract_assert)
+#  include <contracts>
+#endif
+
 #if TEST_STD_VER < 11
 #  error "C++11 or greater is required to use this header"
+#endif
+
+#if TEST_HAS_BUILTIN_IDENTIFIER(contract_assert)
+#  define USE_CONTRACTS
 #endif
 
 // When printing the assertion message to `stderr`, delimit it with a marker to make it easier to match the message
@@ -89,9 +97,65 @@ MatchResult MatchAssertionMessage(const std::string& text, std::string_view expe
   return MatchResult(/*success=*/true, /*maybe_error=*/"");
 }
 
+MatchResult MatchAnyMessage(const std::string& text, std::string const& expected_message) {
+  // Extract information from the error message. This has to stay synchronized with how we format assertions in the
+  // library.
+  std::regex assertion_format(expected_message);
+
+  std::smatch match_result;
+  bool has_match = std::regex_search(text, match_result, assertion_format);
+
+  if (!has_match) {
+    std::stringstream matching_error;
+    matching_error                                                     //
+        << "Expected message:   '" << expected_message.data() << "'\n" //
+        << "Actual message:     '" << text << "'\n";                   //
+    return MatchResult(/*success=*/false, matching_error.str());
+  }
+
+  return MatchResult(/*success=*/true, /*maybe_error=*/"");
+}
+
+MatchResult ContainsMessage(const std::string& text, std::string const& expected_message) {
+  // Extract information from the error message. This has to stay synchronized with how we format assertions in the
+  // library.
+  bool has_match = text.find(expected_message) != std::string::npos;
+  if (!has_match) {
+    std::stringstream matching_error;
+    matching_error                                                     //
+        << "Expected message:   '" << expected_message << "'\n" //
+        << "Actual message:     '" << text << "'\n";                   //
+    return MatchResult(/*success=*/false, matching_error.str());
+  }
+
+  return MatchResult(/*success=*/true, /*maybe_error=*/"");
+}
+
 Matcher MakeAssertionMessageMatcher(std::string_view assertion_message, bool use_marker = true) {
   return [=](const std::string& text) { //
     return MatchAssertionMessage(text, assertion_message, use_marker);
+  };
+}
+
+Matcher MakeAnyMessageMatcher(std::string assertion_message) {
+  return [=](const std::string& text) { //
+    return MatchAnyMessage(text, assertion_message);
+  };
+}
+
+std::string ReplaceWhitespaceAndQuotes(std::string const& S) {
+  std::string N;
+  N.reserve(S.size());
+  for (char c : S) {
+    if (!(c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '"'))
+      N += c;
+  }
+  return N;
+}
+
+Matcher MakeContainsMessageMatcher(std::string assertion_message) {
+  return [=](const std::string& text) { //
+    return ContainsMessage(ReplaceWhitespaceAndQuotes(text), ReplaceWhitespaceAndQuotes(assertion_message));
   };
 }
 
@@ -464,6 +528,9 @@ bool ExpectLog(const char* stmt, Func&& func) {
   return ExpectLog(stmt, func, MakeAnyMatcher());
 }
 
+constexpr std::array<DeathCause, 4> AnyDeathCause = {DeathCause::VerboseAbort, DeathCause::StdAbort,
+                                                       DeathCause::StdTerminate, DeathCause::Trap};
+
 // clang-format off
 
 /// Assert that the specified expression aborts with the expected cause and, optionally, error message.
@@ -478,7 +545,11 @@ bool ExpectLog(const char* stmt, Func&& func) {
 #define EXPECT_STD_TERMINATE(...)                 \
     assert(  ExpectDeath(DeathCause::StdTerminate, #__VA_ARGS__, __VA_ARGS__)  )
 
-#if defined(_LIBCPP_ASSERTION_SEMANTIC)
+#if defined(USE_CONTRACTS)
+#undef USE_CONTRACTS
+#define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \
+    assert(( ExpectDeath(::AnyDeathCause, #expr, [&]() { (void)(expr); }, MakeContainsMessageMatcher(message)) ))
+#elif defined(_LIBCPP_ASSERTION_SEMANTIC)
 
 #if _LIBCPP_ASSERTION_SEMANTIC == _LIBCPP_ASSERTION_SEMANTIC_ENFORCE
 #define TEST_LIBCPP_ASSERT_FAILURE(expr, message) \

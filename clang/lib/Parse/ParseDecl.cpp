@@ -17,6 +17,7 @@
 #include "clang/Basic/AttributeCommonInfo.h"
 #include "clang/Basic/Attributes.h"
 #include "clang/Basic/CharInfo.h"
+#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/DiagnosticParse.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Basic/TokenKinds.h"
@@ -2162,6 +2163,9 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
   if (Tok.is(tok::kw_requires))
     ParseTrailingRequiresClause(D);
 
+  if (isFunctionContractKeyword(Tok))
+    ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
   // These will be parsed in ParseFunctionDefinition or ParseLexedAttrList.
@@ -2265,6 +2269,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
                 ParseFunctionDefinition(D, TemplateInfo, &LateParsedAttrs);
           }
 
+          assert(D.LateParsedContracts.empty());
+
           return Actions.ConvertDeclToDeclGroup(TheDecl);
         }
 
@@ -2345,6 +2351,7 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       if (auto *VD = dyn_cast_or_null<VarDecl>(ThisDecl))
         VD->setObjCForDecl(true);
     }
+
     Actions.FinalizeDeclaration(ThisDecl);
     D.complete(ThisDecl);
     return Actions.FinalizeDeclaratorGroup(getCurScope(), DS, ThisDecl);
@@ -2355,6 +2362,13 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       ParseDeclarationAfterDeclaratorAndAttributes(D, TemplateInfo, FRI);
   if (LateParsedAttrs.size() > 0)
     ParseLexedAttributeList(LateParsedAttrs, FirstDecl, true, false);
+  if (auto *FD = dyn_cast_or_null<FunctionDecl>(FirstDecl)) {
+    if (!FD->isInvalidDecl() && !D.LateParsedContracts.empty()) {
+      assert(false);
+      assert(!FD->isThisDeclarationADefinition());
+      ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
+    }
+  }
   D.complete(FirstDecl);
   if (FirstDecl)
     DeclsInGroup.push_back(FirstDecl);
@@ -2412,9 +2426,20 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       //    init-declarator:
       //	      declarator initializer[opt]
       //        declarator requires-clause
+
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClause(D);
+
+      // FIXME(EricWF): Is this the correct place?
+      // Yes: Though parsing here means we need to reenter the correct scope
+      // and context ourselves, it means we hve the function return type.
+      // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
+
+      // FIXME(EricWF): Remove this
+      //ThisDecl->dumpColor();
+
       D.complete(ThisDecl);
       if (ThisDecl)
         DeclsInGroup.push_back(ThisDecl);
@@ -6873,8 +6898,9 @@ void Parser::ParseDirectDeclarator(Declarator &D) {
         Actions.ActOnStartFunctionDeclarationDeclarator(D,
                                                         TemplateParameterDepth);
       ParseFunctionDeclarator(D, attrs, T, IsAmbiguous);
-      if (IsFunctionDeclaration)
+      if (IsFunctionDeclaration) {
         Actions.ActOnFinishFunctionDeclarationDeclarator(D);
+      }
       PrototypeScope.Exit();
     } else if (Tok.is(tok::l_square)) {
       ParseBracketDeclarator(D);
@@ -7124,7 +7150,7 @@ void Parser::ParseParenDeclarator(Declarator &D) {
 
 void Parser::InitCXXThisScopeForDeclaratorIfRelevant(
     const Declarator &D, const DeclSpec &DS,
-    std::optional<Sema::CXXThisScopeRAII> &ThisScope) {
+    std::optional<Sema::CXXThisScopeRAII> &ThisScope, bool AddConst) {
   // C++11 [expr.prim.general]p3:
   //   If a declaration declares a member function or member function
   //   template of a class X, the expression this is a prvalue of type
@@ -7144,7 +7170,8 @@ void Parser::InitCXXThisScopeForDeclaratorIfRelevant(
     return;
 
   Qualifiers Q = Qualifiers::fromCVRUMask(DS.getTypeQualifiers());
-  if (D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14)
+  if ((D.getDeclSpec().hasConstexprSpecifier() && !getLangOpts().CPlusPlus14) ||
+      AddConst)
     Q.addConst();
   // FIXME: Collect C++ address spaces.
   // If there are multiple different address spaces, the source is invalid.
@@ -7274,7 +7301,8 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
       // delayed (even if this is a friend declaration).
       bool Delayed = D.getContext() == DeclaratorContext::Member &&
                      D.isFunctionDeclaratorAFunctionDeclaration();
-      if (Delayed && Actions.isLibstdcxxEagerExceptionSpecHack(D) &&
+      bool DelayedNoexcept = Delayed;
+      if (DelayedNoexcept && Actions.isLibstdcxxEagerExceptionSpecHack(D) &&
           GetLookAheadToken(0).is(tok::kw_noexcept) &&
           GetLookAheadToken(1).is(tok::l_paren) &&
           GetLookAheadToken(2).is(tok::kw_noexcept) &&
@@ -7289,14 +7317,11 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         // for 'swap' will only find the function we're currently declaring,
         // whereas it expects to find a non-member swap through ADL. Turn off
         // delayed parsing to give it a chance to find what it expects.
-        Delayed = false;
+        DelayedNoexcept = false;
       }
-      ESpecType = tryParseExceptionSpecification(Delayed,
-                                                 ESpecRange,
-                                                 DynamicExceptions,
-                                                 DynamicExceptionRanges,
-                                                 NoexceptExpr,
-                                                 ExceptionSpecTokens);
+      ESpecType = tryParseExceptionSpecification(
+          DelayedNoexcept, ESpecRange, DynamicExceptions,
+          DynamicExceptionRanges, NoexceptExpr, ExceptionSpecTokens);
       if (ESpecType != EST_None)
         EndLoc = ESpecRange.getEnd();
 
@@ -7316,6 +7341,10 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
             ParseTrailingReturnType(Range, D.mayBeFollowedByCXXDirectInit());
         TrailingReturnTypeLoc = Range.getBegin();
         EndLoc = Range.getEnd();
+      }
+
+      if (isFunctionContractKeyword(Tok) && Delayed) {
+        LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
       }
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
@@ -7346,18 +7375,17 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
   }
 
   // Remember that we parsed a function type, and remember the attributes.
-  D.AddTypeInfo(DeclaratorChunk::getFunction(
-                    HasProto, IsAmbiguous, LParenLoc, ParamInfo.data(),
-                    ParamInfo.size(), EllipsisLoc, RParenLoc,
-                    RefQualifierIsLValueRef, RefQualifierLoc,
-                    /*MutableLoc=*/SourceLocation(),
-                    ESpecType, ESpecRange, DynamicExceptions.data(),
-                    DynamicExceptionRanges.data(), DynamicExceptions.size(),
-                    NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
-                    ExceptionSpecTokens, DeclsInPrototype, StartLoc,
-                    LocalEndLoc, D, TrailingReturnType, TrailingReturnTypeLoc,
-                    &DS),
-                std::move(FnAttrs), EndLoc);
+  D.AddTypeInfo(
+      DeclaratorChunk::getFunction(
+          HasProto, IsAmbiguous, LParenLoc, ParamInfo.data(), ParamInfo.size(),
+          EllipsisLoc, RParenLoc, RefQualifierIsLValueRef, RefQualifierLoc,
+          /*MutableLoc=*/SourceLocation(), ESpecType, ESpecRange,
+          DynamicExceptions.data(), DynamicExceptionRanges.data(),
+          DynamicExceptions.size(),
+          NoexceptExpr.isUsable() ? NoexceptExpr.get() : nullptr,
+          ExceptionSpecTokens, DeclsInPrototype, StartLoc, LocalEndLoc, D,
+          TrailingReturnType, TrailingReturnTypeLoc, &DS),
+      std::move(FnAttrs), EndLoc);
 }
 
 bool Parser::ParseRefQualifier(bool &RefQualifierIsLValueRef,
@@ -8175,6 +8203,7 @@ TypeResult Parser::ParseTypeFromString(StringRef TypeStr, StringRef Context,
     ConsumeAnyToken();
   return Result;
 }
+
 
 void Parser::DiagnoseBitIntUse(const Token &Tok) {
   // If the token is for _ExtInt, diagnose it as being deprecated. Otherwise,

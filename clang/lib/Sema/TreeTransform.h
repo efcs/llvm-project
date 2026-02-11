@@ -1615,6 +1615,20 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultName,
+                                 ArrayRef<const Attr *> Attrs) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
+  }
+
+  DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
+                                          bool IsInvalid) {
+    return getSema().ActOnFinishContractSpecifierSequence(Stmts, IsInvalid);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -8989,6 +9003,50 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
 }
 
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+  std::optional<Sema::CXXThisScopeRAII> OptThisScope;
+  if (S->getContractKind() != ContractKind::Assert) {
+    OptThisScope.emplace(getSema(),
+                         dyn_cast_if_present<CXXRecordDecl>(
+                             getSema().getFunctionLevelDeclContext()),
+                         Qualifiers());
+  }
+
+  assert(getSema().getFunctionLevelDeclContext(true)->isFunctionOrMethod());
+
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getContractKind(), CSO_FunctionContext, S->getKeywordLoc());
+
+  StmtResult NewResultName;
+  if (S->hasResultName()) {
+    NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
+    if (NewResultName.isInvalid())
+      return StmtError();
+  }
+
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
+    return StmtError();
+
+  Cond = CondRes.get().second;
+
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), Cond,
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
+}
+
 // Objective-C Statements.
 
 template<typename Derived>
@@ -13129,8 +13187,14 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       return ExprError();
   }
 
-  return getDerived().RebuildDeclRefExpr(QualifierLoc, ND, NameInfo,
-                                         Found, TemplateArgs);
+  ExprResult NewRef = getDerived().RebuildDeclRefExpr(
+      QualifierLoc, ND, NameInfo, Found, TemplateArgs);
+  if (E->isInContractContext())
+    NewRef.getAs<DeclRefExpr>()->setIsInContractContext(true);
+  if (E->isConstified())
+    NewRef.getAs<DeclRefExpr>()->setIsConstified(true);
+
+  return NewRef;
 }
 
 template<typename Derived>
@@ -15893,7 +15957,8 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
           }
 
           // Capture the transformed variable.
-          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind);
+          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind, SourceLocation(),
+            C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
         }
 
         // FIXME: Retain a pack expansion if RetainExpansion is true.
@@ -15919,7 +15984,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     // Capture the transformed variable.
     getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind,
-                                 EllipsisLoc);
+                                 EllipsisLoc, C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
   }
   getSema().finishLambdaExplicitCaptures(LSI);
 
@@ -15978,11 +16043,15 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     getSema().handleLambdaNumbering(Class, NewCallOperator, Numbering);
   }
 
+  bool WasInContract =
+      getSema().currentEvaluationContext().isContractAssertionContext();
   // FIXME: Sema's lambda-building mechanism expects us to push an expression
   // evaluation context even if we're not transforming the function body.
   getSema().PushExpressionEvaluationContextForFunction(
       Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
       E->getCallOperator());
+  getSema().currentEvaluationContext().IsContainedWithinContract =
+      WasInContract;
 
   StmtResult Body;
   {
@@ -16094,7 +16163,10 @@ TreeTransform<Derived>::SkipLambdaBody(LambdaExpr *E, Stmt *S) {
       return StmtError();
 
     // Capture the transformed variable.
-    getSema().tryCaptureVariable(CapturedVar, C->getLocation());
+    getSema().tryCaptureVariable(
+        CapturedVar, C->getLocation(), TryCaptureKind::Implicit,
+        SourceLocation(),
+        C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
   }
 
   return S;

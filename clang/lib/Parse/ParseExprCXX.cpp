@@ -1353,7 +1353,7 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
                   tok::kw___private, tok::kw___global, tok::kw___local,
                   tok::kw___constant, tok::kw___generic, tok::kw_groupshared,
                   tok::kw_requires, tok::kw_noexcept) ||
-      Tok.isRegularKeywordAttribute() ||
+      isFunctionContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
       (Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 
   if (HasSpecifiers && !HasParentheses && !getLangOpts().CPlusPlus23) {
@@ -1474,6 +1474,13 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   ParseScope BodyScope(this, ScopeFlags);
 
   Actions.ActOnStartOfLambdaDefinition(Intro, D, DS);
+  if (isFunctionContractKeyword(Tok)) {
+    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
+    assert(D.Contracts);
+  }
+  assert(Actions.CurContext->isFunctionOrMethod());
+  cast<FunctionDecl>(Actions.CurContext)->setContracts(D.Contracts);
+  D.Contracts = nullptr;
 
   // Parse compound-statement.
   if (!Tok.is(tok::l_brace)) {
@@ -1483,13 +1490,36 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   }
 
   StmtResult Stmt(ParseCompoundStatementBody());
+
+
   BodyScope.Exit();
   TemplateParamScope.Exit();
   LambdaScope.Exit();
 
   if (!Stmt.isInvalid() && !TrailingReturnType.isInvalid() &&
-      !D.isInvalidType())
-    return Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+      !D.isInvalidType()) {
+
+    ExprResult Lambda = Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+
+    if (!Lambda.isUsable())
+      return Lambda;
+
+    auto *LE = dyn_cast_or_null<LambdaExpr>(Lambda.get());
+    if (!LE) {
+      return Lambda;
+    }
+
+    if (!D.LateParsedContracts.empty()) {
+      assert(false);
+      ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
+                                  CES_AllScopes);
+    }
+    assert(LE->getCallOperator() && "LambdaExpr has no call operator");
+    assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");
+
+
+    return Lambda;
+  }
 
   Actions.ActOnLambdaError(LambdaBeginLoc, getCurScope());
   return ExprError();

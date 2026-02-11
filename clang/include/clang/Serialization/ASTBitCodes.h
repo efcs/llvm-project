@@ -1540,7 +1540,13 @@ enum DeclCode {
   // An OpenACCRoutineDecl record.
   DECL_OPENACC_ROUTINE,
 
-  DECL_LAST = DECL_OPENACC_ROUTINE
+  /// A ResultNameDecl record
+  DECL_RESULT_NAME,
+
+  /// A contract specifier sequence on a function
+  DECL_CONTRACT_SPECIFIER,
+
+  DECL_LAST = DECL_CONTRACT_SPECIFIER
 };
 
 /// Record codes for each kind of statement or expression.
@@ -2043,6 +2049,9 @@ enum StmtCode {
   EXPR_COAWAIT,
   EXPR_COYIELD,
   EXPR_DEPENDENT_COAWAIT,
+
+  // contracts
+  STMT_CXX_CONTRACT,
 
   // FixedPointLiteral
   EXPR_FIXEDPOINT_LITERAL,

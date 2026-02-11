@@ -174,6 +174,10 @@ public:
   /// constant value.
   bool InConstantContext = false;
 
+
+  // Whether we're allowed to evaluate contracts
+  bool EvaluateContracts = true;
+
   /// Whether we're checking that an expression is a potential constant
   /// expression. If so, do not fail on constructs that could become constant
   /// later on (such as a use of an undefined global).
@@ -187,6 +191,8 @@ public:
   /// is set; this is used when evaluating ICEs in C.
   bool CheckingForUndefinedBehavior = false;
 
+
+  // FIXME(EricWF): Use EvalMode instead of EvaluateContracts?
   EvaluationMode EvalMode;
   ASTContext &Ctx;
   Expr::EvalStatus &EvalStatus;

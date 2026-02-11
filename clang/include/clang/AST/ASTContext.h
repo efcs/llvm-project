@@ -1339,6 +1339,10 @@ public:
   // The decl is built when constructing 'BuiltinVaListDecl'.
   mutable Decl *VaListTagDecl = nullptr;
 
+  // Decl used to define the data structure for the contract violation object
+  // used for C++ contracts
+  mutable Decl *BuiltinContractViolationRecordDecl = nullptr;
+
   // Implicitly-declared type 'struct _GUID'.
   mutable TagDecl *MSGuidTagDecl = nullptr;
 
@@ -2475,6 +2479,17 @@ public:
     assert(MSGuidTagDecl && "asked for GUID type but MS extensions disabled");
     return getCanonicalTagType(MSGuidTagDecl);
   }
+
+  CanQualType getBuiltinContractViolationRecordType() const {
+    return getCanonicalTagType(
+        cast<RecordDecl>(getBuiltinContractViolationRecordDecl()));
+  }
+
+  Decl *getBuiltinContractViolationRecordDecl() const;
+  UnnamedGlobalConstantDecl *
+  BuildViolationObject(const ContractStmt *CS,
+                       const FunctionDecl *CurDecl = nullptr);
+
 
   /// Retrieve the implicitly-predeclared 'struct type_info' declaration.
   TagDecl *getMSTypeInfoTagDecl() const {

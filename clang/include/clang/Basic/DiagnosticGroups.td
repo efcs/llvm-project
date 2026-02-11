@@ -1832,5 +1832,13 @@ def PGOCoverage : DiagGroup<"pgo-coverage">;
 // Warnings related to -ftrivial-auto-var-init
 def TrivialAutoVarInit : DiagGroup<"trivial-auto-var-init">;
 
+// Warnings produced by failing "observe" contract violations
+
+def ContractViolation : DiagGroup<"contract-violation">;
+
+def ContractWarning : DiagGroup<"contracts", [ContractViolation]>;
+
+def EricWFFixme : DiagGroup<"ericwf-fixme">;
+
 // A warning for options that enable a feature that is not yet complete
 def ExperimentalOption : DiagGroup<"experimental-option">;

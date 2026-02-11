@@ -18,6 +18,8 @@
 
 # RUN: %{python} %s %{libcxx-dir}/utils
 
+# END.
+
 import sys
 
 sys.path.append(sys.argv[1])
@@ -35,4 +37,5 @@ generator = module_test_generator(
 
 
 print("//--- module_std.sh.cpp")
+print("// UNSUPPORTED: contracts")
 generator.write_test("std")

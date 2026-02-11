@@ -1,0 +1,11 @@
+Error: Invalid use of postcondition specifier with auto return type
+
+In the declaration:
+    auto f() post(r : r);
+
+A postcondition specifier with a result-name-introducer cannot be used on a function declaration with a placeholder return type (auto). Such postconditions are only allowed on function definitions.
+
+To fix this, either:
+1. Provide a concrete return type instead of 'auto', or
+2. Make this a function definition by adding a function body, or
+3. Remove the result-name-introducer from the postcondition

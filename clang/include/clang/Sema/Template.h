@@ -646,6 +646,7 @@ enum class TemplateSubstitutionKind : char {
 #define BLOCK(DERIVED, BASE)
 #define CAPTURED(DERIVED, BASE)
 #define IMPLICITPARAM(DERIVED, BASE)
+#define CONTRACTSPECIFIER(DERIVED, BASE)
 
 #include "clang/AST/DeclNodes.inc"
 

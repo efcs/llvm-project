@@ -1675,6 +1675,47 @@ defm named_loops
           PosFlag<SetTrue, [], [CC1Option], "Enable support for named loops">,
           NegFlag<SetFalse>>;
 
+// C++ Contracts
+defm contracts : BoolFOption<"contracts",
+  LangOpts<"Contracts">, DefaultFalse,
+  PosFlag<SetTrue, [], [ClangOption, CC1Option, CLOption],
+          "Enable support for C++ Contracts">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option]>>;
+
+def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-semantic=">,
+  HelpText<"Specify contract evaluation semantic. The default value is 'enforce'.">,
+  Values<"ignore,enforce,observe,quick_enforce">,
+  Visibility<[ClangOption, CC1Option]>,
+  NormalizedValuesScope<"LangOptions::ContractEvaluationSemantic">,
+  NormalizedValues<["Ignore", "Enforce", "Observe", "QuickEnforce"]>,
+  MarshallingInfoEnum<LangOpts<"ContractOpts.DefaultSemantic">, "Enforce">;
+
+def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group-evaluation-semantic=">,
+  Visibility<[ClangOption, CC1Option]>,
+  HelpText<"Clang extension. Enable or disable contracts by group. The argument is a comma-separated "
+           "sequence of one or more group names, each prefixed by '+' or '-'.">;
+
+defm contract_exceptions : BoolFOption<"contract-exceptions",
+  LangOpts<"ContractExceptions">, DefaultTrue,
+  PosFlag<SetTrue, [], [ClangOption],
+          "Enable contract violation on exception">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract violations on exception">>;
+
+defm contract_constification : BoolFOption<"contract-constification",
+  LangOpts<"ContractConstification">, DefaultTrue,
+  PosFlag<SetTrue, [], [ClangOption],
+          "Enable contract constification">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable contract constification">>;
+
+defm contract_lambda_capture_restrictions : BoolFOption<"contract-lambda-capture-restrictions",
+  LangOpts<"ContractLambdaCaptureRestrictions">, DefaultTrue,
+  PosFlag<SetTrue, [], [ClangOption],
+          "Enable restrictions on lambda captures caused exclusively by contracts">,
+  NegFlag<SetFalse, [], [ClangOption, CC1Option],
+    "Disable restrictions on lambda captures caused exclusively by contracts">>;
+
 // C '_Defer' TS
 defm defer_ts : BoolFOption<"defer-ts",
   LangOpts<"DeferTS">, DefaultFalse,

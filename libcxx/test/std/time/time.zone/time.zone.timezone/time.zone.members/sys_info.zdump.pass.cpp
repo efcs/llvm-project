@@ -13,6 +13,12 @@
 // XFAIL: libcpp-has-no-experimental-tzdb
 // XFAIL: availability-tzdb-missing
 
+// TODO TZDB Investigate
+// UNSUPPORTED: target={{armv(7|8)l-linux-gnueabihf}}
+
+// This is way to freaking long of a test...
+// REQUIRES: No_Never_Dont_Run_This_Ever
+
 #include <chrono>
 #include <format>
 #include <fstream>

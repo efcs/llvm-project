@@ -2067,6 +2067,7 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
   return FD;
 }
 
+
 Decl *TemplateDeclInstantiator::VisitStaticAssertDecl(StaticAssertDecl *D) {
   Expr *AssertExpr = D->getAssertExpr();
 
@@ -2784,6 +2785,14 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
       return nullptr;
   }
 
+
+  // For function template specializations, don't copy the pattern's contracts.
+  // If this becomes an implicit instantiation, InstantiateContractSpecifier
+  // will properly instantiate them later. For explicit specializations,
+  // the user provides their own contracts per [temp.expl.spec]p12.
+  ContractSpecifierDecl *Contracts = nullptr;
+  if (D->hasContracts() && !FunctionTemplate)
+    Contracts = D->getContracts();
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
   // If we're instantiating a local function declaration, put the result
@@ -2824,7 +2833,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         SemaRef.Context, DC, D->getInnerLocStart(), NameInfo, T, TInfo,
         D->getCanonicalDecl()->getStorageClass(), D->UsesFPIntrin(),
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Function->setFriendConstraintRefersToEnclosingTemplate(
         D->FriendConstraintRefersToEnclosingTemplate());
     Function->setRangeEnd(D->getSourceRange().getEnd());
@@ -3217,7 +3226,18 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
   }
 
   CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
+
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
+
+  // For function template specializations, don't copy the pattern's contracts.
+  // If this becomes an implicit instantiation, InstantiateContractSpecifier
+  // will properly instantiate them later. For explicit specializations,
+  // the user provides their own contracts per [temp.expl.spec]p12.
+  // Note: when TemplateParams is set, we're creating a member function template
+  // (not a specialization), so contracts should still be copied.
+  ContractSpecifierDecl *Contracts = nullptr;
+  if (D->hasContracts() && (TemplateParams || !FunctionTemplate))
+    Contracts = D->getContracts();
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);
@@ -3235,13 +3255,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         InstantiatedExplicitSpecifier, Constructor->UsesFPIntrin(),
         Constructor->isInlineSpecified(), false,
         Constructor->getConstexprKind(), InheritedConstructor(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Method->setRangeEnd(Constructor->getEndLoc());
   } else if (CXXDestructorDecl *Destructor = dyn_cast<CXXDestructorDecl>(D)) {
     Method = CXXDestructorDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Destructor->UsesFPIntrin(), Destructor->isInlineSpecified(), false,
-        Destructor->getConstexprKind(), TrailingRequiresClause);
+        Destructor->getConstexprKind(), TrailingRequiresClause, Contracts);
     Method->setIneligibleOrNotSelected(true);
     Method->setRangeEnd(Destructor->getEndLoc());
     Method->setDeclName(SemaRef.Context.DeclarationNames.getCXXDestructorName(
@@ -3252,13 +3272,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Conversion->UsesFPIntrin(), Conversion->isInlineSpecified(),
         InstantiatedExplicitSpecifier, Conversion->getConstexprKind(),
-        Conversion->getEndLoc(), TrailingRequiresClause);
+        Conversion->getEndLoc(), TrailingRequiresClause, Contracts);
   } else {
     StorageClass SC = D->isStatic() ? SC_Static : SC_None;
     Method = CXXMethodDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo, SC,
         D->UsesFPIntrin(), D->isInlineSpecified(), D->getConstexprKind(),
-        D->getEndLoc(), TrailingRequiresClause);
+        D->getEndLoc(), TrailingRequiresClause, Contracts);
   }
 
   if (D->isInlined())
@@ -4481,6 +4501,20 @@ Decl *TemplateDeclInstantiator::VisitRecordDecl(RecordDecl *D) {
   llvm_unreachable("There are only CXXRecordDecls in C++");
 }
 
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+  QualType NewType = SemaRef.SubstType(D->getType(), TemplateArgs,
+                                       D->getLocation(), D->getDeclName());
+  if (NewType.isNull())
+    NewType = D->getType();
+
+  ResultNameDecl *NewRND =
+      SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, NewType,
+                                        D->getLocation(), D->getIdentifier(), D->getFunctionScopeDepth());
+  NewRND->setDeclContext(Owner);
+
+  return NewRND;
+}
+
 Decl *
 TemplateDeclInstantiator::VisitClassTemplateSpecializationDecl(
     ClassTemplateSpecializationDecl *D) {
@@ -5187,12 +5221,14 @@ TemplateDeclInstantiator::SubstFunctionType(FunctionDecl *D,
   return NewTInfo;
 }
 
+
 void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
                                            const FunctionDecl *PatternDecl,
                                            LocalInstantiationScope &Scope) {
   LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(getFunctionScopes().back());
 
   for (auto *decl : PatternDecl->decls()) {
+    assert(!isa<ResultNameDecl>(decl));
     if (!isa<VarDecl>(decl) || isa<ParmVarDecl>(decl))
       continue;
 
@@ -5208,10 +5244,13 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
     if (it == Function->decls().end())
       continue;
 
+
     Scope.InstantiatedLocal(VD, *it);
     LSI->addCapture(cast<VarDecl>(*it), /*isBlock=*/false, /*isByref=*/false,
                     /*isNested=*/false, VD->getLocation(), SourceLocation(),
-                    VD->getType(), /*Invalid=*/false);
+                    VD->getType(),
+                    /*AcrossContract*/ false, SourceLocation(),
+                    /*Invalid=*/false);
   }
 }
 
@@ -5950,6 +5989,9 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
 
       if (Body.isInvalid())
         Function->setInvalidDecl();
+      if (PatternDecl->hasContracts())
+        InstantiateContractSpecifier(PointOfInstantiation, Function,
+                                     PatternDecl, TemplateArgs);
     }
     // FIXME: finishing the function body while in an expression evaluation
     // context seems wrong. Investigate more.
@@ -6904,7 +6946,8 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
       !cast<ParmVarDecl>(D)->getType()->isInstantiationDependentType())
     return D;
   if (isa<ParmVarDecl>(D) || isa<NonTypeTemplateParmDecl>(D) ||
-      isa<TemplateTypeParmDecl>(D) || isa<TemplateTemplateParmDecl>(D) ||
+      isa<ResultNameDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
+      isa<TemplateTemplateParmDecl>(D) ||
       (ParentDependsOnArgs && (ParentDC->isFunctionOrMethod() ||
                                isa<OMPDeclareReductionDecl>(ParentDC) ||
                                isa<OMPDeclareMapperDecl>(ParentDC))) ||

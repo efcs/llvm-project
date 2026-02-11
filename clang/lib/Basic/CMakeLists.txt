@@ -61,12 +61,14 @@ add_clang_library(clangBasic
   CLWarnings.cpp
   CharInfo.cpp
   CodeGenOptions.cpp
+  ContractOptions.cpp
   Cuda.cpp
   DarwinSDKInfo.cpp
   Diagnostic.cpp
   DiagnosticIDs.cpp
   DiagnosticOptions.cpp
   ExpressionTraits.cpp
+  EricWFDebug.cpp
   FileEntry.cpp
   FileManager.cpp
   FileSystemStatCache.cpp

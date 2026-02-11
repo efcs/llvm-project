@@ -6697,5 +6697,31 @@ TEST(HasNamedTypeLoc, BindsToNonElaboratedObjectDeclaration) {
                   hasAnyTemplateArgumentLoc(templateArgumentLoc()))))));
 }
 
+TEST(ContractSpecificMatcher, breathingTest) {
+  const char *Code = R"cpp(
+      int f(int x, const int y)
+        __pre(x)
+        __post(y)
+        __post(r : r)
+      {
+        int z = x + y;
+        __contract_assert(z);
+        return z;
+      }
+  )cpp";
+
+  EXPECT_TRUE(matches(
+      Code,
+      functionDecl(hasName("f"),
+                   hasContractSpecifier(hasAnyContract(contractStmt(
+                       isPostcondition(), hasResultName(hasName("r")))))),
+      {Lang_CXX23}));
+
+  EXPECT_TRUE(matches(Code,
+                      functionDecl(hasContractSpecifier(
+                          hasAnyContract(hasResultName(hasName("r"))))),
+                      {Lang_CXX23}));
+}
+
 } // namespace ast_matchers
 } // namespace clang
