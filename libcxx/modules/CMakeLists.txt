@@ -24,6 +24,7 @@ set(LIBCXX_MODULE_STD_SOURCES
   std/complex.inc
   std/concepts.inc
   std/condition_variable.inc
+  std/contracts.inc
   std/coroutine.inc
   std/csetjmp.inc
   std/csignal.inc

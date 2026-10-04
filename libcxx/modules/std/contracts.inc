@@ -7,10 +7,14 @@
 //
 //===----------------------------------------------------------------------===//
 
-export namespace std::contracts {
-  using std::contracts::contract_violation;
-  using std::contracts::invoke_default_violation_handler;
-  using std::contracts::evaluation_semantic;
-  using std::contracts::assertion_kind;
-  using std::contracts::detection_mode;
-} // namespace std::contracts
+export namespace std {
+#if _LIBCPP_STD_VER >= 26
+  namespace contracts {
+    using std::contracts::assertion_kind;
+    using std::contracts::contract_violation;
+    using std::contracts::detection_mode;
+    using std::contracts::evaluation_semantic;
+    using std::contracts::invoke_default_contract_violation_handler;
+  } // namespace contracts
+#endif // _LIBCPP_STD_VER >= 26
+} // namespace std

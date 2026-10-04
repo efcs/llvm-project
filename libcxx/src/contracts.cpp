@@ -1,209 +1,210 @@
-#include "../include/contracts"
+//===----------------------------------------------------------------------===//
+//
+// Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
+// See https://llvm.org/LICENSE.txt for license information.
+// SPDX-License-Identifier: Apache-2.0 WITH LLVM-exception
+//
+//===----------------------------------------------------------------------===//
+
 #include <__config>
+#include <contracts>
+#include <cstddef>
+#include <cstdio>
 #include <exception>
-#include <iostream>
+#include <source_location>
 
-using namespace std::contracts;
+_LIBCPP_BEGIN_NAMESPACE_STD
 
-struct std::contracts::_ContractViolationImpl {
-  _AssertKind kind              = _AssertKind::assert;
-  _EvaluationSemantic semantic  = _EvaluationSemantic::enforce;
-  _DetectionMode mode           = _DetectionMode::predicate_false;
-  const char* comment           = nullptr;
-  std::source_location location = std::source_location::current();
+namespace contracts {
 
-  contract_violation __create_violation() const { return contract_violation{this}; }
+struct __contract_violation_impl {
+  assertion_kind __kind_;
+  evaluation_semantic __semantic_;
+  contracts::detection_mode __mode_;
+  const char* __comment_;
+  source_location __location_;
+  exception_ptr __exception_;
+
+  contract_violation __make_violation() const noexcept { return contract_violation(this); }
 };
+
+const char* contract_violation::comment() const noexcept { return __impl_->__comment_; }
+
+contracts::detection_mode contract_violation::detection_mode() const noexcept { return __impl_->__mode_; }
+
+exception_ptr contract_violation::evaluation_exception() const noexcept { return __impl_->__exception_; }
+
+bool contract_violation::is_terminating() const noexcept {
+  return __impl_->__semantic_ == evaluation_semantic::enforce ||
+         __impl_->__semantic_ == evaluation_semantic::quick_enforce;
+}
+
+assertion_kind contract_violation::kind() const noexcept { return __impl_->__kind_; }
+
+source_location contract_violation::location() const noexcept { return __impl_->__location_; }
+
+evaluation_semantic contract_violation::semantic() const noexcept { return __impl_->__semantic_; }
 
 namespace {
 
-static void __default_violation_handler(const contract_violation& violation) {
-  using namespace std::contracts;
-  std::cerr << violation.location().file_name() << ":" << violation.location().line() << ": ";
-  auto assert_str = [&]() -> std::pair<const char*, const char*> {
-    switch (violation.kind()) {
-    case _AssertKind::pre:
-      return {"pre(", ")"};
-    case _AssertKind::post:
-      return {"post(", ")"};
-    case _AssertKind::assert:
-      return {"contract_assert(", ")"};
-    case _AssertKind::cassert:
-      return {"assert(", ")"};
-    case _AssertKind::manual:
-    case _AssertKind::__unknown:
-      return {"", ""};
-    }
-  }();
-  std::cerr << assert_str.first << violation.comment() << assert_str.second;
-  if (violation.detection_mode() == _DetectionMode::predicate_false) {
-    std::cerr << " failed" << std::endl;
-  } else {
-    std::cerr << " exited via exception" << std::endl;
+const char* __kind_to_string(assertion_kind __kind) noexcept {
+  switch (__kind) {
+  case assertion_kind::pre:
+    return "pre";
+  case assertion_kind::post:
+    return "post";
+  case assertion_kind::assert:
+    return "contract_assert";
   }
+  return "<unknown assertion kind>";
 }
 
-template <int N>
-struct _BuiltinContractStruct;
+const char* __semantic_to_string(evaluation_semantic __semantic) noexcept {
+  switch (__semantic) {
+  case evaluation_semantic::ignore:
+    return "ignore";
+  case evaluation_semantic::observe:
+    return "observe";
+  case evaluation_semantic::enforce:
+    return "enforce";
+  case evaluation_semantic::quick_enforce:
+    return "quick_enforce";
+  }
+  return "<unknown semantic>";
+}
 
-template <>
-struct _BuiltinContractStruct<0> {
-  enum { VERSION = 1 };
-  int version;
+} // namespace
+
+void invoke_default_contract_violation_handler(const contract_violation& __violation) {
+  source_location __loc  = __violation.location();
+  const char* __file     = __loc.file_name();
+  const char* __function = __loc.function_name();
+  const char* __comment  = __violation.comment();
+  std::fprintf(
+      stderr,
+      "%s:%u: %s%scontract violation in %s(%s): %s (semantic: %s)\n",
+      __file && *__file ? __file : "<unknown file>",
+      static_cast<unsigned>(__loc.line()),
+      __function ? __function : "",
+      __function && *__function ? ": " : "",
+      __kind_to_string(__violation.kind()),
+      __comment ? __comment : "",
+      __violation.detection_mode() == contracts::detection_mode::evaluation_exception
+          ? "predicate evaluation exited via an exception"
+          : "predicate evaluated to false",
+      __semantic_to_string(__violation.semantic()));
+  std::fflush(stderr);
+}
+
+} // namespace contracts
+
+_LIBCPP_END_NAMESPACE_STD
+
+// The contract-violation handler, ::handle_contract_violation, is replaceable
+// ([basic.contract.handler]). Following the same approach as
+// std::__libcpp_verbose_abort, the library provides a weak default definition
+// that a strong definition in the program overrides. A user definition may be
+// declared noexcept: noexcept is not part of the mangled name of a function, so
+// it replaces this one as well.
+_LIBCPP_OVERRIDABLE_FUNC_VIS void handle_contract_violation(const std::contracts::contract_violation&);
+
+[[gnu::weak]] void handle_contract_violation(const std::contracts::contract_violation& __violation) {
+  std::contracts::invoke_default_contract_violation_handler(__violation);
+}
+
+namespace {
+
+// The layout of the data emitted by Clang (version 3) and passed to
+// __handle_contract_violation_v3. The {file, function, line, column} members
+// must stay contiguous and in this order: they have the same layout as the data
+// referred to by std::source_location.
+struct __contract_violation_data_v3 {
+  unsigned __version_;
+  const char* __file_;
+  const char* __function_;
+  unsigned __line_;
+  unsigned __column_;
+  const char* __comment_;
+  unsigned __contract_kind_;
 };
 
-template <>
-struct _BuiltinContractStruct<1> {
-  enum { VERSION = 1 };
-  unsigned version; // the version of the struct
-  const char* comment;
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned contract_kind;
-  unsigned eval_semantic;
-  unsigned detection_mode;
+// Clang's internal encoding of the evaluation semantic (clang::ContractEvaluationSemantic).
+// Note that it differs from std::contracts::evaluation_semantic.
+enum : unsigned char {
+  __clang_semantic_ignore        = 0,
+  __clang_semantic_enforce       = 1,
+  __clang_semantic_observe       = 2,
+  __clang_semantic_quick_enforce = 3,
 };
 
-template <>
-struct _BuiltinContractStruct<2> {
-  enum { VERSION = 2 };
-  unsigned version; // the version of the struct
-  const char* comment;
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned contract_kind;
-  unsigned eval_semantic;
-};
+std::contracts::evaluation_semantic __translate_semantic(unsigned char __sem) noexcept {
+  using std::contracts::evaluation_semantic;
+  switch (__sem) {
+  case __clang_semantic_ignore:
+    return evaluation_semantic::ignore;
+  case __clang_semantic_enforce:
+    return evaluation_semantic::enforce;
+  case __clang_semantic_observe:
+    return evaluation_semantic::observe;
+  case __clang_semantic_quick_enforce:
+    return evaluation_semantic::quick_enforce;
+  }
+  // Unknown values are treated conservatively.
+  return evaluation_semantic::enforce;
+}
 
-template <>
-struct _BuiltinContractStruct<3> {
-  enum { VERSION = 3 };
-  unsigned version; // the version of the struct
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned column = 0;
-  const char* comment;
-  unsigned contract_kind;
-};
+std::contracts::detection_mode __translate_detection_mode(unsigned char __mode) noexcept {
+  // Clang's encoding (clang::ContractDetectionMode) matches the standard enumerators.
+  return __mode == static_cast<unsigned char>(std::contracts::detection_mode::evaluation_exception)
+           ? std::contracts::detection_mode::evaluation_exception
+           : std::contracts::detection_mode::predicate_false;
+}
 
-union _BuiltinContractStructUnion {
-  _BuiltinContractStruct<0> v0;
-  _BuiltinContractStruct<1> v1;
-  _BuiltinContractStruct<2> v2;
-  _BuiltinContractStruct<3> v3;
-};
-
-_ContractViolationImpl create_impl(void* data, _EvaluationSemantic* sem = nullptr, _DetectionMode* mode = nullptr) {
-  _BuiltinContractStructUnion* data_union = static_cast<_BuiltinContractStructUnion*>(data);
-  switch (data_union->v0.version) {
+std::contracts::assertion_kind __translate_kind(unsigned __kind) noexcept {
+  switch (__kind) {
   case 1:
-    return _ContractViolationImpl{
-        .kind     = static_cast<_AssertKind>(data_union->v1.contract_kind),
-        .semantic = static_cast<_EvaluationSemantic>(data_union->v1.eval_semantic),
-        .mode     = static_cast<_DetectionMode>(data_union->v1.detection_mode),
-        .comment  = data_union->v1.comment,
-        .location = std::source_location::current()};
+    return std::contracts::assertion_kind::pre;
   case 2:
-    return _ContractViolationImpl{
-        .kind     = static_cast<_AssertKind>(data_union->v2.contract_kind),
-        .semantic = static_cast<_EvaluationSemantic>(data_union->v2.eval_semantic),
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = data_union->v2.comment,
-        .location = std::source_location::current()};
-  case 3:
-    return _ContractViolationImpl{
-        .kind     = static_cast<_AssertKind>(data_union->v3.contract_kind),
-        .semantic = sem ? *sem : _EvaluationSemantic::enforce,
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = data_union->v3.comment,
-        .location = std::source_location::__create_from_pointer(
-            reinterpret_cast<const char*>(data) + offsetof(_BuiltinContractStruct<3>, file))};
+    return std::contracts::assertion_kind::post;
   default:
-    return _ContractViolationImpl{
-        .kind     = _AssertKind::assert,
-        .semantic = sem ? *sem : _EvaluationSemantic::enforce,
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = "<unknown contract violation>",
-        .location = std::source_location()};
+    return std::contracts::assertion_kind::assert;
   }
 }
 
-} // end namespace
+} // namespace
 
-void std::contracts::invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
-  __default_violation_handler(violation);
-}
-
-std::source_location contract_violation::location() const noexcept { return __pimpl_->location; }
-const char* contract_violation::comment() const noexcept { return __pimpl_->comment; }
-_DetectionMode contract_violation::detection_mode() const noexcept { return __pimpl_->mode; }
-assertion_kind contract_violation::kind() const noexcept { return __pimpl_->kind; }
-evaluation_semantic contract_violation::semantic() const noexcept { return __pimpl_->semantic; }
-
+// Entry point called by Clang-generated code when a contract is violated.
+//
+//   __semantic: Clang's internal evaluation semantic (enforce=1, observe=2, ...)
+//   __mode:     the detection mode (predicate_false=1, evaluation_exception=2)
+//   __data:     pointer to the compiler-generated __contract_violation_data_v3
+//
+// When __mode is evaluation_exception, this is called from within the handler
+// that caught the exception, so std::current_exception() refers to it.
 extern "C" _LIBCPP_EXPORTED_FROM_ABI void
-__handle_contract_violation_v3(_EvaluationSemantic __semantic, _DetectionMode __mode, void* dataptr) {
+__handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* __data);
+
+extern "C" void __handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* __data) {
   using namespace std::contracts;
-  _ContractViolationImpl impl  = create_impl(dataptr, &__semantic, &__mode);
-  contract_violation violation = impl.__create_violation();
+  const __contract_violation_data_v3* __info = static_cast<const __contract_violation_data_v3*>(__data);
 
-  if (::handle_contract_violation)
-    ::handle_contract_violation(violation);
-  else
-    invoke_default_contract_violation_handler(violation);
-
-  if (violation.semantic() == _EvaluationSemantic::enforce) {
-    std::terminate();
+  __contract_violation_impl __impl;
+  __impl.__semantic_ = __translate_semantic(__semantic);
+  __impl.__mode_     = __translate_detection_mode(__mode);
+  if (__info && __info->__version_ == 3) {
+    __impl.__kind_     = __translate_kind(__info->__contract_kind_);
+    __impl.__comment_  = __info->__comment_ ? __info->__comment_ : "";
+    __impl.__location_ = std::source_location::__create_from_pointer(&__info->__file_);
+  } else {
+    __impl.__kind_    = assertion_kind::assert;
+    __impl.__comment_ = "<unknown contract violation>";
   }
-}
+  if (__impl.__mode_ == detection_mode::evaluation_exception)
+    __impl.__exception_ = std::current_exception();
 
-namespace {
+  const contract_violation __violation = __impl.__make_violation();
+  ::handle_contract_violation(__violation);
 
-void __run_violation_handler(const std::contracts::contract_violation& violation) {
-  if (::handle_contract_violation)
-    ::handle_contract_violation(violation);
-  else
-    invoke_default_contract_violation_handler(violation);
-
-  if (violation.semantic() == evaluation_semantic::enforce)
+  if (__violation.is_terminating())
     std::terminate();
-}
-
-void __run_nothrow_violation_handler(const std::contracts::contract_violation& violation) noexcept {
-#if _LIBCPP_HAS_EXCEPTIONS
-try {
-#endif
-  __run_violation_handler(violation);
-#if _LIBCPP_HAS_EXCEPTIONS
-  } catch (...) {
-    std::terminate();
-  }
-#endif
-}
-
-} // end namespace
-
-void std::contracts::__handle_manual_contract_violation(
-  assertion_kind __kind,
-  evaluation_semantic __semantic,
-  detection_mode __mode,
-  const char* __comment,
-  std::source_location __loc,
-  bool __can_throw
-) {
-  _ContractViolationImpl __impl{
-      .kind     = __kind,
-      .semantic = __semantic,
-      .mode     = __mode,
-      .comment  = __comment ? __comment : "<unknown contract violation>",
-      .location = __loc};
-
-  auto violation = __impl.__create_violation();
-  if (!__can_throw)
-    __run_nothrow_violation_handler(violation);
-  else
-    __run_violation_handler(violation);
-
 }

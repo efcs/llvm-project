@@ -16,6 +16,29 @@ New entries should be added directly below the "Version" header.
 Version 24.0
 ------------
 
+* [libc++][Contracts] Add the C++26 contracts runtime (P2900R14)
+
+  This adds the out-of-line members of std::contracts::contract_violation,
+  std::contracts::invoke_default_contract_violation_handler, the default
+  (weak, replaceable) contract-violation handler ::handle_contract_violation,
+  and __handle_contract_violation_v3, the entry point called by Clang-generated
+  code when a contract assertion is violated.
+
+  __handle_contract_violation_v3 is an extern "C" symbol and is therefore not
+  tracked in the ABI lists, which only contain C++ (and C++ ABI) symbols.
+
+  All platforms
+  -------------
+  Symbol added: _Z25handle_contract_violationRKNSt3__19contracts18contract_violationE
+  Symbol added: _ZNKSt3__19contracts18contract_violation14detection_modeEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation14is_terminatingEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation20evaluation_exceptionEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation4kindEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation7commentEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation8locationEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation8semanticEv
+  Symbol added: _ZNSt3__19contracts41invoke_default_contract_violation_handlerERKNS0_18contract_violationE
+
 * [libc++] Remove locale::id::__next_id from the ABI
 
   `__next_id` is only ever used inside the dylib, so we can avoid making it public.

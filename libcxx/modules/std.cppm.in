@@ -40,6 +40,7 @@ module;
 #include <complex>
 #include <concepts>
 #include <condition_variable>
+#include <contracts>
 #include <coroutine>
 #include <csetjmp>
 #include <csignal>
@@ -121,7 +122,6 @@ module;
 #include <variant>
 #include <vector>
 #include <version>
-#include <contracts>
 
 // *** Headers not yet available ***
 //
