@@ -341,6 +341,39 @@ TEST_F(StructuralEquivalenceFunctionTest, ParamConstWithRef) {
   EXPECT_FALSE(testStructuralMatch(t));
 }
 
+TEST_F(StructuralEquivalenceFunctionTest, SameContracts) {
+  auto t = makeNamedDecls("int foo(const int x) __pre(x > 0) __post(r : r > x);",
+                          "int foo(const int x) __pre(x > 0) __post(r : r > x);",
+                          Lang_CXX23);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentContractConditions) {
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);",
+                          "int foo(int x) __pre(x > 1);", Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentContractKinds) {
+  auto t = makeNamedDecls("int foo(const int x) __pre(x > 0);",
+                          "int foo(const int x) __post(x > 0);", Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentNumberOfContracts) {
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);",
+                          "int foo(int x) __pre(x > 0) __pre(x < 10);",
+                          Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, ContractsOmittedOnOneDecl) {
+  // Contracts may be omitted on redeclarations.
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);", "int foo(int x);",
+                          Lang_CXX23);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
 TEST_F(StructuralEquivalenceFunctionTest, ParamConstSimple) {
   auto t = makeNamedDecls("void foo(int);", "void foo(const int);", Lang_CXX03);
   EXPECT_TRUE(testStructuralMatch(t));

@@ -14,8 +14,10 @@
 
 #include "clang/AST/ODRHash.h"
 
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclVisitor.h"
 #include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/TypeVisitor.h"
 
 using namespace clang;
@@ -753,6 +755,20 @@ void ODRHash::AddFunctionDecl(const FunctionDecl *Function,
   ID.AddInteger(Function->param_size());
   for (auto *Param : Function->parameters())
     AddSubDecl(Param);
+
+  // The function contract specifiers are part of the declaration. They may be
+  // omitted on redeclarations, in which case the contracts of the most recent
+  // previous declaration that has them apply.
+  const ContractSpecifierDecl *Contracts = nullptr;
+  for (const FunctionDecl *FD = Function; FD && !Contracts;
+       FD = FD->getPreviousDecl())
+    Contracts = FD->getContracts();
+  AddBoolean(Contracts);
+  if (Contracts) {
+    ID.AddInteger(Contracts->getNumContracts());
+    for (const ContractStmt *C : Contracts->contracts())
+      AddStmt(C);
+  }
 
   if (SkipBody) {
     AddBoolean(false);

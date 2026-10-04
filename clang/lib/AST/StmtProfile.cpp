@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -2546,7 +2547,25 @@ void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
   VisitExpr(S);
 }
 
-void StmtProfiler::VisitContractStmt(const ContractStmt *S) { VisitStmt(S); }
+void StmtProfiler::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  ID.AddInteger(llvm::to_underlying(S->getContractKind()));
+  ID.AddInteger(S->getAttrs().size());
+  for (const Attr *A : S->getAttrs()) {
+    ID.AddInteger(A->getKind());
+    if (const auto *G = dyn_cast<ContractGroupAttr>(A)) {
+      ID.AddString(G->getGroup());
+    } else if (const auto *M = dyn_cast<ContractMessageAttr>(A)) {
+      ID.AddString(M->getMessage());
+      ID.AddBoolean(M->getIncludeSourceText());
+    } else if (const auto *Sem = dyn_cast<ContractSemanticAttr>(A)) {
+      ID.AddInteger(llvm::to_underlying(Sem->getSemantic()));
+      ID.AddBoolean(Sem->getOverride());
+    } else if (const auto *E = dyn_cast<ContractEmissionAttr>(A)) {
+      ID.AddInteger(llvm::to_underlying(E->getEmission()));
+    }
+  }
+}
 
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
   VisitExpr(E);
