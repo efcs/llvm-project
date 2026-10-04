@@ -1573,7 +1573,6 @@ static bool isSwiftAsyncCallee(const CallExpr *CE) {
   return calleeType->getCallConv() == CallingConv::CC_SwiftAsync;
 }
 
-
 /// EmitReturnStmt - Note that due to GCC extensions, this can have an operand
 /// if the function returns void, or may be missing one if the function returns
 /// non-void.  Fun stuff :).

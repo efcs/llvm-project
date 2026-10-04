@@ -36,10 +36,8 @@
 #include "clang/Basic/TargetBuiltins.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/CodeGen/CGFunctionInfo.h"
-#include "clang/Basic/SourceManager.h"
 #include "clang/CodeGenUtils/CodeGenUtils.h"
 #include "clang/CodeGenUtils/FunctionUtils.h"
-#include "clang/Frontend/FrontendDiagnostic.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/StringExtras.h"
@@ -58,7 +56,6 @@
 #include "llvm/Support/xxhash.h"
 #include "llvm/Transforms/Scalar/LowerExpectIntrinsic.h"
 #include "llvm/Transforms/Utils/PromoteMemToReg.h"
-#include "clang/Lex/Lexer.h"
 #include <optional>
 
 using namespace clang;

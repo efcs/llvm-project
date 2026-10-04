@@ -1,4 +1,4 @@
-//===--- CGBlocks.cpp - Emit LLVM Code for declarations ---------*- C++ -*-===//
+//===--- CGContracts.cpp - Emit LLVM Code for C++ contracts ---------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -6,7 +6,7 @@
 //
 //===----------------------------------------------------------------------===//
 //
-// This contains code to emit blocks.
+// This contains code to emit C++26 contract assertions.
 //
 //===----------------------------------------------------------------------===//
 
@@ -26,9 +26,7 @@
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Module.h"
-#include "llvm/Support/ScopedPrinter.h"
 #include <algorithm>
-#include <cstdio>
 #include <optional>
 
 using namespace clang;
@@ -221,37 +219,6 @@ CodeGenFunction::GetSharedContractViolationTrapBlock(bool Create) {
   if (!ContractData->TrapBlock && !Create)
     return nullptr;
   return ContractData->GetSharedTrapBlock(*this).Block;
-}
-
-[[maybe_unused]]
-static std::string GetMangledContractViolationHandler(
-    ContractEvaluationSemantic Sem,
-    ContractDetectionMode Detect) {
-  std::string result = "__handle_contract_violation_v4";
-  result += [&]() -> const char* {
-    switch (Detect) {
-    case PredicateFailed:
-      return "_pf";
-    case ExceptionRaised:
-      return "_pe";
-    case ContractDetectionMode::Unspecified:
-      llvm_unreachable("Here");
-    }
-    llvm_unreachable("cases should all be handled");
-  }();
-  result += [&]() -> const char* {
-    switch (Sem) {
-    case Observe:
-      return "_so";
-    case Enforce:
-      return "_se";
-    case Ignore:
-    case QuickEnforce:
-      llvm_unreachable("cases should not occur");
-    }
-  }();
-
-  return result;
 }
 
 void CodeGenFunction::EmitHandleContractViolationCall(
@@ -487,7 +454,6 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
   }
 
   if (Style == Shared && Semantic == Enforce) {
-    //assert(!getLangOpts().Exceptions);
     EnsureInsertPoint();
     ContractData->GetSharedEnforceBlock(*this).IncomingPHI->addIncoming(
         ViolationInfo, Builder.GetInsertBlock());
