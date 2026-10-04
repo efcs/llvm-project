@@ -15,7 +15,7 @@
 
 struct Comp {
   template <class T, class U>
-  bool operator()(T, U) const {
+  bool operator()(T, U) {
     return false;
   }
 };

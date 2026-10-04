@@ -17,10 +17,6 @@
 #  pragma GCC system_header
 #endif
 
-
-#define _LIBCPP_CONTRACT_ASSERT(group_str, expression) ({ contract_assert [[clang::contract_group(group_str)]] (expression); static_cast<void>(0); })
-
-
 #define _LIBCPP_ASSERT(expression, message)                                                                            \
   (__builtin_expect(static_cast<bool>(expression), 1)                                                                  \
        ? (void)0                                                                                                       \
@@ -28,9 +24,20 @@
              __LINE__) ": libc++ Hardening assertion " _LIBCPP_TOSTRING(expression) " failed: " message "\n"))
 
 // clang-format off
-// Fast hardening mode checks.
 
-#if __has_keyword(contract_assert) && defined(_LIBCPP_LIBCPP_CONTRACT_ASSERT)
+// Experimental: when _LIBCPP_HARDENING_USE_CONTRACTS is defined and C++26 contracts are enabled (-fcontracts), the
+// hardening assertions are implemented as `contract_assert` statements placed in the contract group
+// "std.<category>" (e.g. "std.valid_element_access"). In that configuration the hardening mode is ignored: the
+// evaluation semantic of each category is controlled by -fcontract-evaluation-semantic= and
+// -fcontract-group-evaluation-semantic= (e.g. -fcontract-group-evaluation-semantic=std=ignore,std.non_null=enforce),
+// and violations are reported to the contract-violation handler instead of the verbose abort function.
+#if defined(_LIBCPP_HARDENING_USE_CONTRACTS) && __has_keyword(contract_assert)
+
+#  define _LIBCPP_CONTRACT_ASSERT(__group, __expression)                                                               \
+    ({                                                                                                                 \
+      contract_assert [[clang::contract_group(__group)]] (__expression);                                               \
+      static_cast<void>(0);                                                                                            \
+    })
 
 #  define _LIBCPP_ASSERT_VALID_INPUT_RANGE(expression, message)       _LIBCPP_CONTRACT_ASSERT("std.valid_input_range", expression)
 #  define _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(expression, message)    _LIBCPP_CONTRACT_ASSERT("std.valid_element_access", expression)
@@ -47,6 +54,7 @@
 
 #else
 
+// Fast hardening mode checks.
 #if _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_FAST
 
 // Enabled checks.
@@ -123,7 +131,7 @@
 #  define _LIBCPP_ASSERT_UNCATEGORIZED(expression, message)           ((void)0)
 
 #endif // _LIBCPP_HARDENING_MODE == _LIBCPP_HARDENING_MODE_FAST
+#endif // defined(_LIBCPP_HARDENING_USE_CONTRACTS) && __has_keyword(contract_assert)
 // clang-format on
-#endif
 
 #endif // _LIBCPP___ASSERT

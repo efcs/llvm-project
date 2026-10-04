@@ -1011,7 +1011,6 @@ set(files
   algorithm
   any
   array
-  assert.h
   atomic
   barrier
   bit

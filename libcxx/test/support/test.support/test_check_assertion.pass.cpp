@@ -7,7 +7,7 @@
 //===----------------------------------------------------------------------===//
 
 // REQUIRES: can-test-hardening-assertions-fast
-// XFAIL: availability-verbose_abort-missing || contracts
+// XFAIL: availability-verbose_abort-missing
 
 #include <cassert>
 #include <cstdio>
