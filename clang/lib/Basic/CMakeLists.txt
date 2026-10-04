@@ -69,7 +69,6 @@ add_clang_library(clangBasic
   Diagnostic.cpp
   DiagnosticIDs.cpp
   DiagnosticOptions.cpp
-  EricWFDebug.cpp
   FileEntry.cpp
   FileManager.cpp
   IdentifierTable.cpp
