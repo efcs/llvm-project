@@ -10592,17 +10592,16 @@ TEST_P(ImportTemplateParmDeclDefaultValue,
       FromD, FromDInherited);
 }
 
-TEST_P(ASTImporterOptionSpecificTestBase, BasicImportTest) {
-  Decl *FromTU = getTuDecl(
-      "int foo(const int x) __pre(x) __post(x) { return x; }", Lang_CXX23);
-  auto From = FirstDeclMatcher<FunctionDecl>().match(
-      FromTU, functionDecl(hasName("foo")));
 
-  FunctionDecl *To = Import(From, Lang_CXX23);
-  ASSERT_TRUE(To->hasContracts());
-}
+struct ImportContracts : ASTImporterOptionSpecificTestBase {
+  std::vector<std::string> getExtraArgs() const override {
+    std::vector<std::string> Args = GetParam();
+    Args.push_back("-fcontracts");
+    return Args;
+  }
+};
 
-TEST_P(ASTImporterOptionSpecificTestBase, ImportDeclarationWithContracts) {
+TEST_P(ImportContracts, ImportDeclarationWithContracts) {
   Decl *FromTU =
       getTuDecl("int foo(const int x) __pre(x) __post(x);", Lang_CXX23);
   auto From = FirstDeclMatcher<FunctionDecl>().match(
@@ -10615,7 +10614,7 @@ TEST_P(ASTImporterOptionSpecificTestBase, ImportDeclarationWithContracts) {
 // Test that a non-template function with an placeholder return type has its
 // return type and contracts rebuilt prior to export (because we can't/don't
 // export that representation).
-TEST_P(ASTImporterOptionSpecificTestBase, AutoResultName) {
+TEST_P(ImportContracts, AutoResultName) {
   Decl *FromTU = getTuDecl("auto foo(const int x) __post(r : r) { return x; }",
                            Lang_CXX23);
   auto From = FirstDeclMatcher<FunctionDecl>().match(
@@ -10633,7 +10632,17 @@ TEST_P(ASTImporterOptionSpecificTestBase, AutoResultName) {
 // The imported function must get its own ContractSpecifierDecl, ContractStmts
 // and ResultNameDecls; nothing may be shared with (or re-parented from) the
 // source AST.
-TEST_P(ASTImporterOptionSpecificTestBase, ContractsAreImportedNotShared) {
+TEST_P(ImportContracts, BasicImportTest) {
+  Decl *FromTU = getTuDecl(
+      "int foo(const int x) __pre(x) __post(x) { return x; }", Lang_CXX23);
+  auto From = FirstDeclMatcher<FunctionDecl>().match(
+      FromTU, functionDecl(hasName("foo")));
+
+  FunctionDecl *To = Import(From, Lang_CXX23);
+  ASSERT_TRUE(To->hasContracts());
+}
+
+TEST_P(ImportContracts, ContractsAreImportedNotShared) {
   Decl *FromTU = getTuDecl(
       R"(
       int foo(const int x) __pre(x > 0) __post(r : r > x) __post(r2 : r2 != 0) {
@@ -10695,7 +10704,7 @@ TEST_P(ASTImporterOptionSpecificTestBase, ContractsAreImportedNotShared) {
 
 // Ensure we correctly import result names with the reference to the canonical
 // result name for the contract specifier.
-TEST_P(ASTImporterOptionSpecificTestBase, CanonicalResultName) {
+TEST_P(ImportContracts, CanonicalResultName) {
   Decl *FromTU = getTuDecl(
       "int foo(const int x) __post(r : r) __post(r1 : r1) { return x; }",
       Lang_CXX23);
@@ -11078,6 +11087,9 @@ INSTANTIATE_TEST_SUITE_P(ParameterizedTests, ErrorHandlingTest,
                          DefaultTestValuesForRunOptions);
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedTests, RedirectingImporterTest,
+                         DefaultTestValuesForRunOptions);
+
+INSTANTIATE_TEST_SUITE_P(ParameterizedTests, ImportContracts,
                          DefaultTestValuesForRunOptions);
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedTests, ImportFunctions,

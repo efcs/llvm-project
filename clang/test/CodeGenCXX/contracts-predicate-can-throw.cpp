@@ -47,12 +47,12 @@ void new_expr() pre(new int) {}
 // CHECK-LABEL: define {{.*}} @_Z11dyncast_refR4Poly(
 // CHECK: landingpad
 // CHECK: {{call|invoke}} void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 2,
-void dyncast_ref(Poly &p) pre(dynamic_cast<Der &>(p).ok()) {}
+void dyncast_ref(Poly &p) pre(dynamic_cast<const Der &>(p).ok()) {}
 
 // CHECK-LABEL: define {{.*}} @_Z11dyncast_ptrP4Poly(
 // CHECK-NOT: landingpad
 // CHECK: ret void
-void dyncast_ptr(Poly *p) pre(dynamic_cast<Der *>(p)->ok()) {}
+void dyncast_ptr(Poly *p) pre(dynamic_cast<const Der *>(p)->ok()) {}
 
 // CHECK-LABEL: define {{.*}} @_Z10typeid_ptrP4Poly(
 // CHECK: landingpad

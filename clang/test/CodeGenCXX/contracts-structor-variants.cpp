@@ -78,8 +78,11 @@ Plain::Plain(int) {}
 // MSVC: ret
 Plain::~Plain() {}
 
+// VBase is deliberately not polymorphic: a virtual destructor would make
+// ~WithVBase virtual, and virtual functions cannot have contracts.
 struct VBase {
-  virtual ~VBase();
+  VBase();
+  ~VBase();
 };
 struct WithVBase : virtual VBase {
   WithVBase(int) pre(pre_check()) post(post_check());
@@ -106,7 +109,7 @@ struct WithVBase : virtual VBase {
 // MSVC: ret
 WithVBase::WithVBase(int) {}
 
-// The complete and deleting destructors delegate to the base destructor.
+// The complete destructor delegates to the base destructor.
 //
 // CHECK-LABEL: define {{.*}} @_ZN9WithVBaseD2Ev(
 // CHECK: {{call|invoke}} {{.*}} @_Z9pre_checkv()
@@ -119,23 +122,19 @@ WithVBase::WithVBase(int) {}
 // CHECK-NOT: _check
 // CHECK: ret
 //
-// CHECK-LABEL: define {{.*}} @_ZN9WithVBaseD0Ev(
-// CHECK-NOT: _check
-// CHECK: ret
-//
-// MSVC-LABEL: define {{.*}} @"??1WithVBase@@UEAA@XZ"(
+// MSVC-LABEL: define {{.*}} @"??1WithVBase@@QEAA@XZ"(
 // MSVC: {{call|invoke}} {{.*}} @"?pre_check@@YA_NXZ"()
 // MSVC: {{call|invoke}} {{.*}} @"?post_check@@YA_NXZ"()
-// MSVC: ret
-//
-// MSVC-LABEL: define {{.*}} @"??_GWithVBase@@UEAAPEAXI@Z"(
-// MSVC-NOT: _check
 // MSVC: ret
 //
 // MSVC-LABEL: define {{.*}} @"??_DWithVBase@@QEAAXXZ"(
 // MSVC-NOT: _check
 // MSVC: ret
 WithVBase::~WithVBase() {}
+
+// Destroying a complete object requires the complete (Itanium D1) / vbase
+// (MSVC ??_D) destructor to be emitted.
+void use_withvbase() { WithVBase W(1); }
 
 // An inheriting constructor calls the inherited constructor, which evaluates
 // the contracts.

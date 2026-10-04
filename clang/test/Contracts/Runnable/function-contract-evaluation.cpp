@@ -52,8 +52,10 @@ struct Plain {
   ~Plain() pre(count()) post(count()) {}
 };
 
+// Not polymorphic: a virtual destructor would make ~WithVBase virtual, and
+// virtual functions cannot have contracts.
 struct VBase {
-  virtual ~VBase() {}
+  ~VBase() {}
 };
 struct WithVBase : virtual VBase {
   WithVBase() pre(count()) post(count()) {}
@@ -84,8 +86,11 @@ __attribute__((noinline)) Big ret_big(const int X) post(R : R.A[0] == X) {
 }
 
 int Global = 7;
-int *GlobalAddr = nullptr;
-__attribute__((noinline)) int &ret_ref() post(R : (GlobalAddr = &R, R == 7)) {
+const int *GlobalAddr = nullptr;
+// Globals are const inside a contract predicate, so record the address
+// through a function call.
+bool set_global_addr(const int *P) { GlobalAddr = P; return true; }
+__attribute__((noinline)) int &ret_ref() post(R : set_global_addr(&R) && R == 7) {
   return Global;
 }
 __attribute__((noinline)) const int &ret_cref() post(R : &R == &Global) {
@@ -131,9 +136,6 @@ int main() {
   assert(Evals == 4);
   reset();
   { WithVBase W; }
-  assert(Evals == 4);
-  reset();
-  { VBase *W = new WithVBase; delete W; }
   assert(Evals == 4);
   reset();
   { Derived D; }

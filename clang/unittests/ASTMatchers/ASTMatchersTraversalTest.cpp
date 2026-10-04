@@ -6710,17 +6710,17 @@ TEST(ContractSpecificMatcher, breathingTest) {
       }
   )cpp";
 
-  EXPECT_TRUE(matches(
+  EXPECT_TRUE(matchesConditionally(
       Code,
       functionDecl(hasName("f"),
                    hasContractSpecifier(hasAnyContract(contractStmt(
                        isPostcondition(), hasResultName(hasName("r")))))),
-      {Lang_CXX23}));
+      true, {"-std=c++23", "-fcontracts"}));
 
-  EXPECT_TRUE(matches(Code,
+  EXPECT_TRUE(matchesConditionally(Code,
                       functionDecl(hasContractSpecifier(
                           hasAnyContract(hasResultName(hasName("r"))))),
-                      {Lang_CXX23}));
+                      true, {"-std=c++23", "-fcontracts"}));
 }
 
 } // namespace ast_matchers

@@ -28,12 +28,8 @@ struct S {
 };
 
 struct B {
-  // CHECK: virtual int v(int a) const pre(a > 0) = 0;
-  virtual int v(int a) const pre(a > 0) = 0;
-};
-struct D : B {
-  // CHECK: int v(int a) const override pre(a > 0) post(r : r > 0) {
-  int v(int a) const override pre(a > 0) post(r : r > 0) { return a; }
+  // CHECK: int v(int a) const pre(a > 0) post(r : r > 0) {
+  int v(int a) const pre(a > 0) post(r : r > 0) { return a; }
 };
 
 // CHECK: template <class T> void k(T x) requires true pre(x > 0);
