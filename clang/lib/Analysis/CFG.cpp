@@ -606,6 +606,7 @@ private:
                                         AddStmtChoice asc);
   CFGBlock *VisitCXXThrowExpr(CXXThrowExpr *T);
   CFGBlock *VisitCXXTryStmt(CXXTryStmt *S);
+  CFGBlock *VisitContractStmt(ContractStmt *S, AddStmtChoice asc);
   CFGBlock *VisitCXXTypeidExpr(CXXTypeidExpr *S, AddStmtChoice asc);
   CFGBlock *VisitDeclStmt(DeclStmt *DS);
   CFGBlock *VisitDeclSubExpr(DeclStmt *DS);
@@ -1740,6 +1741,25 @@ std::unique_ptr<CFG> CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
     }
   }
 
+  // Preconditions are evaluated on entry to the function, before any
+  // constructor initializers. Since the CFG is built backwards, add them last.
+  // (Postconditions are not modeled yet.)
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D)) {
+    if (const ContractSpecifierDecl *CSD = FD->getContracts()) {
+      SmallVector<ContractStmt *, 4> Pre(CSD->preconditions());
+      if (!Pre.empty()) {
+        if (B)
+          Succ = B;
+        Block = nullptr;
+        for (ContractStmt *C : llvm::reverse(Pre)) {
+          B = addStmt(C);
+          if (badCFG)
+            return nullptr;
+        }
+      }
+    }
+  }
+
   if (B)
     Succ = B;
 
@@ -2439,6 +2459,9 @@ CFGBlock *CFGBuilder::Visit(Stmt * S, AddStmtChoice asc,
 
     case Stmt::CXXTryStmtClass:
       return VisitCXXTryStmt(cast<CXXTryStmt>(S));
+
+    case Stmt::ContractStmtClass:
+      return VisitContractStmt(cast<ContractStmt>(S), asc);
 
     case Stmt::CXXTypeidExprClass:
       return VisitCXXTypeidExpr(cast<CXXTypeidExpr>(S), asc);
@@ -4758,6 +4781,21 @@ CFGBlock *CFGBuilder::VisitDefaultStmt(DefaultStmt *Terminator) {
   Succ = DefaultCaseBlock;
 
   return DefaultCaseBlock;
+}
+
+CFGBlock *CFGBuilder::VisitContractStmt(ContractStmt *S, AddStmtChoice asc) {
+  // The contract itself is always added so that clients can observe it.
+  autoCreateBlock();
+  appendStmt(Block, S);
+
+  // The predicate of a contract with the 'ignore' evaluation semantic is never
+  // evaluated.
+  if (S->getSemantic(*Context) == ContractEvaluationSemantic::Ignore)
+    return Block;
+
+  // Only the predicate is evaluated; the result name declaration (if any) has
+  // no runtime semantics of its own.
+  return addStmt(S->getCond());
 }
 
 CFGBlock *CFGBuilder::VisitCXXTryStmt(CXXTryStmt *Terminator) {

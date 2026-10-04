@@ -2105,7 +2105,6 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::OpenACCAtomicConstructClass:
     case Stmt::OMPUnrollDirectiveClass:
     case Stmt::OMPMetaDirectiveClass:
-    case Stmt::ContractStmtClass: // FIXME(EricWF): Do something here
     case Stmt::HLSLOutArgExprClass: {
       const ExplodedNode *Node = Engine.makePostStmtNode(
           S, Pred->getState(), Pred, /*MarkAsSink=*/true);
@@ -2355,6 +2354,33 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::UserDefinedLiteralClass:
       VisitCallExpr(cast<CallExpr>(S), Pred, Dst);
       break;
+
+    case Stmt::ContractStmtClass: {
+      // The predicate (if evaluated at all) has already been evaluated as part
+      // of the CFG. Under the 'enforce' and 'quick_enforce' semantics a
+      // violation terminates the program, so execution only continues when
+      // the predicate holds. Under 'observe' execution continues either way,
+      // and under 'ignore' the predicate is not evaluated.
+      const auto *CS = cast<ContractStmt>(S);
+      ContractEvaluationSemantic Sem = CS->getSemantic(getContext());
+      bool AssumeHolds = Sem == ContractEvaluationSemantic::Enforce ||
+                         Sem == ContractEvaluationSemantic::QuickEnforce;
+      ProgramStateRef State = Pred->getState();
+      if (AssumeHolds) {
+        SVal Cond = State->getSVal(CS->getCond(), Pred->getStackFrame());
+        if (auto DCond = Cond.getAs<DefinedOrUnknownSVal>()) {
+          ProgramStateRef Holds = State->assume(*DCond, true);
+          if (!Holds) {
+            // The contract is definitely violated; the program terminates.
+            Engine.makePostStmtNode(S, State, Pred, /*MarkAsSink=*/true);
+            break;
+          }
+          State = Holds;
+        }
+      }
+      Dst.insert(Engine.makePostStmtNode(S, State, Pred));
+      break;
+    }
 
     case Stmt::CXXCatchStmtClass:
       VisitCXXCatchStmt(cast<CXXCatchStmt>(S), Pred, Dst);
