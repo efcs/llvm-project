@@ -16,7 +16,6 @@
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
-#include "clang/Lex/Preprocessor.h"
 #include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
@@ -304,14 +303,21 @@ ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
 ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
                                    SourceLocation KeywordLoc, Expr *Condition,
                                    DeclStmt *ResultNameDecl,
-                                   ArrayRef<const Attr *> Attrs) {
+                                   ArrayRef<const Attr *> Attrs,
+                                   StringRef PredicateText) {
   assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
          "Only a postcondition can have a result name declaration");
   void *Mem = C.Allocate(totalSizeToAlloc<Stmt *, const Attr *>(
                              1 + (ResultNameDecl != nullptr), Attrs.size()),
                          alignof(ContractStmt));
-  return new (Mem)
+  auto *CS = new (Mem)
       ContractStmt(Kind, KeywordLoc, Condition, ResultNameDecl, Attrs);
+  CS->setPredicateText(C, PredicateText);
+  return CS;
+}
+
+void ContractStmt::setPredicateText(const ASTContext &Ctx, StringRef Text) {
+  PredicateText = Text.empty() ? StringRef() : Text.copy(Ctx.getAllocator());
 }
 
 ResultNameDecl *ContractStmt::getResultName() const {
@@ -334,15 +340,10 @@ std::string ContractStmt::getMessage(const clang::ASTContext &Ctx) const {
 }
 
 std::string ContractStmt::getSourceText(const ASTContext &Ctx) const {
-  auto &SM = Ctx.getSourceManager();
-  auto Begin = hasResultName() ? getResultName()->getBeginLoc()
-                               : getCond()->getBeginLoc();
-  auto End = getCond()->getEndLoc();
-  CharSourceRange ExprRange = Lexer::getAsCharRange(
-      SM.getExpansionRange(SourceRange(Begin, End)), SM, Ctx.getLangOpts());
-  std::string AssertStr =
-      Lexer::getSourceText(ExprRange, SM, Ctx.getLangOpts()).str();
-  return AssertStr;
+  // The text was recorded when the contract assertion was parsed. Don't try to
+  // recover it from the source here: the source may not be available (e.g. if
+  // the contract assertion was loaded from a module or a precompiled header).
+  return getPredicateText().str();
 }
 
 StringRef ContractStmt::ContractKindAsString(ContractKind K) {

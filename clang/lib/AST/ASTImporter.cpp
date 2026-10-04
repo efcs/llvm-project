@@ -7485,7 +7485,8 @@ ExpectedStmt ASTNodeImporter::VisitContractStmt(ContractStmt *S) {
   }
 
   return ContractStmt::Create(Importer.getToContext(), S->getContractKind(),
-                              ToKeywordLoc, ToCond, ToResultName, ToAttrs);
+                              ToKeywordLoc, ToCond, ToResultName, ToAttrs,
+                              S->getPredicateText());
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXForRangeStmt(CXXForRangeStmt *S) {

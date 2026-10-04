@@ -526,6 +526,7 @@ void ASTStmtReader::VisitContractStmt(ContractStmt *S) {
   assert(Attrs.size() == NumAttrs);
   ((void)NumAttrs);
   std::copy(Attrs.begin(), Attrs.end(), S->getAttrPtr());
+  S->setPredicateText(Record.getContext(), Record.readString());
 }
 
 void ASTStmtReader::VisitCapturedStmt(CapturedStmt *S) {

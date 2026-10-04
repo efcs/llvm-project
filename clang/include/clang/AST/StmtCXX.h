@@ -1143,6 +1143,10 @@ class ContractStmt final
 
   SourceLocation KeywordLoc;
 
+  /// The text of the predicate as it was written in the source. The storage
+  /// is owned by the ASTContext.
+  StringRef PredicateText;
+
   ArrayRef<Stmt *> getSubStmts() const {
     return llvm::ArrayRef(getTrailingObjects<Stmt *>(),
                           numTrailingObjects(OverloadToken<Stmt *>{}));
@@ -1196,7 +1200,8 @@ public:
   static ContractStmt *Create(const ASTContext &C, ContractKind Kind,
                               SourceLocation KeywordLoc, Expr *Condition,
                               DeclStmt *ResultNameDecl,
-                              ArrayRef<const Attr *> Attrs = {});
+                              ArrayRef<const Attr *> Attrs = {},
+                              StringRef PredicateText = {});
 
   static ContractStmt *CreateEmpty(const ASTContext &C, ContractKind Kind,
                                    bool HasResultName, unsigned NumAttrs);
@@ -1223,11 +1228,34 @@ public:
   // Convert the contract kind (pre, post, or contract_assert) to a string
   static StringRef ContractKindAsString(ContractKind Kind);
 
+  /// Return the text of the predicate of this contract assertion as it was
+  /// written in the source.
+  ///
+  /// The text consists of the spellings of the preprocessing tokens between
+  /// the parentheses of the contract assertion (the result-name-introducer,
+  /// if any, and the conditional-expression) before macro expansion. Tokens
+  /// which were separated by whitespace (including new-lines and comments) in
+  /// the source are separated by a single space, as if by the '#' operator.
+  /// If the tokens of the predicate do not form a contiguous range of
+  /// characters in the source because part of the predicate is produced by a
+  /// macro expansion, the text of the enclosing macro invocation is used
+  /// instead.
+  ///
+  /// The text is computed when the contract assertion is parsed and is
+  /// stored in the AST; it does not depend on the source being available. It
+  /// is empty for a contract assertion that was not parsed from source.
+  StringRef getPredicateText() const { return PredicateText; }
+
+  /// Set the text of the predicate. The text is copied into \p Ctx.
+  void setPredicateText(const ASTContext &Ctx, StringRef Text);
+
   /// Return the source text associated with this contract.
   std::string getSourceText(const ASTContext &Ctx) const;
 
   /// Return the message for use in building the contract violation
-  /// diagnostic. It may be different than the source text.
+  /// diagnostic (i.e. the value of std::contracts::contract_violation::
+  /// comment()). This is the text of the predicate unless it is overridden by
+  /// the [[clang::contract_message]] attribute.
   std::string getMessage(const ASTContext &Ctx) const;
 
   /// Return the type of the contract.

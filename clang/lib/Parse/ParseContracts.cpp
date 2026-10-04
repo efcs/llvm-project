@@ -244,6 +244,10 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     return StmtError();
   }
 
+  // The first token of the predicate (or of the result-name-introducer), used
+  // to record the text of the predicate.
+  SourceLocation PredicateBegin = Tok.getLocation();
+
   // [basic.scope.contract]: Each contract assertion introduces a
   // contract-assertion scope.
   ParseScope ContractScope(this, Scope::DeclScope);
@@ -292,6 +296,11 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   }();
   SourceLocation EndLoc = Tok.getLocation();
 
+  // The tokens between the parentheses, if there are any.
+  SourceRange PredicateRange;
+  if (PrevTokLocation != T.getOpenLocation())
+    PredicateRange = SourceRange(PredicateBegin, PrevTokLocation);
+
   T.consumeClose();
 
   if (Cond.isInvalid()) {
@@ -301,8 +310,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     SetInvalidOnExit.release();
   }
 
-  StmtResult Res =
-      Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), RND, CXX11Attrs);
+  StmtResult Res = Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), RND,
+                                               CXX11Attrs, PredicateRange);
   if (Res.isInvalid())
     IsInvalid = true;
   return Res;

@@ -3482,6 +3482,11 @@ void TextNodeDumper::VisitContractStmt(const ContractStmt *S) {
       break;
     }
   }
+  if (!S->getPredicateText().empty()) {
+    OS << " \"";
+    OS.write_escaped(S->getPredicateText());
+    OS << '"';
+  }
 }
 
 void TextNodeDumper::VisitAtomicExpr(const AtomicExpr *AE) {

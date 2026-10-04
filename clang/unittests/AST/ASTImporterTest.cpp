@@ -10676,7 +10676,13 @@ TEST_P(ImportContracts, ContractsAreImportedNotShared) {
     EXPECT_NE(FromC, ToC);
     EXPECT_EQ(FromC->getContractKind(), ToC->getContractKind());
     EXPECT_EQ(FromC->hasResultName(), ToC->hasResultName());
+    // The text of the predicate is copied into the destination context.
+    EXPECT_EQ(FromC->getPredicateText(), ToC->getPredicateText());
+    EXPECT_NE(FromC->getPredicateText().data(), ToC->getPredicateText().data());
   }
+  EXPECT_EQ(ToCSD->contracts()[0]->getPredicateText(), "x > 0");
+  EXPECT_EQ(ToCSD->contracts()[1]->getPredicateText(), "r : r > x");
+  EXPECT_EQ(ToCSD->contracts()[2]->getPredicateText(), "r2 : r2 != 0");
 
   // The precondition refers to the imported parameter.
   const auto *Cmp = cast<BinaryOperator>(

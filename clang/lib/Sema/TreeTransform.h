@@ -1636,8 +1636,10 @@ public:
   //
   StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
                                  Expr *Cond, DeclStmt *ResultName,
-                                 ArrayRef<const Attr *> Attrs) {
-    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs);
+                                 ArrayRef<const Attr *> Attrs,
+                                 StringRef PredicateText = {}) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs,
+                                       PredicateText);
   }
 
   DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
@@ -9271,7 +9273,8 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
 
   return getDerived().RebuildContractStmt(
       S->getContractKind(), S->getKeywordLoc(), Cond,
-      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs);
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs,
+      S->getPredicateText());
 }
 
 // Objective-C Statements.

@@ -129,13 +129,62 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
 
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    Expr *Cond, DeclStmt *RND,
-                                   ArrayRef<const Attr *> Attrs) {
-  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs);
+                                   ArrayRef<const Attr *> Attrs,
+                                   StringRef PredicateText) {
+  return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs,
+                              PredicateText);
+}
+
+std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
+  if (PredicateRange.isInvalid())
+    return std::string();
+
+  const SourceManager &SM = getSourceManager();
+
+  // Find the characters the predicate was written with. If its first and last
+  // token are not written at the place of the contract assertion or in the
+  // same macro argument, and do not start and end a macro expansion (i.e. if
+  // part of the predicate comes from the replacement list of a macro), there
+  // is no such range. Use the outermost macro invocation(s) instead.
+  CharSourceRange Range = Lexer::makeFileCharRange(
+      CharSourceRange::getTokenRange(PredicateRange), SM, getLangOpts());
+  if (Range.isInvalid())
+    Range = Lexer::getAsCharRange(SM.getExpansionRange(PredicateRange), SM,
+                                  getLangOpts());
+  if (Range.isInvalid())
+    return std::string();
+
+  FileIDAndOffset Begin = SM.getDecomposedLoc(Range.getBegin());
+  FileIDAndOffset End = SM.getDecomposedLoc(Range.getEnd());
+  if (Begin.first != End.first || End.second < Begin.second)
+    return std::string();
+
+  bool Invalid = false;
+  StringRef Buffer = SM.getBufferData(Begin.first, &Invalid);
+  if (Invalid || End.second > Buffer.size())
+    return std::string();
+
+  // Normalize the whitespace in the same way as the '#' operator: tokens are
+  // separated by a single space if there was whitespace (including new-lines
+  // and comments) between them.
+  Lexer RawLexer(SM.getLocForStartOfFile(Begin.first), getLangOpts(),
+                 Buffer.begin(), Buffer.begin() + Begin.second, Buffer.end());
+  std::string Text;
+  Token Tok;
+  while (!RawLexer.LexFromRawLexer(Tok)) {
+    if (SM.getFileOffset(Tok.getLocation()) >= End.second)
+      break;
+    if (!Text.empty() && (Tok.hasLeadingSpace() || Tok.isAtStartOfLine()))
+      Text += ' ';
+    Text += Lexer::getSpelling(Tok, SM, getLangOpts());
+  }
+  return Text;
 }
 
 StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, ResultNameDecl *RND,
-                                     ParsedAttributes &ContractAttrs) {
+                                     ParsedAttributes &ContractAttrs,
+                                     SourceRange PredicateRange) {
 
   // A result name is only permitted on a postcondition. We have already
   // diagnosed it on other kinds of contracts; don't attach it.
@@ -156,7 +205,8 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   StmtResult Res =
       BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt,
                         SemaContractHelper::buildAttributesWithDummyNode(
-                            *this, ContractAttrs, KeywordLoc));
+                            *this, ContractAttrs, KeywordLoc),
+                        getContractPredicateText(PredicateRange));
 
   if (Res.isInvalid())
     return StmtError();

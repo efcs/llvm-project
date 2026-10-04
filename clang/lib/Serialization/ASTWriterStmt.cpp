@@ -515,6 +515,7 @@ void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
   if (S->hasResultName())
     Record.AddStmt(S->getResultNameDeclStmt());
   Record.AddAttributes(S->getAttrs());
+  Record.AddString(S->getPredicateText());
 
   Code = serialization::STMT_CXX_CONTRACT;
 }
