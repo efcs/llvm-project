@@ -3394,6 +3394,8 @@ def err_musttail_no_variadic : Error<
   "%0 attribute may not be used with variadic functions">;
 def err_musttail_no_return : Error<
   "%0 attribute may not be used with no-return-attribute functions">;
+def err_musttail_postcondition : Error<
+  "cannot perform a tail call from a function with postcondition assertions">;
 
 def err_nsobject_attribute : Error<
   "'NSObject' attribute is for pointer types only">;
