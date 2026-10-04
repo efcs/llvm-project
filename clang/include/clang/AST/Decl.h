@@ -3327,6 +3327,25 @@ public:
 
   ContractSpecifierDecl *getContracts() const { return getContractsImpl(); }
 
+  /// Returns the function contract specifiers that apply to this declaration
+  /// of the function: the ones written on (or attached to) this declaration
+  /// or, if it has none, the ones of the nearest preceding declaration that
+  /// has them. The function contract assertions of a function are introduced
+  /// by its first declaration; later declarations either repeat or omit them
+  /// ([dcl.contract.func]p3, p4).
+  ///
+  /// Use this instead of walking the redeclaration chain, so that there is a
+  /// single place which knows which declaration carries the contracts of a
+  /// function.
+  ///
+  /// \param InSameModuleOnly only consider preceding declarations which are
+  /// owned by the same (top-level) module as this declaration. The
+  /// redeclaration chain of a function loaded from AST files contains the
+  /// declarations of all translation units; this restricts the search to the
+  /// declarations that preceded this one in its own translation unit.
+  ContractSpecifierDecl *
+  getContractsInEffect(bool InSameModuleOnly = false) const;
+
   using ContractRange = llvm::iterator_range<llvm::filter_iterator<
       ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
 

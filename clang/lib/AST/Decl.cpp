@@ -3879,6 +3879,22 @@ void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
     CSD->setOwningFunction(this);
 }
 
+ContractSpecifierDecl *
+FunctionDecl::getContractsInEffect(bool InSameModuleOnly) const {
+  auto GetModule = [](const FunctionDecl *FD) -> const Module * {
+    const Module *M = FD->getImportedOwningModule();
+    return M ? M->getTopLevelModule() : nullptr;
+  };
+  const Module *M = InSameModuleOnly ? GetModule(this) : nullptr;
+  for (const FunctionDecl *FD = this; FD; FD = FD->getPreviousDecl()) {
+    if (InSameModuleOnly && FD != this && GetModule(FD) != M)
+      continue;
+    if (ContractSpecifierDecl *Contracts = FD->getContracts())
+      return Contracts;
+  }
+  return nullptr;
+}
+
 ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
   if (auto *CSD = getContracts())
     return CSD->contracts();

@@ -759,10 +759,7 @@ void ODRHash::AddFunctionDecl(const FunctionDecl *Function,
   // The function contract specifiers are part of the declaration. They may be
   // omitted on redeclarations, in which case the contracts of the most recent
   // previous declaration that has them apply.
-  const ContractSpecifierDecl *Contracts = nullptr;
-  for (const FunctionDecl *FD = Function; FD && !Contracts;
-       FD = FD->getPreviousDecl())
-    Contracts = FD->getContracts();
+  const ContractSpecifierDecl *Contracts = Function->getContractsInEffect();
   AddBoolean(Contracts);
   if (Contracts) {
     ID.AddInteger(Contracts->getNumContracts());
