@@ -947,8 +947,10 @@ void ASTDeclWriter::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
   assert(!CSD->hasInventedPlaceholdersTypes() &&
          "Cannot have invented placeholders on a serializable declaration");
 
-  VisitDecl(CSD);
+  // The number of contracts is read before the declaration is created; it has
+  // to come first.
   Record.push_back(CSD->NumContracts);
+  VisitDecl(CSD);
   for (auto *C : CSD->contracts())
     Record.AddStmt(C);
 

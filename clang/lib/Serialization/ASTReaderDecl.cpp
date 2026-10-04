@@ -139,7 +139,7 @@ public:
 
 //===----------------------------------------------------------------------===//
 // Declaration deserialization
-//===----------------------------------------------------------------------===//u
+//===----------------------------------------------------------------------===//
 
 namespace clang {
 class ASTDeclReader : public DeclVisitor<ASTDeclReader, void> {
@@ -1096,7 +1096,6 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->setIsDestroyingOperatorDelete(FunctionDeclBits.getNextBit());
   FD->setIsTypeAwareOperatorNewOrDelete(FunctionDeclBits.getNextBit());
 
-
   FD->EndRangeLoc = readSourceLocation();
   if (FD->isExplicitlyDefaulted())
     FD->setDefaultLoc(readSourceLocation());
@@ -1165,13 +1164,10 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
 
-  if (HasContracts) {
-    ContractSpecifierDecl *CSD = readDeclAs<ContractSpecifierDecl>();
-    CSD->setOwningFunction(FD);
-    FD->setContracts(CSD);
-  }
+  if (HasContracts)
+    FD->setContracts(readDeclAs<ContractSpecifierDecl>());
 
-    // If the declaration is a SYCL kernel entry point function as indicated by
+  // If the declaration is a SYCL kernel entry point function as indicated by
   // the presence of a sycl_kernel_entry_point attribute, register it so that
   // associated metadata is recreated.
   if (FD->hasAttr<SYCLKernelEntryPointAttr>()) {
@@ -1193,18 +1189,15 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
 }
 
 void ASTDeclReader::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  // The number of contracts was already read when the declaration was
+  // created (see ReadDeclRecord).
   VisitDecl(CSD);
-  // bool NumContracts = Record.readInt();
-  assert(CSD->NumContracts > 0);
-  assert(Record.peekInt() != CSD->NumContracts);
 
   SmallVector<ContractStmt *, 8> Contracts;
   Contracts.reserve(CSD->NumContracts);
-  for (unsigned I = 0; I < CSD->NumContracts; ++I) {
+  for (unsigned I = 0; I < CSD->NumContracts; ++I)
     Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
-  }
   CSD->setContracts(Contracts);
-
 }
 
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
