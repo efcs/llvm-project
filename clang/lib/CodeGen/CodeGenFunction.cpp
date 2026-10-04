@@ -416,7 +416,7 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
 
   // Evaluate the postcondition assertions on the normal return path, after
   // the locals have been destroyed but before the return value is loaded.
-  if (ContractsFD)
+  if (ContractsFD && !PostconditionsEmitted)
     EmitPostconditions();
 
   if (ShouldInstrumentFunction()) {
@@ -1593,6 +1593,7 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   if (FD->hasContracts()) {
     ContractsFD = FD;
     EmitPreconditions(FD);
+    BeginPostconditionsReturnBlock(Body);
   }
 
   // Save parameters for coroutine function.
@@ -1691,6 +1692,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
+  if (ContractsFD)
+    EndPostconditionsReturnBlock();
+
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());
 

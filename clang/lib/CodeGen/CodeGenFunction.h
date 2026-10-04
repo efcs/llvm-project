@@ -452,6 +452,13 @@ public:
   /// as part of the current function, if any.
   const FunctionDecl *ContractsFD = nullptr;
 
+  /// When parameters are destroyed in the callee, the postconditions must be
+  /// evaluated before the parameter cleanups. In that case, ReturnBlock is
+  /// temporarily redirected to a block that evaluates the postconditions, and
+  /// this holds the original return block.
+  JumpDest PostconditionsSavedReturnBlock;
+  bool PostconditionsEmitted = false;
+
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
     if (CurLexicalScope)
@@ -2701,6 +2708,14 @@ public:
 
   /// Emit the precondition assertions of \p FD.
   void EmitPreconditions(const FunctionDecl *FD);
+
+  /// Prepare for emitting the postconditions of ContractsFD before the
+  /// cleanups of parameters destroyed in the callee, if there are any.
+  void BeginPostconditionsReturnBlock(const Stmt *Body);
+
+  /// If BeginPostconditionsReturnBlock redirected the return block, emit it
+  /// along with the postconditions and restore the original return block.
+  void EndPostconditionsReturnBlock();
 
   /// Emit the postcondition assertions of ContractsFD. Must be called on the
   /// normal return path after the return value has been stored into

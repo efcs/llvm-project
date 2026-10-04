@@ -320,6 +320,50 @@ void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {
     EmitStmt(S);
 }
 
+void CodeGenFunction::BeginPostconditionsReturnBlock(const Stmt *Body) {
+  assert(ContractsFD && !PostconditionsSavedReturnBlock.isValid());
+  auto Posts = ContractsFD->postconditions();
+  if (Posts.begin() == Posts.end())
+    return;
+
+  // Coroutines manage their own return path.
+  if (isa_and_nonnull<CoroutineBodyStmt>(Body))
+    return;
+
+  // The only cleanups between the prologue and the body are those for
+  // parameters destroyed in the callee. If there are none, the postconditions
+  // are emitted by FinishFunction.
+  if (EHStack.stable_begin() == PrologueCleanupDepth)
+    return;
+
+  // Make return statements branch to a block inside the scope of the
+  // parameter cleanups, where we evaluate the postconditions.
+  PostconditionsSavedReturnBlock = ReturnBlock;
+  ReturnBlock = getJumpDestInCurrentScope("contract.post");
+}
+
+void CodeGenFunction::EndPostconditionsReturnBlock() {
+  if (!PostconditionsSavedReturnBlock.isValid())
+    return;
+
+  llvm::BasicBlock *PostBB = ReturnBlock.getBlock();
+  ReturnBlock = PostconditionsSavedReturnBlock;
+  PostconditionsSavedReturnBlock = JumpDest();
+  PostconditionsEmitted = true;
+
+  if (PostBB->use_empty() && !HaveInsertPoint()) {
+    // The end of the function is unreachable.
+    delete PostBB;
+    return;
+  }
+  if (PostBB->use_empty()) {
+    delete PostBB;
+  } else {
+    EmitBlock(PostBB);
+  }
+  EmitPostconditions();
+}
+
 void CodeGenFunction::EmitPostconditions() {
   assert(ContractsFD && "no function contracts to emit");
   auto Posts = ContractsFD->postconditions();
