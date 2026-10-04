@@ -36,7 +36,6 @@
 #include "clang/Basic/BuiltinTraits.h"
 #include "clang/Basic/Builtins.h"
 #include "clang/Basic/DiagnosticSema.h"
-#include "clang/Basic/EricWFDebug.h"
 #include "clang/Basic/PartialDiagnostic.h"
 #include "clang/Basic/SourceManager.h"
 #include "clang/Basic/Specifiers.h"
@@ -71,7 +70,6 @@
 #include "llvm/Support/SaveAndRestore.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/TypeSize.h"
-#include "clang/Basic/EricWFDebug.h"
 #include <limits>
 #include <optional>
 
@@ -14314,7 +14312,6 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
 
   if (DRE->isConstified() || DRE->isInContractContext())
     return NCCK_Contract;
-  //DRE->dumpColor();
   // Decide whether the first capture was for a block or a lambda.
   DeclContext *DC = S.CurContext, *Prev = nullptr;
   unsigned ScopeIndex = S.FunctionScopes.size();
@@ -20330,10 +20327,8 @@ bool Sema::tryCaptureVariable(
     if (LSI && !LSI->AfterParameterList) {
       // This allows capturing parameters from a default value which does not
       // seems correct
-      if (isa<ParmVarDecl>(Var) && !Var->getDeclContext()->isFunctionOrMethod()) {
-        assert(false);
+      if (isa<ParmVarDecl>(Var) && !Var->getDeclContext()->isFunctionOrMethod())
         return true;
-      }
     }
     // If the variable is declared in the current context, there is no need to
     // capture it.

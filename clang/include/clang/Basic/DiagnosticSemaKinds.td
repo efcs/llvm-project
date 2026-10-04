@@ -13141,22 +13141,9 @@ def select_contract_kind : TextSubstitution<
   "%select{pre|post|contract_assert}0">;
 
 let CategoryName = "Contract Issue" in {
-def err_ericwf_unimplemented : Error<
-  "contract feature %0 is not yet implemented (complain to eric@efcs.ca)"
->;
-def warn_ericwf_unimplemented : Warning<
-  "contract feature %0 is not yet _correctly_ implemented (Danm it Eric!)"
->, InGroup<EricWFFixme>;
+// FIXME: Remove this once all users have been given proper diagnostics.
+def err_ericwf_fixme : Error<"%0">;
 
-def err_ericwf_fixme : Error<
-  "woops... FIXME(EricWF): %0"
->;
-def err_ericwf_generic : Error<"%0">;
-def note_ericwf_generic : Note<"%0">;
-
-def warn_ericwf_fixme : Warning<
-  "woops... FIXME(EricWF): %0"
->, InGroup<EricWFFixme>;
 
 def err_result_name_shadows_param : Error<
   "declaration of result name %0 shadows parameter">;

@@ -2008,12 +2008,8 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     Init = BuildDeclarationNameExpr(
         CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var);
     if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(Init.get())) {
-      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture()) {
-        llvm::errs() << "Setting Is Constified capture!\n";
+      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture())
         DRE->setIsInContractContext(true);
-      }
-      // llvm::errs() << "Dumping DeclarationNameExpr\n";
-      // Init.get()->dumpColor();
     }
   }
 
@@ -2305,14 +2301,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     bool IsImplicit = I >= LSI->NumExplicitCaptures;
     SourceLocation ImplicitCaptureLoc =
         IsImplicit ? CaptureDefaultLoc : SourceLocation();
-
-    if (IsImplicit && From.isVariableCapture() &&
-        From.isCapturedAcrossContract() &&
-        LSI->ContractCaptureMap.count(From.getVariable()) != 0) {
-      ((void)From);
-      assert(false);
-      // FIXME(EricWF)
-    }
 
     // Use source ranges of explicit captures for fixits where available.
     SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];

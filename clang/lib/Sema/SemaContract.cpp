@@ -161,10 +161,6 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
     return ExprError();
   Cond = Res.get().second;
   assert(Cond);
-  if (auto KnownValue = Res.getKnownValue(); KnownValue.has_value()) {
-    Diag(Cond->getExprLoc(), diag::warn_ericwf_fixme) <<
-      (std::string("Condition always evaluates to ") + (*KnownValue ? "true" : "false")) << Cond;
-  }
   return Cond;
 }
 
@@ -237,7 +233,7 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                      nullptr, HasInventedPlaceholderTypes, FunctionScopeDepth);
 
   if (IsInvalid)
-    New->isInvalidDecl();
+    New->setInvalidDecl();
 
   // Check for redeclaration of parameters, e.g. int foo(int x, int x);
   if (II) {
@@ -1029,7 +1025,7 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   Def->setContracts(CSD);
 
   if (CSD->isInvalidDecl())
-    Def->isInvalidDecl();
+    Def->setInvalidDecl();
   return CSD;
 }
 
@@ -1051,15 +1047,12 @@ DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
       return false;
 
     if (FD->getReturnType()->isUndeducedType()) {
-      assert(!FD->isInvalidDecl());
-      assert(!CSD->isInvalidDecl());
-      if (DeduceReturnType(FD, Loc, true)) {
-        Diag(CSD->getLocation(), diag::err_ericwf_unimplemented)
-            << "IDK what's wrong";
+      // If we fail to deduce the return type, the failure has already been
+      // diagnosed.
+      if (DeduceReturnType(FD, Loc, /*Diagnose=*/true) ||
+          FD->getReturnType()->isUndeducedType())
         return true;
-      }
     }
-    assert(!FD->getReturnType()->isUndeducedType());
     Replacement = FD->getReturnType();
     return false;
   };

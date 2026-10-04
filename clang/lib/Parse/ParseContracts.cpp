@@ -21,15 +21,17 @@ using namespace clang;
 
 std::optional<ContractKind>
 Parser::getContractKeyword(const Token &Token) const {
-  // We offer the reserved keywords as identifiers in C++11 mode.
-  if (!getLangOpts().CPlusPlus11 ||
-      (Token.isNot(tok::identifier) && !Token.is(tok::kw_contract_assert)))
+  // Contract keywords (including the reserved '__pre', '__post' and
+  // '__contract_assert' spellings) are only recognized when contracts are
+  // enabled.
+  if (!getLangOpts().CPlusPlus11 || !getLangOpts().Contracts)
     return std::nullopt;
 
-  // If we have a contract_assert keyword, we've may be using contract as an
-  // extension, so don't check the language options.
   if (Token.is(tok::kw_contract_assert))
     return ContractKind::Assert;
+
+  if (Token.isNot(tok::identifier))
+    return std::nullopt;
 
   const IdentifierInfo *II = Token.getIdentifierInfo();
   assert(II && "Missing identifier info");
@@ -42,10 +44,10 @@ Parser::getContractKeyword(const Token &Token) const {
     Ident___post = &PP.getIdentifierTable().get("__post");
   }
 
-  if ((II == Ident_pre && getLangOpts().Contracts) || II == Ident___pre)
+  if (II == Ident_pre || II == Ident___pre)
     return ContractKind::Pre;
 
-  if ((II == Ident_post && getLangOpts().Contracts) || II == Ident___post)
+  if (II == Ident_post || II == Ident___post)
     return ContractKind::Post;
 
   return std::nullopt;
