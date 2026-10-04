@@ -2732,6 +2732,14 @@ public:
   /// before any part of the function body has been emitted.
   void BeginFunctionPostconditions();
 
+  /// Push EH cleanups which destroy the subobjects of the object being
+  /// constructed or destroyed by the current function if a function contract
+  /// assertion that is evaluated outside of the function body exits via an
+  /// exception: for a constructor, the subobjects which were initialized by
+  /// the constructor; for a destructor, the subobjects which the destructor
+  /// has yet to destroy.
+  void EnterStructorSubobjectEHCleanups();
+
   /// Emit the postcondition assertions of ContractsFD on the normal return
   /// path. Called by FinishFunction once all cleanups of the function body
   /// have been popped, and before the cleanups of the parameters are.

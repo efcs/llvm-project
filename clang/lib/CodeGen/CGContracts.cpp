@@ -603,6 +603,12 @@ void CodeGenFunction::EmitFunctionPostconditions(SourceLocation EndLoc) {
                   /*useEHCleanupForArray=*/true);
   }
 
+  // Likewise, the subobjects initialized by a constructor must be destroyed
+  // ([except.ctor]p3). All subobjects have already been destroyed when the
+  // postconditions of a destructor are evaluated.
+  if (isa<CXXConstructorDecl>(ContractsFD))
+    EnterStructorSubobjectEHCleanups();
+
   for (const ContractStmt *S : ContractsFD->postconditions())
     EmitStmt(S);
 

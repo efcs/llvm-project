@@ -1600,7 +1600,9 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // postcondition assertions are emitted by FinishFunction.
   if (shouldEmitFunctionContracts(GD)) {
     ContractsFD = FD;
-    EmitPreconditions(FD);
+    // The preconditions of a destructor are emitted by EmitDestructorBody.
+    if (!isa<CXXDestructorDecl>(FD))
+      EmitPreconditions(FD);
     BeginFunctionPostconditions();
   }
 

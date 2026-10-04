@@ -1485,6 +1485,19 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   bool DelegateToBase =
       DtorType == Dtor_Complete && IsDestructorDelegationValid(Dtor);
 
+  // The precondition assertions are evaluated before the function body, which
+  // includes the function-try-block if there is one.
+  if (ContractsFD && hasCheckedPreconditions(ContractsFD)) {
+    assert(!DelegateToBase && "delegating destructor evaluating contracts");
+
+    // [except.ctor]p3: If the destructor exits via an exception, e.g. one
+    // thrown by the contract-violation handler, the subobjects are still
+    // destroyed.
+    RunCleanupsScope PreconditionScope(*this);
+    EnterStructorSubobjectEHCleanups();
+    EmitPreconditions(ContractsFD);
+  }
+
   // If the body is a function-try-block, enter the try before
   // anything else.
   bool isTryBody = isa_and_nonnull<CXXTryStmt>(Body);
@@ -2571,6 +2584,100 @@ void CodeGenFunction::EmitDelegatingCXXConstructorCall(
 
     EHStack.pushCleanup<CallDelegatingCtorDtor>(
         EHCleanup, ClassDecl->getDestructor(), ThisPtr, Type);
+  }
+}
+
+void CodeGenFunction::EnterStructorSubobjectEHCleanups() {
+  if (!getLangOpts().Exceptions)
+    return;
+
+  const auto *MD = cast<CXXMethodDecl>(CurGD.getDecl());
+  const CXXRecordDecl *ClassDecl = MD->getParent();
+
+  if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(MD)) {
+    // [except.ctor]p4: If the non-delegating constructor has completed and
+    // the delegating constructor exits with an exception, the object's
+    // destructor is invoked.
+    if (Ctor->isDelegatingConstructor()) {
+      if (!ClassDecl->hasTrivialDestructor()) {
+        CXXDtorType Type =
+            CurGD.getCtorType() == Ctor_Complete ? Dtor_Complete : Dtor_Base;
+        EHStack.pushCleanup<CallDelegatingCtorDtor>(
+            EHCleanup, ClassDecl->getDestructor(), LoadCXXThisAddress(), Type);
+      }
+      return;
+    }
+
+    // [except.ctor]p3: Destroy the subobjects which were initialized by the
+    // constructor. This mirrors the cleanups pushed by EmitCtorPrologue.
+    bool ConstructVBases = CurGD.getCtorType() != Ctor_Base &&
+                           ClassDecl->getNumVBases() != 0 &&
+                           !ClassDecl->isAbstract();
+    for (const CXXCtorInitializer *Init : Ctor->inits()) {
+      if (Init->isBaseInitializer()) {
+        if (Init->isBaseVirtual() && !ConstructVBases)
+          continue;
+        const auto *BaseClassDecl = Init->getBaseClass()->castAsCXXRecordDecl();
+        if (!BaseClassDecl->hasTrivialDestructor())
+          EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl,
+                                            Init->isBaseVirtual());
+        continue;
+      }
+
+      assert(Init->isAnyMemberInitializer());
+      QualType FieldType = Init->getAnyMember()->getType();
+      QualType::DestructionKind DtorKind = FieldType.isDestructedType();
+      if (!needsEHCleanup(DtorKind))
+        continue;
+
+      CanQualType RecordTy = getContext().getCanonicalTagType(ClassDecl);
+      LValue LHS =
+          CurGD.getCtorType() == Ctor_Base
+              ? MakeNaturalAlignPointeeAddrLValue(LoadCXXThis(), RecordTy)
+              : MakeNaturalAlignAddrLValue(LoadCXXThis(), RecordTy);
+      EmitLValueForAnyFieldInitialization(
+          *this, const_cast<CXXCtorInitializer *>(Init), LHS);
+      pushEHDestroy(DtorKind, LHS.getAddress(), FieldType);
+    }
+    return;
+  }
+
+  // [except.ctor]p3: Each destructor invocation which would be performed
+  // after executing the body of the destructor is performed. This mirrors the
+  // cleanups pushed by EnterDtorCleanups.
+  assert(isa<CXXDestructorDecl>(MD));
+
+  // Unions have no bases and do not call field destructors.
+  if (ClassDecl->isUnion())
+    return;
+
+  auto PushBaseCleanup = [&](const CXXBaseSpecifier &Base, bool IsVirtual) {
+    const auto *BaseClassDecl = Base.getType()->castAsCXXRecordDecl();
+    if (!BaseClassDecl->hasTrivialDestructor())
+      EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl, IsVirtual);
+  };
+
+  if (CurGD.getDtorType() == Dtor_Complete)
+    for (const CXXBaseSpecifier &Base : ClassDecl->vbases())
+      PushBaseCleanup(Base, /*IsVirtual=*/true);
+
+  for (const CXXBaseSpecifier &Base : ClassDecl->bases())
+    if (!Base.isVirtual())
+      PushBaseCleanup(Base, /*IsVirtual=*/false);
+
+  for (const FieldDecl *Field : ClassDecl->fields()) {
+    QualType FieldType = Field->getType();
+    QualType::DestructionKind DtorKind = FieldType.isDestructedType();
+    if (!needsEHCleanup(DtorKind))
+      continue;
+
+    // Anonymous union members do not have their destructors called.
+    const RecordType *RT = FieldType->getAsUnionType();
+    if (RT && RT->getDecl()->isAnonymousStructOrUnion())
+      continue;
+
+    EHStack.pushCleanup<DestroyField>(EHCleanup, Field, getDestroyer(DtorKind),
+                                      /*useEHCleanupForArray=*/true);
   }
 }
 
