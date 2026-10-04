@@ -20,11 +20,16 @@
 #define HEADER
 int pch1(int x) pre([](int v) { return v > 0; }(x));
 int pch2(int x) pre([](int v) { return v > 0; }(x));
+// The closure types of the lambda-expressions of these declarations are
+// merged when the declarations are loaded.
+int pch3(int x) pre([x] { return x > 0; }());
+int pch3(int y) pre([y] { return y > 0; }());
 #else
 int pch1(int y) pre([](int v) { return v > 0; }(y)) { return y; }
 int pch2(int x) pre([](int v) { return v > 1; }(x)); // pch-error {{function redeclaration differs in contract specifier sequence}}
 // pch-note@-1 {{in contract specified here}}
-// pch-note@-5 {{contract previously specified with a non-equivalent condition}}
+// pch-note@-9 {{contract previously specified with a non-equivalent condition}}
+int pch3(int z) pre([z] { return z > 0; }()) { return z; }
 #endif
 #else
 

@@ -152,7 +152,21 @@ namespace {
     }
 
     unsigned getPredicateDeclIndex(const Decl *D) {
+      D = D->getCanonicalDecl();
       return PredicateDecls.try_emplace(D, PredicateDecls.size()).first->second;
+    }
+
+    /// Determine whether \p DC is the context of the predicate being
+    /// profiled, or another declaration of that function. The latter can be
+    /// the context of an entity declared within the predicate if that entity
+    /// was merged with the corresponding entity of a declaration of the
+    /// function in another translation unit.
+    bool isPredicateContext(const DeclContext *DC) const {
+      if (DC == PredicateContext)
+        return true;
+      return isa<FunctionDecl>(DC) && isa<FunctionDecl>(PredicateContext) &&
+             declaresSameEntity(cast<FunctionDecl>(DC),
+                                cast<FunctionDecl>(PredicateContext));
     }
 
     /// Determine whether \p D is declared within the predicate being
@@ -163,11 +177,13 @@ namespace {
       if (!PredicateContext)
         return false;
       const DeclContext *DC = D->getDeclContext();
-      if (DC == PredicateContext)
+      if (!DC)
+        return false;
+      if (isPredicateContext(DC))
         return !isa<ParmVarDecl, ResultNameDecl, ContractSpecifierDecl>(D) &&
                !D->isTemplateParameter();
-      for (; DC; DC = DC->getParent())
-        if (DC == PredicateContext)
+      for (DC = DC->getParent(); DC; DC = DC->getParent())
+        if (isPredicateContext(DC))
           return true;
       return false;
     }
@@ -182,7 +198,7 @@ namespace {
     /// type and their name.
     void VisitClosureMember(const CXXRecordDecl *Closure, const NamedDecl *D) {
       ID.AddInteger(PDK_ClosureMember);
-      ReferencedClosures.insert(Closure);
+      ReferencedClosures.insert(Closure->getCanonicalDecl());
       ID.AddInteger(getPredicateDeclIndex(Closure));
 
       DeclarationName Name = D->getDeclName();
@@ -243,7 +259,7 @@ namespace {
       // Entities which are profiled where they are declared.
       const auto *RD = dyn_cast<CXXRecordDecl>(D);
       if (RD && RD->isLambda())
-        ReferencedClosures.insert(RD);
+        ReferencedClosures.insert(RD->getCanonicalDecl());
       if ((RD && RD->isLambda()) ||
           isa<VarDecl, BindingDecl, LabelDecl, TypedefNameDecl>(D)) {
         ID.AddInteger(PDK_Local);
@@ -341,13 +357,23 @@ namespace {
       if (!PredicateContext)
         return false;
 
+      // Note that if the closure type was loaded from an AST file and merged
+      // with the closure type of the corresponding lambda-expression of
+      // another declaration of the function, this is the definition of the
+      // closure type they were merged into, which is profiled instead. The
+      // entities declared by that definition belong to the other declaration
+      // of the function (see isPredicateContext).
       const CXXRecordDecl *Closure = S->getLambdaClass();
       const CXXMethodDecl *CallOp = S->getCallOperator();
       if (!isDeclaredInPredicate(Closure) || !CallOp)
         return false;
+      // Likewise, the body refers to the parameters of the declaration of the
+      // call operator which is its definition.
+      if (const FunctionDecl *Definition = CallOp->getDefinition())
+        CallOp = cast<CXXMethodDecl>(Definition);
 
       VisitStmtNoChildren(S);
-      ProfiledClosures.insert(Closure);
+      ProfiledClosures.insert(Closure->getCanonicalDecl());
       ID.AddInteger(getPredicateDeclIndex(Closure));
 
       // The lambda-introducer.
@@ -526,7 +552,7 @@ namespace {
             Inner = Inner->getPointeeType();
           }
           ID.AddInteger(Inner.getLocalFastQualifiers());
-          ReferencedClosures.insert(RD);
+          ReferencedClosures.insert(RD->getCanonicalDecl());
           ID.AddInteger(getPredicateDeclIndex(RD));
           return;
         }

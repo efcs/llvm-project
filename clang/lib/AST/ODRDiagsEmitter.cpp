@@ -1905,6 +1905,103 @@ bool ODRDiagsEmitter::diagnoseMismatch(
   return true;
 }
 
+bool ODRDiagsEmitter::diagnoseMismatchedContracts(
+    const FunctionDecl *FirstFunction,
+    const FunctionDecl *SecondFunction) const {
+  if (FirstFunction == SecondFunction)
+    return false;
+
+  const ContractSpecifierDecl *FirstCSD = FirstFunction->getContracts();
+  const ContractSpecifierDecl *SecondCSD = SecondFunction->getContracts();
+  if (!FirstCSD && !SecondCSD)
+    return false;
+  // Mismatched invalid contracts were already diagnosed.
+  if ((FirstCSD && FirstCSD->isInvalidDecl()) ||
+      (SecondCSD && SecondCSD->isInvalidDecl()))
+    return false;
+
+  ContractSpecifierDecl::Difference Diff =
+      ContractSpecifierDecl::findFirstDifference(Context, FirstCSD, SecondCSD);
+  if (!Diff)
+    return false;
+
+  // Keep in sync with the select options in
+  // warn_module_mismatched_contract_specifiers.
+  enum { NumContracts, Kind, ResultName, Predicate } DiffType;
+  switch (Diff.Kind) {
+  case ContractSpecifierDecl::DifferenceKind::None:
+    llvm_unreachable("no difference to diagnose");
+  case ContractSpecifierDecl::DifferenceKind::NumContracts:
+    DiffType = NumContracts;
+    break;
+  case ContractSpecifierDecl::DifferenceKind::ContractKind:
+    DiffType = Kind;
+    break;
+  case ContractSpecifierDecl::DifferenceKind::ResultName:
+    DiffType = ResultName;
+    break;
+  case ContractSpecifierDecl::DifferenceKind::Predicate:
+    DiffType = Predicate;
+    break;
+  }
+
+  std::string FirstModule = getOwningModuleNameForDiagnostic(FirstFunction);
+  std::string SecondModule = getOwningModuleNameForDiagnostic(SecondFunction);
+
+  auto DiagError = [&](SourceLocation Loc, SourceRange Range) {
+    return Diag(Loc, diag::warn_module_mismatched_contract_specifiers)
+           << FirstFunction << FirstModule.empty() << FirstModule << DiffType
+           << Range;
+  };
+  auto DiagNote = [&](SourceLocation Loc, SourceRange Range) {
+    return Diag(Loc, diag::note_module_mismatched_contract_specifiers)
+           << SecondModule.empty() << SecondModule << DiffType << Range;
+  };
+
+  if (DiffType == NumContracts) {
+    unsigned FirstNum = FirstCSD ? FirstCSD->getNumContracts() : 0;
+    unsigned SecondNum = SecondCSD ? SecondCSD->getNumContracts() : 0;
+    DiagError(FirstCSD ? FirstCSD->getLocation() : FirstFunction->getLocation(),
+              FirstCSD ? FirstCSD->getSourceRange()
+                       : FirstFunction->getSourceRange())
+        << FirstNum;
+    DiagNote(SecondCSD ? SecondCSD->getLocation()
+                       : SecondFunction->getLocation(),
+             SecondCSD ? SecondCSD->getSourceRange()
+                       : SecondFunction->getSourceRange())
+        << SecondNum;
+    return true;
+  }
+
+  const ContractStmt *FirstContract = FirstCSD->contracts()[Diff.Index];
+  const ContractStmt *SecondContract = SecondCSD->contracts()[Diff.Index];
+  unsigned Ordinal = Diff.Index + 1;
+  switch (DiffType) {
+  case NumContracts:
+    llvm_unreachable("handled above");
+  case Kind:
+    DiagError(FirstContract->getBeginLoc(), FirstContract->getSourceRange())
+        << Ordinal << (FirstContract->getContractKind() == ContractKind::Post);
+    DiagNote(SecondContract->getBeginLoc(), SecondContract->getSourceRange())
+        << (SecondContract->getContractKind() == ContractKind::Post);
+    break;
+  case ResultName:
+    DiagError(FirstContract->getBeginLoc(), FirstContract->getSourceRange())
+        << Ordinal << FirstContract->hasResultName();
+    DiagNote(SecondContract->getBeginLoc(), SecondContract->getSourceRange())
+        << SecondContract->hasResultName();
+    break;
+  case Predicate:
+    DiagError(FirstContract->getCond()->getBeginLoc(),
+              FirstContract->getCond()->getSourceRange())
+        << Ordinal;
+    DiagNote(SecondContract->getCond()->getBeginLoc(),
+             SecondContract->getCond()->getSourceRange());
+    break;
+  }
+  return true;
+}
+
 bool ODRDiagsEmitter::diagnoseMismatch(const EnumDecl *FirstEnum,
                                        const EnumDecl *SecondEnum) const {
   if (FirstEnum == SecondEnum)

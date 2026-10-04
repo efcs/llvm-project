@@ -930,6 +930,30 @@ def note_module_odr_violation_function : Note<"but in '%0' found "
   "a different %ordinal2 function contract specifier"
   "}1">;
 
+def warn_module_mismatched_contract_specifiers : Warning<
+  "%q0 has different function contract specifiers in different translation "
+  "units; %select{declaration in module '%2'|this declaration}1 has "
+  "%select{"
+  "%plural{0:no function contract specifiers|"
+    "1:1 function contract specifier|"
+    ":%4 function contract specifiers}4|"
+  "a %select{precondition|postcondition}5 as its %ordinal4 function contract "
+    "specifier|"
+  "a %ordinal4 function contract specifier %select{without|with}5 a result "
+    "name|"
+  "this predicate in its %ordinal4 function contract specifier"
+  "}3">, InGroup<MismatchedContractSpecifiers>, DefaultError;
+def note_module_mismatched_contract_specifiers : Note<
+  "but %select{the declaration in module '%1'|this declaration}0 has "
+  "%select{"
+  "%plural{0:no function contract specifiers|"
+    "1:1 function contract specifier|"
+    ":%3 function contract specifiers}3|"
+  "a %select{precondition|postcondition}3|"
+  "a function contract specifier %select{without|with}3 a result name|"
+  "a different predicate"
+  "}2">;
+
 def err_module_odr_violation_enum : Error<
   "%q0 has different definitions in different modules; "
   "%select{definition in module '%2'|defined here}1 "
