@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics -verify %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -verify %s
 
 struct A {}; // trivially copyable
 struct B {   // not trivially copyable

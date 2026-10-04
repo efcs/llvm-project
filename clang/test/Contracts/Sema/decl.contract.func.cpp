@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics -verify %s ||  %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics %s ||  %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics -verify %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -verify %s
 
 
 

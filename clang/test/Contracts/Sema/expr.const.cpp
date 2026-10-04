@@ -1,5 +1,5 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics -Wno-division-by-zero -fcontract-evaluation-semantic=ignore -verify=expected %s
-// RUN: %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=ignore -verify=expected %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s
 
 
 consteval int id(int i) { return i; }

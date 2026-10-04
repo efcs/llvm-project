@@ -1,4 +1,4 @@
-// RUN: %clangxx -fcontracts -fcontract-evaluation-semantic=enforce -g -std=c++26 -c  %s -o /dev/null
+// RUN: %clangxx -fcontracts -fcontract-evaluation-semantic=enforce -g -std=c++26 -c %s -o /dev/null
 
 int foo(const int x) post(x != 0) { return x; }
 

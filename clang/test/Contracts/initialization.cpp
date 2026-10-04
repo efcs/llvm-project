@@ -1,5 +1,5 @@
 
-// RUN: %clang_cc1 -std=c++26 -fcontracts  %s -fcolor-diagnostics -verify=expected
+// RUN: %clang_cc1 -std=c++26 -fcontracts %s -verify=expected
 
 #define UNIQUE1() __COUNTER__
 #define UNIQUE UNIQUE1()

@@ -1,4 +1,4 @@
-// RUN: %clang_cc1  -fcontracts -fcoroutines -std=c++26 -fsyntax-only %s -verify=expected
+// RUN: %clang_cc1 -fcontracts -fcoroutines -std=c++26 -fsyntax-only %s -verify=expected
 
 // Note: There's a ton of boilerplate code here to make the test compile.
 

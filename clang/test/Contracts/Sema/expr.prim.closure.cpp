@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++2a -fcontracts  -fsyntax-only -fcolor-diagnostics -Wno-c++23-extensions -verify  %s ||  %clang_cc1 -std=c++2a -fcontracts  -fsyntax-only -fcolor-diagnostics -Wno-c++23-extensions  %s
+// RUN: %clang_cc1 -std=c++2a -fcontracts -fsyntax-only -Wno-c++23-extensions -verify %s
 
 
 static int i = 0;

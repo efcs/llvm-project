@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -fcontracts -std=c++26 -fcolor-diagnostics %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 %s
 
 // [basic.contract.eval] - Example #1
 constexpr int f(int i) {

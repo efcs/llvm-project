@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fcontracts -verify %s || %clang_cc1 -std=c++26 -fcontracts -fcolor-diagnostics -fsyntax-only %s || %clang_cc1 -std=c++26 -fcontracts -fcolor-diagnostics -verify %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -verify %s
 
 
 namespace BasicTest {
