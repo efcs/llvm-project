@@ -1315,7 +1315,12 @@ void Sema::ActOnLambdaExpressionAfterIntroducer(LambdaIntroducer &Intro,
 
       if (auto *BD = R.getAsSingle<BindingDecl>())
         Var = BD;
-      else if (R.getAsSingle<FieldDecl>()) {
+      else if (auto *RND = R.getAsSingle<ResultNameDecl>()) {
+        // FIXME: A result binding ([dcl.contract.res]) is a local entity
+        // that can be captured, but capturing it is not yet supported.
+        Diag(C->Loc, diag::err_result_name_capture_unsupported) << RND;
+        continue;
+      } else if (R.getAsSingle<FieldDecl>()) {
         Diag(C->Loc, diag::err_capture_class_member_does_not_name_variable)
             << C->Id;
         continue;

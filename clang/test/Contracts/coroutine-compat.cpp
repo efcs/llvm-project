@@ -95,3 +95,14 @@ void dependent_coawait(T n) {
   contract_assert((co_await n, true)); // expected-error {{'co_await' cannot be used inside a contract}}
   contract_assert((co_yield n, true)); // expected-error {{'co_yield' cannot be used inside a contract}}
 }
+
+// [dcl.fct.def.coroutine]: The parameters of a coroutine behave as if they
+// were not const, so a postcondition of a coroutine may not odr-use a
+// non-reference parameter.
+void co_post(const int c, int &r) // expected-note {{function 'co_post' is a coroutine}}
+    post(c > 0) // expected-error {{postcondition of a coroutine cannot odr-use non-reference parameter 'c'}}
+    post(r > 0) post(sizeof(c) > 0) {
+  co_return 1;
+}
+
+void not_co_post(const int c) post(c > 0) {}

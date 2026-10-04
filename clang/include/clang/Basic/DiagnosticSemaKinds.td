@@ -13147,6 +13147,18 @@ def err_ericwf_fixme : Error<"%0">;
 def err_contract_on_function_kind : Error<
   "%select{virtual function|deleted function|function defaulted on its first "
   "declaration}0 %1 cannot have function contract specifiers">;
+def err_contract_postcondition_redecl_param_not_const : Error<
+  "parameter %0 of type %1 must be declared const because it is referenced "
+  "in a postcondition of the function">;
+def note_contract_postcondition_param_first_decl : Note<
+  "parameter referenced in postcondition of first declaration here">;
+def err_result_name_capture_unsupported : Error<
+  "capturing result name %0 in a lambda expression or block is not supported "
+  "yet">;
+def err_coroutine_postcondition_uses_param : Error<
+  "postcondition of a coroutine cannot odr-use non-reference parameter %0">;
+def note_coroutine_postcondition_function : Note<
+  "function %0 is a coroutine">;
 
 def err_result_name_shadows_param : Error<
   "declaration of result name %0 shadows parameter">;

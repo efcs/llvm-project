@@ -13,14 +13,14 @@ constexpr int do_test() {
 constexpr int anchor = do_test(); // expected-error {{must be initialized}}
 // expected-note@-1 {{in call}}
 
-// not constified.
+// Variables at namespace scope are also const within a contract predicate.
 int *y = nullptr;
 
 int foo() {
   int x = 42;
   contract_assert(
     ++x && // expected-error {{it is considered 'const'}}
-    (y = &x)); // expected-error {{discards qualifiers}}
+    (y = &x)); // expected-error {{cannot assign to variable 'y' because it is considered 'const' inside of a contract}}
 }
 
 template <class T, class U>
@@ -58,7 +58,7 @@ struct A {
 };
 void f(A& x) {
   auto [a, b] = x;
-  contract_assert(++a);
+  contract_assert(++a); // expected-error {{cannot assign to variable 'a' because it is considered 'const' inside of a contract}}
 }
 
 }
@@ -95,8 +95,10 @@ struct ST {
   bool f(); // expected-note 1+ {{'f' declared here}}
   void g()
   pre(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+  // expected-note@-1 {{'this' is 'const' within contract introduced here}}
   pre(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   post(this->f()) // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+  // expected-note@-1 {{'this' is 'const' within contract introduced here}}
   post(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   {
     contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}

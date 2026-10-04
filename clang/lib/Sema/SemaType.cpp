@@ -10148,8 +10148,13 @@ QualType Sema::getDecltypeForExpr(Expr *E) {
     if (auto *DRE = dyn_cast<DeclRefExpr>(IDExpr->IgnoreParens())) {
       if (auto *Var = dyn_cast<VarDecl>(DRE->getDecl())) {
         QualType T = getCapturedDeclRefType(Var, DRE->getLocation());
-        if (!T.isNull())
+        if (!T.isNull()) {
+          // Within a contract assertion the id-expression may additionally
+          // be const ([expr.prim.id.unqual]).
+          if (DRE->isConstified())
+            T.addConst();
           return Context.getLValueReferenceType(T);
+        }
       }
     }
   }

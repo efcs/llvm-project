@@ -3370,10 +3370,6 @@ public:
       const FunctionDecl *Pattern,
       const MultiLevelTemplateArgumentList &TemplateArgs);
 
-  std::optional<unsigned>
-  getFunctionScopeIndexForDeclaration(const ValueDecl *VD);
-  const DeclContext *getDeclContextForFunctionScopeIndex(unsigned ScopeIndex);
-  void WalkUpContractScopesTest() const;
   ///@}
 
   //
@@ -7169,33 +7165,26 @@ public:
     bool WasInContractContext = false;
     bool HadNoFunctionScope = false;
     unsigned FunctionScopeStartAtPush = 0;
+    /// The contract scope index of FunctionScopeAtPush before this contract
+    /// was pushed (contracts can be nested within one function scope).
+    unsigned PreviousFunctionScopeContractIndex = unsigned(-1);
     const DeclContext *getFunctionContext(bool AllowLambda = true) const;
 
   };
 
   SmallVector<ContractScopeRecord, 4> ContractScopeStack;
-  llvm::DenseMap<const DeclContext*, unsigned> ContractScopeIndexMap;
 
-  const ContractScopeRecord *getFirstEnclosingContractScopeForContext(const DeclContext *DC) const;
-  const ContractScopeRecord *getLastEnclosingContractScopeForContext(const DeclContext *DC) const;
-  const ContractScopeRecord *getFirstEnclosedContractScopeForContext(const DeclContext *DC) const;
-  const ContractScopeRecord *getLastEnclosedContractScopeForContext(const DeclContext *DC) const;
+  /// Return the innermost contract assertion whose predicate lexically
+  /// contains the current context, or null if there is none.
+  const ContractScopeRecord *getActiveContractScope() const;
 
   SourceLocation getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const;
 
   void PushContractScope(ContractKind CK, ContractScopeOffset ScopeOffset, SourceLocation Loc);
   ContractScopeRecord PopContractScope();
 
-  const ContractScopeRecord *getContractScopeForContext(const DeclContext *DC) const;
-
   ArrayRef<ContractScopeRecord> getContractScopes() const;
   ArrayRef<ContractScopeRecord> getAllContractScopes() const;
-
-
-  ArrayRef<ContractScopeRecord>
-  getInterveningContractScopes(const ValueDecl *VD) const;
-  SmallVector<sema::FunctionScopeInfo *>
-  getInterveningFunctionScopesForContracts(const ValueDecl *VD) const;
 
   struct ContractScopeRAII {
     ContractScopeRAII(Sema &S, ContractKind CK, ContractScopeOffset Offset, SourceLocation ContractLoc);
@@ -7217,12 +7206,10 @@ public:
     return getCurrentContractEntry()->KeywordLoc;
   }
 
-  // Return whether to constify the specified variable in the current context.
+  /// Return whether an id-expression naming the specified entity in the
+  /// current context has its type const-qualified because it appears in the
+  /// predicate of a contract assertion ([expr.prim.id.unqual]).
   ContractConstification getContractConstification(const ValueDecl *VD);
-
-  /// Return true if the usage of this variable in the current context would "cross" a contract boundary.
-  /// Meaning the variable is declared above the contract scope and used below it.
-  bool isUsageAcrossContract(const ValueDecl *VD);
 
   /// Return the correctly constified 'this' type, accounting for any constification contexts
   /// that may be in effect.

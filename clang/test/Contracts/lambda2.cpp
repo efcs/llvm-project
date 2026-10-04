@@ -201,7 +201,9 @@ namespace ConstificationContext {
   void f(int p) {
     contract_assert([&]() { return [&] () { return ++p; }(); }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
     contract_assert([=]() mutable { return [&] () { return ++p; }(); }()); // ok
-    contract_assert([&]() { return [=]() mutable { return ++p; }(); }() ); // expected-error {{cannot assign}}
+    // The inner lambda declares a (non-const) member for its copy of 'p', so
+    // the mutable lambda may modify it ([expr.prim.id.unqual]).
+    contract_assert([&]() { return [=]() mutable { return ++p; }(); }() ); // ok
   }
 }
 

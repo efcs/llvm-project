@@ -1236,7 +1236,9 @@ QualType Sema::getCurrentThisType() {
   }
 
 
-  if (!ThisTy.isNull() && currentEvaluationContext().isContractAssertionContext())
+  // [expr.prim.this]: 'this' is a pointer to const within the predicate of a
+  // contract assertion, including within nested lambda-expressions.
+  if (!ThisTy.isNull())
     ThisTy = adjustCXXThisTypeForContracts(ThisTy);
 
   // If we are within a lambda's call operator, the cv-qualifiers of 'this'

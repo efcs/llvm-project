@@ -3594,11 +3594,21 @@ ExprResult Sema::BuildDeclarationNameExpr(
     break;
   }
 
-  case Decl::ResultName: {// FIXME(EricWF): Is this even close to correct?
+  case Decl::ResultName: {
     valueKind = VK_LValue;
     type = type.getNonReferenceType();
+    // FIXME: A result binding is a local entity which may be captured by a
+    // lambda within the postcondition, but capturing it is not yet
+    // supported. Reject potentially-evaluated references to it from nested
+    // lambdas and blocks rather than miscompiling them.
+    if (!isUnevaluatedContext() && CurContext->isFunctionOrMethod() &&
+        !CurContext->Equals(VD->getDeclContext())) {
+      Diag(NameInfo.getLoc(), diag::err_result_name_capture_unsupported) << VD;
+      return CreateRecoveryExpr(NameInfo.getBeginLoc(), NameInfo.getEndLoc(),
+                                {}, type.withConst());
+    }
     break;
- }
+  }
 
   case Decl::Function: {
     if (unsigned BID = cast<FunctionDecl>(VD)->getBuiltinID()) {
@@ -20015,6 +20025,13 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     ByRef = (LSI->ImpCaptureStyle == LambdaScopeInfo::ImpCap_LambdaByref);
   }
 
+  // Track whether this is a capture by reference across a contract boundary.
+  // Note: The type of the capture is not const-qualified; the
+  // const-qualification of id-expressions naming entities captured by
+  // reference within a contract assertion is handled when building the
+  // id-expression (see Sema::getContractConstification), and the member
+  // declared for a capture by copy has the type of the entity
+  // ([expr.prim.lambda.capture]).
   bool ShouldConstify = false;
   SourceLocation ConstLoc;
   if (ByRef) {
@@ -20022,10 +20039,8 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
       ShouldConstify = true;
       ConstLoc = ConstInfo.ContractLoc;
     }
-  } else {
-    if (ConstInfo.isRefCaptureThroughContract()) {
-      ConstInfo.disableDueToCopyCapture();
-    }
+  } else if (ConstInfo.isRefCaptureThroughContract()) {
+    ConstInfo.disableDueToCopyCapture();
   }
 
   if (BuildAndDiagnose && S.Context.getTargetInfo().getTriple().isWasm() &&
@@ -20049,9 +20064,6 @@ static bool captureInLambda(LambdaScopeInfo *LSI, ValueDecl *Var,
     // clarify, but for now we follow GCC because it's a more permissive and
     // easily defensible position.
     QualType DRET = DeclRefType.getNonReferenceType();
-
-    if (ShouldConstify)
-      DRET.addConst();
 
     CaptureType = S.Context.getLValueReferenceType(DRET);
   } else {
@@ -20540,10 +20552,6 @@ bool Sema::tryCaptureVariable(
 
 
   ConstificationInfo ConstTracker;
-
-  if (getContractConstification(Var) == CC_ApplyConst) {
-    ConstTracker.enableDueToContract(ExprLoc);
-  }
 
   if (FunctionScopesIndex < FunctionScopes.size() &&
      FunctionScopesIndex >= FunctionScopesStart &&
