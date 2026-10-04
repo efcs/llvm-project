@@ -550,6 +550,26 @@ static void EmitBaseInitializer(CodeGenFunction &CGF,
                                           isBaseVirtual);
 }
 
+/// Like CXXMethodDecl::isMemcpyEquivalentSpecialMember, except that a
+/// defaulted union copy or move operation which has function contract
+/// assertions to evaluate is not memcpy-equivalent: it has to be called, and
+/// its definition performs the copy.
+static bool isMemcpyEquivalentSpecialMember(const ASTContext &Ctx,
+                                            const CXXMethodDecl *D) {
+  if (!D->isMemcpyEquivalentSpecialMember(Ctx))
+    return false;
+
+  // We can emit a memcpy for a trivial copy or move constructor/assignment.
+  if (D->isTrivial() && !D->getParent()->mayInsertExtraPadding())
+    return true;
+
+  // We *must* emit a memcpy for a defaulted union copy or move op, since the
+  // AST does not model that copy. If the function was defaulted after its
+  // first declaration and has function contract assertions to evaluate, we
+  // have to call it instead; its definition performs the copy.
+  return !CodeGenFunction::hasCheckedFunctionContracts(D);
+}
+
 static void EmitLValueForAnyFieldInitialization(CodeGenFunction &CGF,
                                                 CXXCtorInitializer *MemberInit,
                                                 LValue &LHS) {
@@ -604,8 +624,8 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
     QualType BaseElementTy = CGF.getContext().getBaseElementType(Array);
     CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(MemberInit->getInit());
     if (BaseElementTy.isPODType(CGF.getContext()) ||
-        (CE && CE->getConstructor()->isMemcpyEquivalentSpecialMember(
-                   CGF.getContext()))) {
+        (CE && isMemcpyEquivalentSpecialMember(CGF.getContext(),
+                                         CE->getConstructor()))) {
       unsigned SrcArgIndex =
           CGF.CGM.getCXXABI().getSrcArgforCopyCtor(Constructor, Args);
       llvm::Value *SrcPtr =
@@ -1013,8 +1033,8 @@ private:
     CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(MemberInit->getInit());
 
     // Bail out on non-memcpyable, not-trivially-copyable members.
-    if (!(CE && CE->getConstructor()->isMemcpyEquivalentSpecialMember(
-                    CGF.getContext())) &&
+    if (!(CE && isMemcpyEquivalentSpecialMember(CGF.getContext(),
+                                            CE->getConstructor())) &&
         !(FieldType.isTriviallyCopyableType(CGF.getContext()) ||
           FieldType->isReferenceType()))
       return false;
@@ -1123,7 +1143,7 @@ private:
       return nullptr;
     } else if (CXXMemberCallExpr *MCE = dyn_cast<CXXMemberCallExpr>(S)) {
       CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(MCE->getCalleeDecl());
-      if (!(MD && MD->isMemcpyEquivalentSpecialMember(CGF.getContext())))
+      if (!(MD && isMemcpyEquivalentSpecialMember(CGF.getContext(), MD)))
         return nullptr;
       MemberExpr *IOA = dyn_cast<MemberExpr>(MCE->getImplicitObjectArgument());
       if (!IOA)
@@ -1216,6 +1236,22 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
     return EmitDelegatingCXXConstructorCall(CD, Args);
 
   const CXXRecordDecl *ClassDecl = CD->getParent();
+
+  // [class.copy.ctor]p15: The implicitly-defined copy/move constructor for a
+  // union copies the object representation. The AST does not model that copy,
+  // and most callers perform it themselves instead of calling the constructor
+  // (see isMemcpyEquivalentSpecialMember), but the definition of a constructor
+  // which was defaulted after its first declaration has to perform it too.
+  if (ClassDecl->isUnion() && CD->isDefaulted() &&
+      CD->isCopyOrMoveConstructor()) {
+    const VarDecl *SrcArg =
+        Args[CGM.getCXXABI().getSrcArgforCopyCtor(CD, Args)];
+    CanQualType RecordTy = getContext().getCanonicalTagType(ClassDecl);
+    LValue Dest = MakeAddrLValue(LoadCXXThisAddress(), RecordTy);
+    LValue Src = MakeNaturalAlignAddrLValue(
+        Builder.CreateLoad(GetAddrOfLocalVar(SrcArg)), RecordTy);
+    EmitAggregateCopyCtor(Dest, Src, AggValueSlot::MayOverlap);
+  }
 
   // Virtual base initializers aren't needed if:
   // - This is a base ctor variant
@@ -1602,6 +1638,7 @@ void CodeGenFunction::emitImplicitAssignmentOperatorBody(
 
   incrementProfileCounter(RootCS);
   maybeCreateMCDCCondBitmap();
+
   AssignmentMemcpyizer AM(*this, AssignOp, Args);
   for (auto *I : RootCS->body())
     AM.emitAssignment(I);
@@ -2248,7 +2285,7 @@ void CodeGenFunction::EmitCXXConstructorCall(
   // If this is a trivial constructor, emit a memcpy now before we lose
   // the alignment information on the argument.
   // FIXME: It would be better to preserve alignment information into CallArg.
-  if (D->isMemcpyEquivalentSpecialMember(getContext())) {
+  if (isMemcpyEquivalentSpecialMember(getContext(), D)) {
     assert(E->getNumArgs() == 1 && "unexpected argcount for trivial ctor");
 
     const Expr *Arg = E->getArg(0);
@@ -2316,7 +2353,7 @@ void CodeGenFunction::EmitCXXConstructorCall(
   // If this is a trivial constructor, just emit what's needed. If this is a
   // union copy constructor, we must emit a memcpy, because the AST does not
   // model that copy.
-  if (D->isMemcpyEquivalentSpecialMember(getContext())) {
+  if (isMemcpyEquivalentSpecialMember(getContext(), D)) {
     assert(Args.size() == 2 && "unexpected argcount for trivial ctor");
     QualType SrcTy = D->getParamDecl(0)->getType().getNonReferenceType();
     Address Src = makeNaturalAddressForPointer(
