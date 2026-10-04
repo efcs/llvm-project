@@ -17,12 +17,12 @@ enum class assertion_kind : unsigned {
   post = 2,
   assert = 3
 };
-enum class evaluation_semantic : unsigned {
+enum class evaluation_semantic : unsigned char {
   __unspecified = 0,
   enforce = 1,
   observe = 2
 };
-enum class detection_mode : unsigned {
+enum class detection_mode : unsigned char {
   predicate_false = 1,
   evaluation_exception = 2
 };

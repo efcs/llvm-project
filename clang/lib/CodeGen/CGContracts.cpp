@@ -66,11 +66,15 @@ enum ContractEmissionStyle {
   Shared
 };
 
+// The evaluation semantic and detection mode are passed to the violation
+// handler entry point as 'unsigned char', matching the underlying type of
+// std::contracts::evaluation_semantic and std::contracts::detection_mode used
+// by the library's definition of __handle_contract_violation_v3.
 template <class T>
 static llvm::Constant *CreateConstantInt(CodeGenFunction &CGF, T Sem) {
   static_assert(std::is_same_v<T, ContractEvaluationSemantic> ||
                 std::is_same_v<T, ContractDetectionMode>);
-  return llvm::ConstantInt::get(CGF.IntTy, (int)Sem);
+  return llvm::ConstantInt::get(CGF.Int8Ty, (unsigned)Sem);
 }
 
 struct CurrentContractInfo {
@@ -226,27 +230,41 @@ void CodeGenFunction::EmitHandleContractViolationCall(
     llvm::Value *ViolationInfoGV, bool IsNoReturn) {
   auto &Ctx = getContext();
 
-  CanQualType ArgTypes[3] = {Ctx.UnsignedIntTy, Ctx.UnsignedIntTy,
+  CanQualType ArgTypes[3] = {Ctx.UnsignedCharTy, Ctx.UnsignedCharTy,
                              Ctx.VoidPtrTy};
 
   const CGFunctionInfo &VFuncInfo =
       CGM.getTypes().arrangeBuiltinFunctionDeclaration(getContext().VoidTy,
                                                        ArgTypes);
 
+  // This must match the definition in the runtime library:
+  //   extern "C" void __handle_contract_violation_v3(
+  //       evaluation_semantic, detection_mode, void*);
+  // where both enumerations have 'unsigned char' as their underlying type.
   StringRef TargetFuncName = "__handle_contract_violation_v3";
   llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
   llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, TargetFuncName);
+  if (auto *F = dyn_cast<llvm::Function>(VFunc.getCallee());
+      F && F->isDeclaration())
+    CGM.SetLLVMFunctionAttributes(GlobalDecl(), VFuncInfo, F,
+                                  /*IsThunk=*/false);
+
+  CallArgList Args;
+  Args.add(RValue::get(EvalSemantic), Ctx.UnsignedCharTy);
+  Args.add(RValue::get(DetectionMode), Ctx.UnsignedCharTy);
+  Args.add(RValue::get(ViolationInfoGV), Ctx.VoidPtrTy);
+
+  llvm::CallBase *CallOrInvoke = nullptr;
+  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args,
+           &CallOrInvoke);
 
   if (IsNoReturn) {
-    llvm::Value *Args[3] = {EvalSemantic, DetectionMode, ViolationInfoGV};
-    EmitNoreturnRuntimeCallOrInvoke(VFunc, Args);
+    CallOrInvoke->setDoesNotReturn();
+    // For an invoke, the insertion point is now the normal destination, which
+    // is unreachable.
+    EnsureInsertPoint();
+    Builder.CreateUnreachable();
     Builder.ClearInsertionPoint();
-  } else {
-    CallArgList Args;
-    Args.add(RValue::get(EvalSemantic), getContext().UnsignedIntTy);
-    Args.add(RValue::get(DetectionMode), getContext().UnsignedIntTy);
-    Args.add(RValue::get(ViolationInfoGV), getContext().VoidPtrTy);
-    EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args);
   }
 }
 

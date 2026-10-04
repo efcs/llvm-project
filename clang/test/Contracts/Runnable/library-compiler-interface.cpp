@@ -53,7 +53,7 @@ unsigned handler_called = 0;
 
 
 
-extern "C" void __handle_contract_violation_v3(unsigned __sem, unsigned __mode, void *data) {
+extern "C" void __handle_contract_violation_v3(unsigned char __sem, unsigned char __mode, void *data) {
   using namespace std::contracts;
   ++handler_called;
   assert(__sem == static_cast<unsigned>(expected_semantic));

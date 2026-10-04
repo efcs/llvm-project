@@ -102,7 +102,7 @@ _ContractViolationImpl create_impl(void* data, evaluation_semantic* sem = nullpt
 } // namespace __cxxabi
 
 extern "C" inline void
-__handle_contract_violation_v3(unsigned __semantic, unsigned __mode, void* dataptr) {
+__handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* dataptr) {
   using namespace std::contracts;
   evaluation_semantic sem = static_cast<evaluation_semantic>(__semantic);
   _DetectionMode mode = static_cast<_DetectionMode>(__mode);
