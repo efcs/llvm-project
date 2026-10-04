@@ -273,6 +273,10 @@ void CodeGenFunction::EmitHandleContractViolationCall(
 // Check if function can throw based on prototype noexcept, also works for
 // destructors which are implicitly noexcept but can be marked noexcept(false).
 static bool FunctionCanThrow(const FunctionDecl *D) {
+  if (!D)
+    return false;
+  if (D->hasAttr<NoThrowAttr>())
+    return false;
   const auto *Proto = D->getType()->getAs<FunctionProtoType>();
   if (!Proto) {
     // Function proto is not found, we conservatively assume throwing.
@@ -282,36 +286,144 @@ static bool FunctionCanThrow(const FunctionDecl *D) {
          Proto->canThrow() != CT_Cannot;
 }
 
+static bool DestructorCanThrow(QualType T) {
+  if (const auto *RD = T->getBaseElementTypeUnsafe()->getAsCXXRecordDecl())
+    if (const CXXDestructorDecl *Dtor = RD->getDestructor())
+      return FunctionCanThrow(Dtor);
+  return false;
+}
+
+/// Determine whether evaluating \p S can exit via an exception. This is a
+/// conservative analysis: it returns true unless the expression is known not
+/// to throw.
 static bool StmtCanThrow(const Stmt *S) {
-  if (const auto *CE = dyn_cast<CallExpr>(S)) {
-    const auto *Callee = CE->getDirectCallee();
-    if (!Callee)
-      // We don't have direct callee. Conservatively assume throwing.
-      return true;
+  if (!S)
+    return false;
 
-    if (FunctionCanThrow(Callee))
-      return true;
-
-    // Fall through to visit the children.
-  }
-
-  if (isa<CXXThrowExpr>(S))
+  switch (S->getStmtClass()) {
+  case Stmt::CXXThrowExprClass:
+  case Stmt::ObjCMessageExprClass:
+  case Stmt::ObjCAtThrowStmtClass:
     return true;
 
-  if (const auto *TE = dyn_cast<CXXBindTemporaryExpr>(S)) {
-    // Special handling of CXXBindTemporaryExpr here as calling of Dtor of the
-    // temporary is not part of `children()` as covered in the fall through.
-    // We need to mark entire statement as throwing if the destructor of the
-    // temporary throws.
-    const auto *Dtor = TE->getTemporary()->getDestructor();
-    if (FunctionCanThrow(Dtor))
-      return true;
+  // Unevaluated operands.
+  case Stmt::CXXNoexceptExprClass:
+    return false;
+  case Stmt::UnaryExprOrTypeTraitExprClass:
+    // The operand of sizeof is unevaluated unless it has a VLA type, in which
+    // case we conservatively look at it.
+    if (!cast<UnaryExprOrTypeTraitExpr>(S)->getTypeOfArgument()
+             ->isVariablyModifiedType())
+      return false;
+    break;
 
-    // Fall through to visit the children.
+  case Stmt::ConstantExprClass:
+    // A constant expression that has been evaluated is emitted as a constant.
+    if (cast<ConstantExpr>(S)->hasAPValueResult())
+      return false;
+    break;
+
+  case Stmt::CXXTypeidExprClass: {
+    const auto *TE = cast<CXXTypeidExpr>(S);
+    if (!TE->isPotentiallyEvaluated())
+      return false;
+    // typeid of a dereferenced null pointer throws std::bad_typeid.
+    if (TE->hasNullCheck())
+      return true;
+    break;
   }
 
-  for (const auto *child : S->children())
-    if (StmtCanThrow(child))
+  case Stmt::CXXDynamicCastExprClass:
+    // A dynamic_cast to a reference type throws std::bad_cast on failure.
+    if (!cast<CXXDynamicCastExpr>(S)->getType()->isPointerType())
+      return true;
+    break;
+
+  case Stmt::CallExprClass:
+  case Stmt::CXXMemberCallExprClass:
+  case Stmt::CXXOperatorCallExprClass:
+  case Stmt::UserDefinedLiteralClass:
+  case Stmt::CUDAKernelCallExprClass: {
+    const auto *CE = cast<CallExpr>(S);
+    if (const FunctionDecl *Callee = CE->getDirectCallee()) {
+      if (FunctionCanThrow(Callee))
+        return true;
+    } else {
+      // Indirect call. We can only tell from the type of the callee.
+      QualType CalleeTy = CE->getCallee()->getType();
+      if (const auto *PT = CalleeTy->getAs<PointerType>())
+        CalleeTy = PT->getPointeeType();
+      else if (const auto *MPT = CalleeTy->getAs<MemberPointerType>())
+        CalleeTy = MPT->getPointeeType();
+      const auto *Proto = CalleeTy->getAs<FunctionProtoType>();
+      if (!Proto || !Proto->isNothrow())
+        return true;
+    }
+    break;
+  }
+
+  case Stmt::CXXConstructExprClass:
+  case Stmt::CXXTemporaryObjectExprClass:
+    if (FunctionCanThrow(cast<CXXConstructExpr>(S)->getConstructor()))
+      return true;
+    break;
+
+  case Stmt::CXXInheritedCtorInitExprClass:
+    if (FunctionCanThrow(cast<CXXInheritedCtorInitExpr>(S)->getConstructor()))
+      return true;
+    break;
+
+  case Stmt::CXXNewExprClass: {
+    const auto *NE = cast<CXXNewExpr>(S);
+    // An array new with a non-constant bound may throw
+    // std::bad_array_new_length.
+    if (NE->isArray())
+      return true;
+    if (FunctionCanThrow(NE->getOperatorNew()))
+      return true;
+    break;
+  }
+
+  case Stmt::CXXDeleteExprClass: {
+    const auto *DE = cast<CXXDeleteExpr>(S);
+    if (FunctionCanThrow(DE->getOperatorDelete()))
+      return true;
+    QualType DT = DE->getDestroyedType();
+    if (!DT.isNull() && DestructorCanThrow(DT))
+      return true;
+    break;
+  }
+
+  case Stmt::CXXBindTemporaryExprClass:
+    // The destructor call of the temporary is not represented in children(),
+    // so check it explicitly.
+    if (FunctionCanThrow(
+            cast<CXXBindTemporaryExpr>(S)->getTemporary()->getDestructor()))
+      return true;
+    break;
+
+  case Stmt::CXXDefaultArgExprClass:
+    return StmtCanThrow(cast<CXXDefaultArgExpr>(S)->getExpr());
+  case Stmt::CXXDefaultInitExprClass:
+    return StmtCanThrow(cast<CXXDefaultInitExpr>(S)->getExpr());
+  case Stmt::OpaqueValueExprClass:
+    return StmtCanThrow(cast<OpaqueValueExpr>(S)->getSourceExpr());
+
+  case Stmt::LambdaExprClass: {
+    // Creating the closure object only evaluates the capture initializers;
+    // the body is not evaluated.
+    for (const Expr *Init : cast<LambdaExpr>(S)->capture_inits())
+      if (StmtCanThrow(Init))
+        return true;
+    return false;
+  }
+
+  default:
+    break;
+  }
+
+  for (const Stmt *Child : S->children())
+    if (StmtCanThrow(Child))
       return true;
 
   return false;
