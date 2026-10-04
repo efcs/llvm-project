@@ -615,26 +615,65 @@ void Sema::CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition, bool IsIn
   diagnoseParamTypes(*this, FD, FD->getContracts());
 }
 
+/// Find the declaration whose spelled contracts should be instantiated for an
+/// instantiation of \p Pattern. Instantiated member declarations don't share
+/// the contracts of their pattern, so walk back through the member
+/// instantiation chain, and through the redeclarations of the pattern (the
+/// contracts may only appear on the first declaration).
+static const FunctionDecl *findContractPattern(const FunctionDecl *Pattern) {
+  while (Pattern) {
+    if (Pattern->hasContracts())
+      return Pattern;
+    for (const FunctionDecl *Redecl : Pattern->redecls())
+      if (Redecl->hasContracts())
+        return Redecl;
+
+    const FunctionDecl *Next = Pattern->getInstantiatedFromMemberFunction();
+    if (!Next)
+      if (FunctionTemplateDecl *FTD = Pattern->getDescribedFunctionTemplate())
+        if (FunctionTemplateDecl *From = FTD->getInstantiatedFromMemberTemplate())
+          Next = From->getTemplatedDecl();
+    Pattern = Next;
+  }
+  return nullptr;
+}
+
 void Sema::InstantiateContractSpecifier(
     SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
     const FunctionDecl *Pattern,
     const MultiLevelTemplateArgumentList &TemplateArgs) {
 
-  ContractSpecifierDecl *PatternCSD = Pattern->getContracts();
-  if (!PatternCSD)
+  const FunctionDecl *ContractPattern = findContractPattern(Pattern);
+  if (!ContractPattern)
     return;
-  bool IsInvalid = false;
+  ContractSpecifierDecl *PatternCSD = ContractPattern->getContracts();
+  bool IsInvalid = PatternCSD->isInvalidDecl();
 
-  auto *Method = const_cast<CXXMethodDecl *>(
-      dyn_cast_if_present<CXXMethodDecl>(Instantiation));
+  auto *Method = dyn_cast<CXXMethodDecl>(Instantiation);
+  if (Method && !Method->isImplicitObjectMemberFunction())
+    Method = nullptr;
 
   Sema::ContextRAII SavedContext(*this, Instantiation);
-  Sema::CXXThisScopeRAII ThisxScope(
-      SemaRef, Method ? Method->getParent() : nullptr,
-      Method ? Method->getMethodQualifiers().withConst() : Qualifiers{},
-      Method != nullptr);
+  // Lambdas within the contracts need an enclosing function scope.
+  FunctionScopeRAII PopFunctionScope(*this);
+  PushFunctionScope();
+  Sema::CXXThisScopeRAII ThisScope(
+      *this, Method ? Method->getParent() : nullptr,
+      Method ? Method->getMethodQualifiers() : Qualifiers{}, Method != nullptr);
 
-  LocalInstantiationScope Scope(*this, true);
+  LocalInstantiationScope Scope(*this, /*CombineWithOuterScope=*/true);
+
+  // If the contracts were spelled on a different declaration than the
+  // pattern definition, its parameters need to be mapped too.
+  if (ContractPattern != Pattern &&
+      ContractPattern->getNumParams() == Instantiation->getNumParams()) {
+    for (unsigned I = 0, N = ContractPattern->getNumParams(); I != N; ++I) {
+      const ParmVarDecl *PatternParam = ContractPattern->getParamDecl(I);
+      if (PatternParam->isParameterPack())
+        continue;
+      Scope.InstantiatedLocal(PatternParam, Instantiation->getParamDecl(I));
+    }
+  }
 
   SmallVector<ContractStmt *> NewContracts;
   for (auto *CS : PatternCSD->contracts()) {
@@ -650,8 +689,15 @@ void Sema::InstantiateContractSpecifier(
   assert(NewCSD);
 
   Instantiation->setContracts(NewCSD);
-  if (!Instantiation->isDependentContext())
-    CheckFunctionContracts(Instantiation, /*IsDefinition=*/false, /*IsInstantiation=*/true);
+  if (!Instantiation->isDependentContext()) {
+    // A function which became virtual by overriding a function of a
+    // dependent base can only be diagnosed now.
+    auto *PatternMD = dyn_cast<CXXMethodDecl>(ContractPattern);
+    if (!PatternMD || !PatternMD->isVirtual())
+      CheckFunctionContractPlacement(Instantiation);
+    CheckFunctionContracts(Instantiation, /*IsDefinition=*/false,
+                           /*IsInstantiation=*/true);
+  }
 }
 
 ContractSpecifierDecl *

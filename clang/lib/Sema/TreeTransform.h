@@ -16673,6 +16673,23 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
   getSema().currentEvaluationContext().IsContainedWithinContract =
       WasInContract;
 
+  // Transform the function contract specifiers of the call operator.
+  if (ContractSpecifierDecl *OldCSD = E->getCallOperator()->getContracts();
+      OldCSD && !Invalid) {
+    SmallVector<ContractStmt *, 4> NewContracts;
+    bool ContractsInvalid = OldCSD->isInvalidDecl();
+    for (ContractStmt *CS : OldCSD->contracts()) {
+      StmtResult NewCS = getDerived().TransformStmt(CS);
+      if (NewCS.isInvalid())
+        ContractsInvalid = true;
+      else
+        NewContracts.push_back(NewCS.getAs<ContractStmt>());
+    }
+    NewCallOperator->setContracts(getSema().BuildContractSpecifierDecl(
+        NewContracts, NewCallOperator, OldCSD->getLocation(),
+        ContractsInvalid));
+  }
+
   StmtResult Body;
   {
     Sema::NonSFINAEContext _(getSema());

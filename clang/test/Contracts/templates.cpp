@@ -98,7 +98,7 @@ template <class U>
 struct A : public U {
   template<class T>
   void f(T &&x = {})
-    pre(this->bar()) // expected-error {{not marked const}}
+    pre(this->bar()) // expected-error {{not marked const}} expected-note {{'this' is 'const' within contract introduced here}}
   {}
   void bar(); // expected-note {{declared here}}
 

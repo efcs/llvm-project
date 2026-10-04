@@ -3048,9 +3048,11 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
   // If this becomes an implicit instantiation, InstantiateContractSpecifier
   // will properly instantiate them later. For explicit specializations,
   // the user provides their own contracts per [temp.expl.spec]p12.
+  //
+  // The contracts of the instantiated declaration are never shared with the
+  // pattern; they are instantiated lazily from the pattern (see
+  // InstantiateContractSpecifier) when the definition is instantiated.
   ContractSpecifierDecl *Contracts = nullptr;
-  if (D->hasContracts() && !FunctionTemplate)
-    Contracts = D->getContracts();
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
   // If we're instantiating a local function declaration, put the result
@@ -3498,9 +3500,11 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
   // the user provides their own contracts per [temp.expl.spec]p12.
   // Note: when TemplateParams is set, we're creating a member function template
   // (not a specialization), so contracts should still be copied.
+  //
+  // The contracts of the instantiated declaration are never shared with the
+  // pattern; they are instantiated lazily from the pattern (see
+  // InstantiateContractSpecifier) when the definition is instantiated.
   ContractSpecifierDecl *Contracts = nullptr;
-  if (D->hasContracts() && (TemplateParams || !FunctionTemplate))
-    Contracts = D->getContracts();
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);
@@ -6337,9 +6341,8 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
 
       if (Body.isInvalid())
         Function->setInvalidDecl();
-      if (PatternDecl->hasContracts())
-        InstantiateContractSpecifier(PointOfInstantiation, Function,
-                                     PatternDecl, TemplateArgs);
+      InstantiateContractSpecifier(PointOfInstantiation, Function,
+                                   PatternDecl, TemplateArgs);
     }
     // FIXME: finishing the function body while in an expression evaluation
     // context seems wrong. Investigate more.
