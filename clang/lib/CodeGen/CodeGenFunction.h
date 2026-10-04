@@ -449,7 +449,9 @@ public:
   CurrentContractInfo *CurContract();
 
   /// The function whose precondition and postcondition assertions are emitted
-  /// as part of the current function, if any.
+  /// as part of the current function, if any. This is only set for the
+  /// function (or structor variant) that actually runs the user-written body,
+  /// so that the contracts are evaluated exactly once per call.
   const FunctionDecl *ContractsFD = nullptr;
 
   /// When parameters are destroyed in the callee, the postconditions must be
@@ -2705,6 +2707,12 @@ public:
 
   /// Emit a test that checks if the return value \p RV is nonnull.
   void EmitReturnValueCheck(llvm::Value *RV);
+
+  /// Returns true if the function contract assertions of the function being
+  /// emitted as \p GD should be emitted in that function. This is false for
+  /// structor variants and other functions that merely delegate to another
+  /// function which runs the user-written body (and hence the contracts).
+  bool shouldEmitFunctionContracts(GlobalDecl GD);
 
   /// Emit the precondition assertions of \p FD.
   void EmitPreconditions(const FunctionDecl *FD);

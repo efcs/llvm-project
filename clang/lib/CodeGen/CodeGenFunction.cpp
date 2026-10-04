@@ -1588,9 +1588,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
   // Emit the precondition assertions before anything else in the body (in
-  // particular, before any member or base initializers of a constructor). The
+  // particular, before any member or base initializers of a constructor), but
+  // only in the function that actually runs the user-written body. The
   // postcondition assertions are emitted by FinishFunction.
-  if (FD->hasContracts()) {
+  if (FD->hasContracts() && shouldEmitFunctionContracts(GD)) {
     ContractsFD = FD;
     EmitPreconditions(FD);
     BeginPostconditionsReturnBlock(Body);

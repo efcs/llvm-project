@@ -19,7 +19,9 @@
 #include "CodeGenModule.h"
 #include "ConstantEmitter.h"
 #include "TargetInfo.h"
+#include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -313,6 +315,62 @@ static bool StmtCanThrow(const Stmt *S) {
       return true;
 
   return false;
+}
+
+bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
+  const auto *FD = cast<FunctionDecl>(GD.getDecl());
+  const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+
+  // The lambda static invoker forwards to the call operator, which evaluates
+  // the contracts.
+  if (MD && MD->isLambdaStaticInvoker())
+    return false;
+
+  // On targets using inalloca, the call operator of a lambda with a static
+  // invoker forwards to a separate implementation function, which evaluates
+  // the contracts.
+  if (MD && isLambdaCallOperator(MD) && CurFnInfo &&
+      !CurFnInfo->isDelegateCall() && MD->getParent()->getLambdaStaticInvoker() &&
+      hasInAllocaArg(MD))
+    return false;
+
+  if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(FD)) {
+    // An inheriting constructor calls the inherited constructor, which
+    // evaluates its own contracts.
+    if (Ctor->isInheritingConstructor())
+      return false;
+    // The complete object constructor may simply delegate to the base object
+    // constructor. See EmitConstructorBody.
+    if (GD.getCtorType() == Ctor_Complete &&
+        CGM.getTarget().getCXXABI().hasConstructorVariants() &&
+        IsConstructorDelegationValid(Ctor))
+      return false;
+    return true;
+  }
+
+  if (const auto *Dtor = dyn_cast<CXXDestructorDecl>(FD)) {
+    // These must stay in sync with EmitDestructorBody.
+    switch (GD.getDtorType()) {
+    case Dtor_Deleting:
+    case Dtor_VectorDeleting:
+      // Always delegates to the complete object destructor.
+      return false;
+    case Dtor_Complete:
+      // Complete destructors of abstract classes are never called, and
+      // otherwise the complete destructor delegates to the base destructor
+      // unless the body is a function-try-block.
+      if (Dtor->getParent()->isAbstract())
+        return false;
+      return isa_and_nonnull<CXXTryStmt>(Dtor->getBody());
+    case Dtor_Base:
+    case Dtor_Unified:
+    case Dtor_Comdat:
+      return true;
+    }
+    llvm_unreachable("unhandled destructor type");
+  }
+
+  return true;
 }
 
 void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {
