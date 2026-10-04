@@ -2013,6 +2013,24 @@ SourceLocation DeclaratorDecl::getTypeSpecEndLoc() const {
   return SourceLocation();
 }
 
+DeclaratorDecl::ExtInfo *DeclaratorDecl::getOrCreateExtInfo() {
+  if (!hasExtInfo()) {
+    // Save (non-extended) type source info pointer.
+    auto *savedTInfo = cast<TypeSourceInfo *>(DeclInfo);
+    // Allocate external info struct.
+    DeclInfo = new (getASTContext()) ExtInfo;
+    // Restore savedTInfo into (extended) decl info.
+    getExtInfo()->TInfo = savedTInfo;
+  }
+  return getExtInfo();
+}
+
+void DeclaratorDecl::setContractsImpl(ContractSpecifierDecl *CSD) {
+  if (!CSD && !hasExtInfo())
+    return;
+  getOrCreateExtInfo()->Contracts = CSD;
+}
+
 void DeclaratorDecl::setQualifierInfo(NestedNameSpecifierLoc QualifierLoc) {
   if (QualifierLoc) {
     // Make sure the extended decl info is allocated.
@@ -3823,13 +3841,13 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
 
 void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
-  Contracts = CSD;
+  setContractsImpl(CSD);
   if (CSD)
     CSD->setOwningFunction(this);
 }
 
 ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
-  if (auto *CSD = Contracts)
+  if (auto *CSD = getContracts())
     return CSD->contracts();
   return {};
 }

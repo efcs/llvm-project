@@ -789,6 +789,8 @@ class DeclaratorDecl : public ValueDecl {
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo = nullptr;
     AssociatedConstraint TrailingRequiresClause;
+    /// The function contract specifiers (pre/post) of a FunctionDecl, if any.
+    ContractSpecifierDecl *Contracts = nullptr;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -801,11 +803,22 @@ class DeclaratorDecl : public ValueDecl {
   ExtInfo *getExtInfo() { return cast<ExtInfo *>(DeclInfo); }
   const ExtInfo *getExtInfo() const { return cast<ExtInfo *>(DeclInfo); }
 
+  /// Allocate the extended declarator info if it isn't already present.
+  ExtInfo *getOrCreateExtInfo();
+
 protected:
   DeclaratorDecl(Kind DK, DeclContext *DC, SourceLocation L,
                  DeclarationName N, QualType T, TypeSourceInfo *TInfo,
                  SourceLocation StartL)
       : ValueDecl(DK, DC, L, N, T), DeclInfo(TInfo), InnerLocStart(StartL) {}
+
+  /// Function contracts are stored in the (rarely allocated) ExtInfo so that
+  /// functions without contracts don't pay for them. Only FunctionDecl
+  /// exposes these.
+  ContractSpecifierDecl *getContractsImpl() const {
+    return hasExtInfo() ? getExtInfo()->Contracts : nullptr;
+  }
+  void setContractsImpl(ContractSpecifierDecl *CSD);
 
 public:
   friend class ASTDeclReader;
@@ -2191,10 +2204,6 @@ private:
   /// no formals.
   ParmVarDecl **ParamInfo = nullptr;
 
-  /// The contract sequence specified on this function declaration if there is
-  /// any, otherwise nullptr
-  ContractSpecifierDecl *Contracts = nullptr;
-
   /// The active member of this union is determined by
   /// FunctionDeclBits.HasDefaultedOrDeletedInfo.
   union {
@@ -2202,7 +2211,6 @@ private:
     LazyDeclStmtPtr Body;
     /// Information about a future defaulted function definition.
     DefaultedOrDeletedFunctionInfo *DefaultedOrDeletedInfo;
-    ///
   };
 
   unsigned ODRHash;
@@ -3307,9 +3315,9 @@ public:
   /// decl and it's children to have this declaration as a declaration context.
   void setContracts(ContractSpecifierDecl *CSD);
 
-  bool hasContracts() const { return Contracts != nullptr; }
+  bool hasContracts() const { return getContracts() != nullptr; }
 
-  ContractSpecifierDecl *getContracts() const { return Contracts; }
+  ContractSpecifierDecl *getContracts() const { return getContractsImpl(); }
 
   using ContractRange = llvm::iterator_range<llvm::filter_iterator<
       ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
