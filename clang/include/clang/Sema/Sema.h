@@ -3342,6 +3342,17 @@ public:
                                        SourceLocation Loc, bool IsInvalid);
 
   void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
+
+  /// Called once the late-parsed function contract specifiers of \p FD have
+  /// been parsed. Attaches them to the declaration and checks them against
+  /// previous declarations.
+  void ActOnFinishLateParsedFunctionContracts(FunctionDecl *FD,
+                                              ContractSpecifierDecl *CSD,
+                                              bool IsDefinition);
+
+  /// Diagnose function contract specifiers on functions which may not have
+  /// them ([dcl.contract.func]p6). Returns true if a diagnostic was issued.
+  bool CheckFunctionContractPlacement(FunctionDecl *FD);
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
 
   /// Rebuild the contract specifier against another declaration of the function
@@ -4211,9 +4222,14 @@ public:
   /// This sets NewFD->isInvalidDecl() to true if there was an error.
   ///
   /// \returns true if the function declaration is a redeclaration.
+  ///
+  /// \p HasLateParsedContracts indicates that the function contract specifiers
+  /// of the declaration will be parsed (and attached) after the declaration
+  /// has been created.
   bool CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
                                 LookupResult &Previous,
-                                bool IsMemberSpecialization, bool DeclIsDefn);
+                                bool IsMemberSpecialization, bool DeclIsDefn,
+                                bool HasLateParsedContracts = false);
 
   /// Checks if the new declaration declared in dependent context must be
   /// put in the same redeclaration chain as the specified declaration.

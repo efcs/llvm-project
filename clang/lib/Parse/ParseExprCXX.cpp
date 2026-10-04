@@ -1493,12 +1493,13 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   Actions.ActOnStartOfLambdaDefinition(Intro, D, DS);
   if (isFunctionContractKeyword(Tok)) {
-    ParseContractSpecifierSequence(D, /*EnterScope=*/false);
+    ParseContractSpecifierSequence(D);
     assert(D.Contracts);
+    assert(Actions.CurContext->isFunctionOrMethod());
+    auto *CallOp = cast<FunctionDecl>(Actions.CurContext);
+    CallOp->setContracts(D.Contracts);
+    D.Contracts = nullptr;
   }
-  assert(Actions.CurContext->isFunctionOrMethod());
-  cast<FunctionDecl>(Actions.CurContext)->setContracts(D.Contracts);
-  D.Contracts = nullptr;
 
   // Parse compound-statement.
   if (!Tok.is(tok::l_brace)) {
@@ -1527,11 +1528,8 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
       return Lambda;
     }
 
-    if (!D.LateParsedContracts.empty()) {
-      assert(false);
-      ParseLexedFunctionContracts(D.LateParsedContracts, LE->getCallOperator(),
-                                  CES_AllScopes);
-    }
+    assert(D.LateParsedContracts.empty() &&
+           "lambda contracts are never late-parsed");
     assert(LE->getCallOperator() && "LambdaExpr has no call operator");
     assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");
 

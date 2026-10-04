@@ -13144,6 +13144,9 @@ let CategoryName = "Contract Issue" in {
 // FIXME: Remove this once all users have been given proper diagnostics.
 def err_ericwf_fixme : Error<"%0">;
 
+def err_contract_on_function_kind : Error<
+  "%select{virtual function|deleted function|function defaulted on its first "
+  "declaration}0 %1 cannot have function contract specifiers">;
 
 def err_result_name_shadows_param : Error<
   "declaration of result name %0 shadows parameter">;

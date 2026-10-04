@@ -21,20 +21,28 @@ namespace parsing_trailing_return_type_test {
   };
 }
 
+// [dcl.contract.func]p6: A virtual function, a deleted function, or a function
+// defaulted on its first declaration shall not have a
+// function-contract-specifier-seq. These still need to parse correctly.
 namespace parsing_virtual_test {
   struct A {
     virtual void f(int i)
-      pre(i >= 0);
+      pre(i >= 0); // expected-error {{virtual function 'f' cannot have function contract specifiers}}
   };
 
   struct B : A {
     void f(int i) override final
-      pre(i >= 0);
+      pre(i >= 0); // expected-error {{virtual function 'f' cannot have function contract specifiers}}
   };
 
   struct C : A {
     void f(int i) override
-      pre(i >= 0) = 0;
+      pre(i >= 0) = 0; // expected-error {{virtual function 'f' cannot have function contract specifiers}}
+  };
+
+  struct D : A {
+    void f(int i) pre(i >= 0) override; // expected-error {{'override' must appear before function contract specifiers}} \
+                                        // expected-error {{virtual function 'f' cannot have function contract specifiers}}
   };
 }
 
@@ -42,9 +50,9 @@ namespace parsing_default_delete_pure_test {
   const bool a = true, b = true, c = true;
 
   struct X {
-    X() pre(a) = default;
-    X(const X&) pre(b) = delete;
-    virtual void f() pre(c) = 0;
+    X() pre(a) = default; // expected-error {{function defaulted on its first declaration 'X' cannot have function contract specifiers}}
+    X(const X&) pre(b) = delete; // expected-error {{deleted function 'X' cannot have function contract specifiers}}
+    virtual void f() pre(c) = 0; // expected-error {{virtual function 'f' cannot have function contract specifiers}}
   };
 }
 
@@ -124,7 +132,4 @@ namespace parsing_ambig_test4 {
   // d<e> is a bool variable template, pre(c) is the precondition
 }
 
-int main() {
-
-}
 

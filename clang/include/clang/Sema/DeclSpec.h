@@ -2190,7 +2190,6 @@ public:
     EllipsisLoc = SourceLocation();
     PackIndexingExpr = nullptr;
     Contracts = nullptr;
-    assert(LateParsedContracts.empty() && "Late-parsed contracts unhandled");
     LateParsedContracts.clear();
   }
 

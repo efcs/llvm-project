@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
 
 void test_pre_parse(int x) pre(x != 0);
@@ -24,7 +24,7 @@ struct A {
     post(x : x != 0); // expected-error {{declaration of result name 'x' shadows parameter}}
   void test_this_access() post(r != 0);
 
-  int r;
+  int r; // expected-note {{'A::r' declared here}}
 };
 
 int test_return_parse(const int x) post(r : r == x) {
@@ -77,7 +77,10 @@ void test_converted_to_bool(int x)
 namespace result_name_scope_test {
 
 int test_scope(const int x) post(r : r != x) {
-  return r; // expected-error {{use of undeclared identifier 'r'}}
+  // The result name is not visible in the function body. (Typo correction
+  // finds the unrelated data member A::r.)
+  return r; // expected-error {{use of undeclared identifier 'r'; did you mean 'A::r'?}} \
+            // expected-error {{invalid use of non-static data member 'r'}}
 }
 
 struct T {

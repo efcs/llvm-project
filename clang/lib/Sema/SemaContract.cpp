@@ -174,6 +174,13 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, ResultNameDecl *RND,
                                      ParsedAttributes &ContractAttrs) {
 
+  // A result name is only permitted on a postcondition. We have already
+  // diagnosed it on other kinds of contracts; don't attach it.
+  if (RND && CK != ContractKind::Post) {
+    assert(RND->isInvalidDecl() && "result name should have been diagnosed");
+    RND = nullptr;
+  }
+
   DeclStmt *RNDStmt = nullptr;
   if (RND) {
     StmtResult NewDeclStmt = ActOnDeclStmt(
@@ -571,7 +578,9 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     OrigDecl = OldDecl->getCanonicalDecl();
   }
 
-  assert(!NewDecl->getContracts()->isInvalidDecl());
+  // If either sequence is invalid, we've already diagnosed it.
+  if (NewDecl->getContracts()->isInvalidDecl())
+    return false;
   if (OrigDecl->hasContracts() && OrigDecl->getContracts()->isInvalidDecl()) {
     NewDecl->getContracts()->setInvalidDecl(true);
     NewDecl->setInvalidDecl(true);
@@ -959,6 +968,53 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
   }
 }
 
+bool Sema::CheckFunctionContractPlacement(FunctionDecl *FD) {
+  ContractSpecifierDecl *CSD = FD->getContracts();
+  if (!CSD || CSD->contracts().empty())
+    return false;
+
+  // [dcl.contract.func]p6
+  //   A virtual function, a deleted function, or a function defaulted on its
+  //   first declaration shall not have a function-contract-specifier-seq.
+  enum { CPK_Virtual, CPK_Deleted, CPK_Defaulted } Kind;
+  if (auto *MD = dyn_cast<CXXMethodDecl>(FD); MD && MD->isVirtual())
+    Kind = CPK_Virtual;
+  else if (FD->isDeletedAsWritten())
+    Kind = CPK_Deleted;
+  else if (FD->isExplicitlyDefaulted() && FD->isFirstDecl())
+    Kind = CPK_Defaulted;
+  else
+    return false;
+
+  Diag(CSD->contracts().front()->getBeginLoc(),
+       diag::err_contract_on_function_kind)
+      << Kind << FD;
+  CSD->setInvalidDecl(true);
+  return true;
+}
+
+void Sema::ActOnFinishLateParsedFunctionContracts(FunctionDecl *FD,
+                                                  ContractSpecifierDecl *CSD,
+                                                  bool IsDefinition) {
+  assert(FD && "no function to attach contracts to");
+  if (!CSD)
+    return;
+
+  FD->setContracts(CSD);
+  IsDefinition |= FD->isThisDeclarationADefinition();
+
+  CheckFunctionContractPlacement(FD);
+
+  // [dcl.contract.func]p4: A declaration that is not a first declaration
+  // shall have either no function-contract-specifier-seq or the same one as
+  // the first declaration.
+  if (FunctionDecl *Prev = FD->getPreviousDecl())
+    CheckEquivalentContractSequence(Prev, FD);
+
+  if (!FD->isInvalidDecl())
+    ActOnContractsOnFinishFunctionDecl(FD, IsDefinition);
+}
+
 namespace {
 
 // There's got to be a better way to do this.
@@ -989,7 +1045,8 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   PushFunctionScope();
 
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
-  if (auto *CXXMethod = dyn_cast<CXXMethodDecl>(Def)) {
+  if (auto *CXXMethod = dyn_cast<CXXMethodDecl>(Def);
+      CXXMethod && CXXMethod->isImplicitObjectMemberFunction()) {
     Qualifiers MethodQuals = CXXMethod->getMethodQualifiers();
     if (LangOpts.ContractConstification)
       MethodQuals.addConst();

@@ -2195,8 +2195,14 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
     ParseTrailingRequiresClauseWithScope(D);
   }
 
-  if (isFunctionContractKeyword(Tok))
-    ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+  // Function contract specifiers are parsed once the function declaration has
+  // been created, so that they are parsed in the context of the function.
+  if (isFunctionContractKeyword(Tok)) {
+    if (canHaveFunctionContracts(D))
+      LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+    else
+      DiagnoseAndSkipMisplacedContractSpecifiers();
+  }
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2301,7 +2307,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
                 ParseFunctionDefinition(D, TemplateInfo, &LateParsedAttrs);
           }
 
-          assert(D.LateParsedContracts.empty());
+          assert(D.LateParsedContracts.empty() &&
+                 "contracts should have been parsed with the definition");
 
           return Actions.ConvertDeclToDeclGroup(TheDecl);
         }
@@ -2390,13 +2397,9 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       ParseDeclarationAfterDeclaratorAndAttributes(D, TemplateInfo, FRI);
   if (LateParsedAttrs.size() > 0)
     ParseLexedAttributeList(LateParsedAttrs, FirstDecl, true, false);
-  if (auto *FD = dyn_cast_or_null<FunctionDecl>(FirstDecl)) {
-    if (!FD->isInvalidDecl() && !D.LateParsedContracts.empty()) {
-      assert(false);
-      assert(!FD->isThisDeclarationADefinition());
-      ParseLexedFunctionContracts(D.LateParsedContracts, FD, CES_AllScopes);
-    }
-  }
+  if (!D.LateParsedContracts.empty())
+    ParseLexedFunctionContracts(D.LateParsedContracts, FirstDecl,
+                                CES_ReenterFunction | CES_CXXThis);
   D.complete(FirstDecl);
   if (FirstDecl)
     DeclsInGroup.push_back(FirstDecl);
@@ -2458,15 +2461,18 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClauseWithScope(D);
 
-      // FIXME(EricWF): Is this the correct place?
-      // Yes: Though parsing here means we need to reenter the correct scope
-      // and context ourselves, it means we hve the function return type.
-      // ParseContractSpecifierSequence(D, /*EnterScope=*/true);
+      if (isFunctionContractKeyword(Tok)) {
+        if (canHaveFunctionContracts(D))
+          LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+        else
+          DiagnoseAndSkipMisplacedContractSpecifiers();
+      }
 
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
 
-      // FIXME(EricWF): Remove this
-      //ThisDecl->dumpColor();
+      if (!D.LateParsedContracts.empty())
+        ParseLexedFunctionContracts(D.LateParsedContracts, ThisDecl,
+                                    CES_ReenterFunction | CES_CXXThis);
 
       D.complete(ThisDecl);
       if (ThisDecl)
@@ -7533,9 +7539,6 @@ void Parser::ParseFunctionDeclarator(Declarator &D,
         EndLoc = Range.getEnd();
       }
 
-      if (isFunctionContractKeyword(Tok) && Delayed) {
-        LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-      }
     } else {
       MaybeParseCXX11Attributes(FnAttrs);
     }

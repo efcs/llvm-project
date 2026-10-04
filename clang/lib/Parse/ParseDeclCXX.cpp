@@ -2639,7 +2639,26 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
                                                               VS);
   }
 
-  ParseContractSpecifierSequence(DeclaratorInfo, /*EnterScope=*/true);
+  // Function contract specifiers of member declarations are parsed in the
+  // complete-class context, so cache them for late parsing.
+  if (isFunctionContractKeyword(Tok)) {
+    if (canHaveFunctionContracts(DeclaratorInfo) && BitfieldSize.isUnset()) {
+      LateParseFunctionContractSpecifierSeq(
+          DeclaratorInfo.LateParsedContracts);
+
+      // A virt-specifier-seq must precede the function contract specifiers.
+      if (VS.isUnset() && isCXX11VirtSpecifier(Tok) != VirtSpecifiers::VS_None) {
+        SourceLocation VirtSpecLoc = Tok.getLocation();
+        Diag(VirtSpecLoc, diag::err_virt_specifier_after_contracts)
+            << VirtSpecifiers::getSpecifierName(isCXX11VirtSpecifier(Tok));
+        ParseOptionalCXX11VirtSpecifierSeq(
+            VS, getCurrentClass().IsInterface,
+            DeclaratorInfo.getDeclSpec().getFriendSpecLoc());
+      }
+    } else {
+      DiagnoseAndSkipMisplacedContractSpecifiers();
+    }
+  }
 
   // If a simple-asm-expr is present, parse it.
   if (Tok.is(tok::kw_asm)) {

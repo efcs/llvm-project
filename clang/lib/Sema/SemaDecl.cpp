@@ -10903,9 +10903,9 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       CheckMSVCRTEntryPoint(NewFD);
 
     if (!NewFD->isInvalidDecl())
-      D.setRedeclaration(CheckFunctionDeclaration(S, NewFD, Previous,
-                                                  isMemberSpecialization,
-                                                  D.isFunctionDefinition()));
+      D.setRedeclaration(CheckFunctionDeclaration(
+          S, NewFD, Previous, isMemberSpecialization, D.isFunctionDefinition(),
+          !D.getLateParsedContracts().empty()));
     else if (!Previous.empty())
       // Recover gracefully from an invalid redeclaration.
       D.setRedeclaration(true);
@@ -11070,9 +11070,9 @@ Sema::ActOnFunctionDeclarator(Scope *S, Declarator &D, DeclContext *DC,
       CheckMSVCRTEntryPoint(NewFD);
 
     if (!NewFD->isInvalidDecl())
-      D.setRedeclaration(CheckFunctionDeclaration(S, NewFD, Previous,
-                                                  isMemberSpecialization,
-                                                  D.isFunctionDefinition()));
+      D.setRedeclaration(CheckFunctionDeclaration(
+          S, NewFD, Previous, isMemberSpecialization, D.isFunctionDefinition(),
+          !D.getLateParsedContracts().empty()));
     else if (!Previous.empty())
       // Recover gracefully from an invalid redeclaration.
       D.setRedeclaration(true);
@@ -12438,7 +12438,8 @@ static void CheckConstPureAttributesUsage(Sema &S, FunctionDecl *NewFD) {
 bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
                                     LookupResult &Previous,
                                     bool IsMemberSpecialization,
-                                    bool DeclIsDefn) {
+                                    bool DeclIsDefn,
+                                    bool HasLateParsedContracts) {
   assert(!NewFD->getReturnType()->isVariablyModifiedType() &&
          "Variably modified return types are not handled here");
 
@@ -12816,7 +12817,9 @@ bool Sema::CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
     }
   }
 
-  ActOnContractsOnFinishFunctionDecl(NewFD, DeclIsDefn);
+  // If the contracts are late-parsed, they are checked once they are parsed.
+  if (!HasLateParsedContracts)
+    ActOnContractsOnFinishFunctionDecl(NewFD, DeclIsDefn);
 
   if (DeclIsDefn && Context.getTargetInfo().getTriple().isAArch64())
     ARM().CheckSMEFunctionDefAttributes(NewFD);

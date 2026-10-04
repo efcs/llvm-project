@@ -951,6 +951,10 @@ def err_duplicate_class_virt_specifier : Error<
 def err_duplicate_virt_specifier : Error<
   "class member already marked '%0'">;
 
+def err_virt_specifier_after_contracts : Error<
+  "'%0' must appear before function contract specifiers">;
+def err_contract_on_non_function : Error<
+  "function contract specifiers are only allowed on function declarations">;
 def err_virt_specifier_outside_class : Error<
   "'%0' specifier is not allowed outside a class definition">;
 

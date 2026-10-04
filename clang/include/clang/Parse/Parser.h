@@ -9146,14 +9146,22 @@ public:
   mutable IdentifierInfo *Ident___pre = nullptr;
   mutable IdentifierInfo *Ident___post = nullptr;
 
+  /// The scopes and contexts to enter when parsing late-parsed function
+  /// contract specifiers.
   enum ContractEnterScopeKind {
     CES_None = 0,
-    CES_Prototype = 0x1,
-    CES_Parameters = 0x2,
-    CES_CXXThis = 0x4,
-    CES_Function = 0x8,
-    CES_AllScopes = CES_Prototype | CES_Parameters | CES_CXXThis | CES_Function,
-    LLVM_MARK_AS_BITMASK_ENUM(CES_AllScopes)
+    /// Enter the 'this' scope of the function (if it is a member function).
+    CES_CXXThis = 0x1,
+    /// Enter the context of the function and push a function scope. The
+    /// function parameters must already be in scope.
+    CES_Function = 0x2,
+    /// Re-enter the function: push a function scope whose entity is the
+    /// function, introduce the function parameters into it, enter the
+    /// context of the function and push a function scope.
+    CES_ReenterFunction = 0x4,
+    /// The contracts belong to a function definition.
+    CES_Definition = 0x8,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_Definition)
   };
 
   std::optional<ContractKind> getContractKeyword(const Token &Token) const;
@@ -9175,15 +9183,16 @@ public:
 private:
   StmtResult ParseContractAssertStatement();
 
-  void ParseContractSpecifierSequence(Declarator &DeclarationInfo,
-                                      bool EnterScope,
-                                      QualType TrailingReturnType = QualType());
+  void ParseContractSpecifierSequence(Declarator &DeclarationInfo);
 
   StmtResult ParseFunctionContractSpecifierImpl(
       llvm::function_ref<QualType()> ReturnTypeResolver, ContractScopeOffset ScopeOffset, bool &IsInvalid);
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+  void DiagnoseAndSkipMisplacedContractSpecifiers();
+  /// Whether function contract specifiers may follow the given declarator.
+  bool canHaveFunctionContracts(const Declarator &D) const;
 
   bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
                                    ContractEnterScopeKind EnterScopeKinds);

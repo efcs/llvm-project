@@ -78,29 +78,52 @@ bool Parser::LateParseFunctionContractSpecifier(CachedTokens &Toks) {
   ContractKind CK = getContractKeyword(Tok).value();
   const char *CKStr = getContractKeywordStr(CK);
 
-  // Consume and cache the starting token.
-  Token StartTok = Tok;
-  SourceRange ContractRange = SourceRange(ConsumeToken());
+  // Cache the contract keyword.
+  size_t StartSize = Toks.size();
+  Toks.push_back(Tok);
+  ConsumeToken();
+
+  // Cache the optional attribute-specifier-seq.
+  while (Tok.is(tok::l_square) && NextToken().is(tok::l_square)) {
+    Toks.push_back(Tok);
+    ConsumeBracket();
+    ConsumeAndStoreUntil(tok::r_square, Toks,
+                         /*StopAtSemi=*/true,
+                         /*ConsumeFinalToken=*/true);
+  }
 
   // Check for a '('.
   if (!Tok.is(tok::l_paren)) {
-    // If this is a bare 'noexcept', we're done.
-
     Diag(Tok, diag::err_expected_lparen_after) << CKStr;
+    // Drop the partial contract so we don't try to parse it later.
+    Toks.resize(StartSize);
     return false;
   }
 
-  // Cache the tokens for the exception-specification.
-
-  Toks.push_back(StartTok);             // 'throw' or 'noexcept'
-  Toks.push_back(Tok);                  // '('
-  ContractRange.setEnd(ConsumeParen()); // '('
+  // Cache the tokens for the contract predicate.
+  Toks.push_back(Tok); // '('
+  ConsumeParen();
 
   ConsumeAndStoreUntil(tok::r_paren, Toks,
                        /*StopAtSemi=*/true,
                        /*ConsumeFinalToken=*/true);
-  ContractRange.setEnd(Toks.back().getLocation());
   return true;
+}
+
+bool Parser::canHaveFunctionContracts(const Declarator &D) const {
+  // [dcl.decl.general], [class.mem.general]: a function-contract-specifier-seq
+  // shall be present only if the declarator declares a function.
+  return D.isFunctionDeclarator() &&
+         D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef;
+}
+
+void Parser::DiagnoseAndSkipMisplacedContractSpecifiers() {
+  assert(isFunctionContractKeyword(Tok) && "Not in a contract");
+  SourceLocation StartLoc = Tok.getLocation();
+  CachedTokens Discarded;
+  LateParseFunctionContractSpecifierSeq(Discarded);
+  Diag(StartLoc, diag::err_contract_on_non_function)
+      << SourceRange(StartLoc, PrevTokLocation);
 }
 
 /// ParseContractAssertStatement
@@ -135,56 +158,25 @@ StmtResult Parser::ParseContractAssertStatement() {
 ///
 ///   result-name-introducer:
 ///       attributed-identifier :
-void Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo,
-                                            bool EnterScope,
-                                            QualType TrailingReturnType) {
+void Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo) {
   if (!isFunctionContractKeyword(Tok))
     return;
 
-  std::optional<QualType> CachedType;
-  auto ReturnTypeResolver = [&]() {
-    if (!CachedType) {
-      QualType ReturnType = TrailingReturnType;
-      if (ReturnType.isNull()) {
-        TypeSourceInfo *TInfo = Actions.GetTypeForDeclarator(DeclarationInfo);
-        assert(TInfo && TInfo->getType()->isFunctionType());
-        ReturnType = TInfo->getType()->getAs<FunctionType>()->getReturnType();
-      }
-      CachedType = ReturnType;
-    }
-    return CachedType.value();
-  };
-  std::optional<ParseScope> ParserScope;
+  // This is only used for lambda-declarators, where the contracts are parsed
+  // once the call operator has been created and its context entered.
+  assert(Actions.CurContext->isFunctionOrMethod() &&
+         "contracts must be parsed in the context of their function");
+  auto *FD = cast<FunctionDecl>(Actions.CurContext);
+  auto ReturnTypeResolver = [&]() { return FD->getReturnType(); };
 
-  std::optional<Sema::CXXThisScopeRAII> ThisScope;
-  std::optional<Sema::FunctionScopeRAII> PopFnContext;
-
-  if (EnterScope) {
-    ParserScope.emplace(this, Scope::DeclScope | Scope::FunctionPrototypeScope |
-                                  Scope::FunctionDeclarationScope);
-
-   // PopFnContext.emplace(Actions);
-   // Actions.PushFunctionScope();
-
-    auto FTI = DeclarationInfo.getFunctionTypeInfo();
-
-    for (unsigned i = 0; i != FTI.NumParams; ++i) {
-      ParmVarDecl *Param = cast<ParmVarDecl>(FTI.Params[i].Param);
-      Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
-    }
-  }
-
-  InitCXXThisScopeForDeclaratorIfRelevant(DeclarationInfo,
-                                          DeclarationInfo.getDeclSpec(),
-                                          ThisScope);
   bool IsInvalid = false;
   SourceLocation StartLoc = Tok.getLocation();
 
   SmallVector<ContractStmt *, 4> Contracts;
   while (isFunctionContractKeyword(Tok)) {
     bool IsInvalidTmp = false;
-    StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, EnterScope ? CSO_ParentContext : CSO_FunctionContext, IsInvalidTmp);
+    StmtResult Contract = ParseFunctionContractSpecifierImpl(
+        ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
     IsInvalid |= IsInvalidTmp;
     if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
@@ -251,8 +243,16 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     if (ReturnTypeResolver)
       ReturnType = ReturnTypeResolver();
 
+    // The result name is profiled (for the purpose of comparing contracts on
+    // different declarations) like a parameter of the function, so give it
+    // the same function scope depth as the function's parameters.
+    unsigned FunctionScopeDepth = 0;
+    if (auto *FD = dyn_cast<FunctionDecl>(Actions.CurContext);
+        FD && FD->getNumParams())
+      FunctionScopeDepth = FD->getParamDecl(0)->getFunctionScopeDepth();
+
     RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(), ReturnType,
-                                            IdLoc, Id, getCurScope()->getFunctionPrototypeDepth());
+                                            IdLoc, Id, FunctionScopeDepth);
 
     if (!RND)
       return StmtError();
@@ -289,6 +289,17 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 bool Parser::ParseLexedFunctionContracts(
     CachedTokens &ContractToks, Decl *FD,
     Parser::ContractEnterScopeKind ScopesToEnter) {
+  assert(!ContractToks.empty() && "no contracts to parse");
+
+  FunctionDecl *FunctionToPush = FD ? FD->getAsFunction() : nullptr;
+  if (!FunctionToPush) {
+    // The declaration was invalid or not a function; there is nothing to
+    // attach the contracts to.
+    ContractToks.clear();
+    return false;
+  }
+
+  ParenBraceBracketBalancer BalancerRAIIObj(*this);
 
   // Add the 'stop' token.
   Token LastContractToken = ContractToks.back();
@@ -299,12 +310,41 @@ bool Parser::ParseLexedFunctionContracts(
   ContractEnd.setEofData(FD);
   ContractToks.push_back(ContractEnd);
 
-  // Parse the default argument from its saved token stream.
+  // Parse the contracts from their saved token stream.
   ContractToks.push_back(Tok); // So that the current token doesn't get lost
   PP.EnterTokenStream(ContractToks, true, /*IsReinject*/ true);
 
   // Consume the previously-pushed token.
   ConsumeAnyToken();
+
+  CXXMethodDecl *Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
+
+  // Re-enter the function: a function scope whose entity is the function (so
+  // that lookup proceeds through the function's semantic context, e.g. for
+  // out-of-line members), containing the function parameters.
+  std::optional<ParseScope> FnScope;
+  bool ReenteredFunctionContext = false;
+  if (ScopesToEnter & CES_ReenterFunction) {
+    FnScope.emplace(this, Scope::FnScope | Scope::DeclScope);
+    if (Actions.CurContext == FunctionToPush->getLexicalParent()) {
+      Actions.ActOnReenterFunctionContext(getCurScope(), FunctionToPush);
+      ReenteredFunctionContext = true;
+    }
+  }
+
+  // Enter the context of the function, and push a function scope so that
+  // lambdas within the contracts can capture the function parameters.
+  std::optional<ParseScope> PlainFnScope;
+  std::optional<Sema::ContextRAII> FnContext;
+  std::optional<Sema::FunctionScopeRAII> PopFnContext;
+  if (ScopesToEnter & (CES_Function | CES_ReenterFunction)) {
+    if (!(ScopesToEnter & CES_ReenterFunction))
+      PlainFnScope.emplace(this, Scope::FnScope);
+    if (!ReenteredFunctionContext)
+      FnContext.emplace(Actions, FunctionToPush, /*NewThisContext=*/false);
+    PopFnContext.emplace(Actions);
+    Actions.PushFunctionScope();
+  }
 
   // C++11 [expr.prim.general]p3:
   //   If a declaration declares a member function or member function
@@ -312,44 +352,16 @@ bool Parser::ParseLexedFunctionContracts(
   //   "pointer to cv-qualifier-seq X" between the optional cv-qualifer-seq
   //   and the end of the function-definition, member-declarator, or
   //   declarator.
-  CXXMethodDecl *Method;
-  FunctionDecl *FunctionToPush;
-  if (FunctionTemplateDecl *FunTmpl =
-          dyn_cast<FunctionTemplateDecl>(FD))
-    FunctionToPush = FunTmpl->getTemplatedDecl();
-  else
-    FunctionToPush = cast<FunctionDecl>(FD);
-
-  std::optional<ParseScope> ParserScope;
-  if (ScopesToEnter & ContractEnterScopeKind::CES_Prototype)
-    ParserScope.emplace(this, Scope::DeclScope | Scope::FunctionPrototypeScope |
-                                  Scope::FunctionDeclarationScope);
-
-  if (ScopesToEnter & ContractEnterScopeKind::CES_Parameters) {
-    for (auto *Param : FunctionToPush->parameters()) {
-      Actions.ActOnReenterCXXMethodParameter(getCurScope(), Param);
-    }
-  }
-
-  Method = dyn_cast<CXXMethodDecl>(FunctionToPush);
-
-  std::optional<ParseScope> FnScope;
-  std::optional<Sema::ContextRAII> FnContext;
-  std::optional<Sema::FunctionScopeRAII> PopFnContext;
-  if (ScopesToEnter & ContractEnterScopeKind::CES_Function) {
-    FnScope.emplace(this, Scope::FnScope);
-    FnContext.emplace(Actions, FunctionToPush, /*NewThisContext=*/true);
-    PopFnContext.emplace(Actions);
-    Actions.PushFunctionScope();
-  }
-
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
-  if (ScopesToEnter & ContractEnterScopeKind::CES_CXXThis)
-    ThisScope.emplace(Actions, Method ? Method->getParent() : nullptr,
-                      Method ? Method->getMethodQualifiers() : Qualifiers{},
-                      Method && getLangOpts().CPlusPlus11);
+  if (ScopesToEnter & CES_CXXThis) {
+    // 'this' may only be used in the contracts of an implicit object member
+    // function.
+    bool HasThis = Method && Method->isImplicitObjectMemberFunction();
+    ThisScope.emplace(Actions, HasThis ? Method->getParent() : nullptr,
+                      HasThis ? Method->getMethodQualifiers() : Qualifiers{},
+                      HasThis && getLangOpts().CPlusPlus11);
+  }
 
-  // Parse the exception-specification.
   SmallVector<ContractStmt *> Contracts;
   assert(isFunctionContractKeyword(Tok));
 
@@ -360,15 +372,15 @@ bool Parser::ParseLexedFunctionContracts(
   while (isFunctionContractKeyword(Tok)) {
     assert(Actions.CurContext == FunctionToPush);
     bool IsInvalidTmp = false;
-    StmtResult Contract =
-        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
+    StmtResult Contract = ParseFunctionContractSpecifierImpl(
+        ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
     if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
     IsInvalid |= IsInvalidTmp;
   }
+
   ContractSpecifierDecl *Seq = Actions.ActOnFinishContractSpecifierSequence(
       Contracts, StartLoc, IsInvalid);
-  FunctionToPush->setContracts(Seq);
 
   // There could be leftover tokens (e.g. because of an error).
   // Skip through until we reach the original token position.
@@ -380,5 +392,16 @@ bool Parser::ParseLexedFunctionContracts(
     ConsumeAnyToken();
 
   ContractToks.clear();
+
+  ThisScope.reset();
+  PopFnContext.reset();
+  FnContext.reset();
+  PlainFnScope.reset();
+  if (ReenteredFunctionContext)
+    Actions.ActOnExitFunctionContext();
+  FnScope.reset();
+
+  Actions.ActOnFinishLateParsedFunctionContracts(
+      FunctionToPush, Seq, bool(ScopesToEnter & CES_Definition));
   return true;
 }

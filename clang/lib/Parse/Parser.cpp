@@ -1265,6 +1265,10 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     D.setFunctionDefinitionKind(FunctionDefinitionKind::Definition);
     Decl *DP = Actions.HandleDeclarator(ParentScope, D,
                                         TemplateParameterLists);
+    if (!D.LateParsedContracts.empty())
+      ParseLexedFunctionContracts(
+          D.LateParsedContracts, DP,
+          CES_ReenterFunction | CES_CXXThis | CES_Definition);
     D.complete(DP);
     D.getMutableDeclSpec().abort();
 
@@ -1294,6 +1298,10 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     D.setFunctionDefinitionKind(FunctionDefinitionKind::Definition);
     Decl *FuncDecl = Actions.HandleDeclarator(ParentScope, D,
                                               MultiTemplateParamsArg());
+    if (!D.LateParsedContracts.empty())
+      ParseLexedFunctionContracts(
+          D.LateParsedContracts, FuncDecl,
+          CES_ReenterFunction | CES_CXXThis | CES_Definition);
     D.complete(FuncDecl);
     D.getMutableDeclSpec().abort();
     if (FuncDecl) {
@@ -1374,6 +1382,11 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     return Res;
   }
 
+  // Function contract specifiers are parsed in the context of the function
+  // definition, before the function body.
+  CachedTokens ContractToks;
+  std::swap(ContractToks, D.LateParsedContracts);
+
   // Break out of the ParsingDeclarator context before we parse the body.
   D.complete(Res);
 
@@ -1383,6 +1396,8 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
 
   if (BodyKind != Sema::FnBodyKind::Other) {
     Actions.SetFunctionBodyKind(Res, KWLoc, BodyKind, DeletedMessage);
+    if (!ContractToks.empty())
+      ParseLexedFunctionContracts(ContractToks, Res, CES_Definition);
     Stmt *GeneratedBody = Res ? Res->getBody() : nullptr;
     Actions.ActOnFinishFunctionBody(Res, GeneratedBody, false);
     return Res;
@@ -1396,6 +1411,9 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     // First template parameter is implicit - meaning no explicit template
     // parameter list was specified.
     CurTemplateDepthTracker.addDepth(1);
+
+  if (!ContractToks.empty())
+    ParseLexedFunctionContracts(ContractToks, Res, CES_Definition);
 
   // Late attributes are parsed in the same scope as the function body.
   if (LateParsedAttrs)
