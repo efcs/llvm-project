@@ -493,6 +493,20 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     }
   }
 
+  // The function contract assertions of a coroutine are evaluated before the
+  // coroutine state is allocated and after the coroutine has returned to its
+  // caller for the first time, at which point the coroutine state may already
+  // have been destroyed. They share the exception slots with the coroutine
+  // body, so these must not be placed in the coroutine frame. They never need
+  // to be: an exception that is being handled or propagated is not live across
+  // a suspension point.
+  if (ContractsFD && isCoroutine()) {
+    for (llvm::Value *Slot : {ExceptionSlot, (llvm::Value *)EHSelectorSlot})
+      if (auto *AI = dyn_cast_or_null<llvm::AllocaInst>(Slot))
+        AI->setMetadata(llvm::LLVMContext::MD_coro_outside_frame,
+                        llvm::MDNode::get(getLLVMContext(), {}));
+  }
+
   EmitIfUsed(*this, GetSharedContractViolationEnforceBlock(false));
   EmitIfUsed(*this, GetSharedContractViolationTrapBlock(false));
   EmitIfUsed(*this, EHResumeBlock);

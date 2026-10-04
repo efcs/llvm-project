@@ -11,6 +11,11 @@
 inline char EventLog[4096];
 
 inline bool ev(const char *Event) {
+  // Set CONTRACTS_TRACE_EVENTS in the environment to see the events as they
+  // happen when debugging a test.
+  static const bool Trace = getenv("CONTRACTS_TRACE_EVENTS") != nullptr;
+  if (Trace)
+    fprintf(stderr, "event: %s\n", Event);
   if (strlen(EventLog) + strlen(Event) + 2 > sizeof(EventLog)) {
     fprintf(stderr, "event log overflow\n");
     abort();
