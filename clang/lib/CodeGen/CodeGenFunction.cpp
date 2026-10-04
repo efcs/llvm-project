@@ -395,6 +395,13 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
       HasCleanups && EHStack.containsOnlyNoopCleanups(PrologueCleanupDepth);
   bool EmitRetDbgLoc = !HasCleanups || HasOnlyNoopCleanups;
 
+  // If the function has postcondition assertions, they are evaluated after
+  // the variables of the function body have been destroyed and before the
+  // parameters are.
+  bool HasPostconditions = PostconditionsSavedReturnBlock.isValid();
+  EHScopeStack::stable_iterator BodyCleanupDepth =
+      HasPostconditions ? PostconditionsCleanupDepth : PrologueCleanupDepth;
+
   std::optional<ApplyDebugLocation> OAL;
   if (HasCleanups) {
     // Make sure the line table doesn't jump back into the body for
@@ -408,16 +415,16 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
         OAL = ApplyDebugLocation::CreateDefaultArtificial(*this, EndLoc);
     }
 
+    PopCleanupBlocks(BodyCleanupDepth);
+  }
+
+  if (HasPostconditions) {
+    EmitFunctionPostconditions(EndLoc);
     PopCleanupBlocks(PrologueCleanupDepth);
   }
 
   // Emit function epilog (to return).
   llvm::DebugLoc Loc = EmitReturnBlock();
-
-  // Evaluate the postcondition assertions on the normal return path, after
-  // the locals have been destroyed but before the return value is loaded.
-  if (ContractsFD && !PostconditionsEmitted)
-    EmitPostconditions();
 
   if (ShouldInstrumentFunction()) {
     if (CGM.getCodeGenOpts().InstrumentFunctions)
@@ -1591,10 +1598,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // particular, before any member or base initializers of a constructor), but
   // only in the function that actually runs the user-written body. The
   // postcondition assertions are emitted by FinishFunction.
-  if (FD->hasContracts() && shouldEmitFunctionContracts(GD)) {
+  if (shouldEmitFunctionContracts(GD)) {
     ContractsFD = FD;
     EmitPreconditions(FD);
-    BeginPostconditionsReturnBlock(Body);
+    BeginFunctionPostconditions();
   }
 
   // Save parameters for coroutine function.
@@ -1693,8 +1700,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
-  if (ContractsFD)
-    EndPostconditionsReturnBlock();
 
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());

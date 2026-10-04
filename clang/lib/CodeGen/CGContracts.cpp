@@ -429,9 +429,49 @@ static bool StmtCanThrow(const Stmt *S) {
   return false;
 }
 
+/// Returns true if \p FD has a function contract assertion (of kind \p Kind,
+/// if given) which is evaluated with a checking semantic.
+static bool hasCheckedContracts(const FunctionDecl *FD,
+                                std::optional<ContractKind> Kind) {
+  // Function contract specifiers may be omitted on redeclarations.
+  if (!FD->hasContracts()) {
+    const FunctionDecl *WithContracts = nullptr;
+    for (const FunctionDecl *Redecl : FD->redecls()) {
+      if (Redecl->hasContracts()) {
+        WithContracts = Redecl;
+        break;
+      }
+    }
+    if (!WithContracts)
+      return false;
+    FD = WithContracts;
+  }
+  const ASTContext &Ctx = FD->getASTContext();
+  for (const ContractStmt *S : FD->contracts())
+    if ((!Kind || S->getContractKind() == *Kind) &&
+        S->getSemantic(Ctx) != Ignore)
+      return true;
+  return false;
+}
+
+bool CodeGenFunction::hasCheckedFunctionContracts(const FunctionDecl *FD) {
+  return hasCheckedContracts(FD, std::nullopt);
+}
+
+bool CodeGenFunction::hasCheckedPreconditions(const FunctionDecl *FD) {
+  return hasCheckedContracts(FD, ContractKind::Pre);
+}
+
+bool CodeGenFunction::hasCheckedPostconditions(const FunctionDecl *FD) {
+  return hasCheckedContracts(FD, ContractKind::Post);
+}
+
 bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
   const auto *FD = cast<FunctionDecl>(GD.getDecl());
   const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+
+  if (!hasCheckedFunctionContracts(FD))
+    return false;
 
   // The lambda static invoker forwards to the call operator, which evaluates
   // the contracts.
@@ -490,61 +530,66 @@ void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {
     EmitStmt(S);
 }
 
-void CodeGenFunction::BeginPostconditionsReturnBlock(const Stmt *Body) {
+void CodeGenFunction::BeginFunctionPostconditions() {
   assert(ContractsFD && !PostconditionsSavedReturnBlock.isValid());
-  auto Posts = ContractsFD->postconditions();
-  if (Posts.begin() == Posts.end())
+  if (!hasCheckedPostconditions(ContractsFD))
     return;
 
-  // Coroutines manage their own return path.
-  if (isa_and_nonnull<CoroutineBodyStmt>(Body))
-    return;
-
-  // The only cleanups between the prologue and the body are those for
-  // parameters destroyed in the callee. If there are none, the postconditions
-  // are emitted by FinishFunction.
-  if (EHStack.stable_begin() == PrologueCleanupDepth)
-    return;
-
-  // Make return statements branch to a block inside the scope of the
-  // parameter cleanups, where we evaluate the postconditions.
+  // [expr.call]p10, [stmt.return]p5: The postcondition assertions are
+  // evaluated after the result object has been initialized and the variables
+  // (and temporaries) of the function body have been destroyed, but before
+  // the function parameters are destroyed.
+  //
+  // The only cleanups on the stack at this point are those of the parameters
+  // which are destroyed in the callee, so make return statements branch to a
+  // block inside the scope of these cleanups. FinishFunction evaluates the
+  // postconditions there once the cleanups of the function body have been
+  // popped.
   PostconditionsSavedReturnBlock = ReturnBlock;
+  PostconditionsCleanupDepth = EHStack.stable_begin();
   ReturnBlock = getJumpDestInCurrentScope("contract.post");
 }
 
-void CodeGenFunction::EndPostconditionsReturnBlock() {
-  if (!PostconditionsSavedReturnBlock.isValid())
-    return;
+void CodeGenFunction::EmitFunctionPostconditions(SourceLocation EndLoc) {
+  assert(ContractsFD && PostconditionsSavedReturnBlock.isValid());
+  assert(EHStack.stable_begin() == PostconditionsCleanupDepth &&
+         "cleanups of the function body must have been popped");
 
   llvm::BasicBlock *PostBB = ReturnBlock.getBlock();
   ReturnBlock = PostconditionsSavedReturnBlock;
   PostconditionsSavedReturnBlock = JumpDest();
-  PostconditionsEmitted = true;
 
-  if (PostBB->use_empty() && !HaveInsertPoint()) {
-    // The end of the function is unreachable.
+  // Avoid emitting a separate block in simple cases, like EmitReturnBlock.
+  if (llvm::BasicBlock *CurBB = Builder.GetInsertBlock()) {
+    assert(!CurBB->hasTerminator() && "Unexpected terminated block.");
+    if (CurBB->empty() || PostBB->use_empty()) {
+      PostBB->replaceAllUsesWith(CurBB);
+      delete PostBB;
+    } else {
+      EmitBlock(PostBB);
+    }
+  } else if (PostBB->use_empty()) {
+    // The function never returns normally, so the postcondition assertions
+    // are never evaluated.
     delete PostBB;
     return;
-  }
-  if (PostBB->use_empty()) {
-    delete PostBB;
   } else {
-    EmitBlock(PostBB);
+    auto *BI = PostBB->hasOneUse()
+                   ? dyn_cast<llvm::BranchInst>(*PostBB->user_begin())
+                   : nullptr;
+    if (BI && BI->isUnconditional() && BI->getSuccessor(0) == PostBB) {
+      Builder.SetInsertPoint(BI->getParent());
+      BI->eraseFromParent();
+      delete PostBB;
+    } else {
+      EmitBlock(PostBB);
+    }
   }
-  EmitPostconditions();
-}
-
-void CodeGenFunction::EmitPostconditions() {
-  assert(ContractsFD && "no function contracts to emit");
-  auto Posts = ContractsFD->postconditions();
-  if (Posts.begin() == Posts.end())
-    return;
-
-  EnsureInsertPoint();
 
   // If evaluating a postcondition exits via an exception (e.g. because the
-  // violation handler throws when the semantic is 'observe'), the already
-  // constructed return object must be destroyed.
+  // violation handler throws), the behavior is as if the function body exited
+  // via that exception ([basic.contract.eval]p17). The result object, which
+  // has already been initialized, must be destroyed.
   EHScopeStack::stable_iterator CleanupDepth = EHStack.stable_begin();
   if (getLangOpts().Exceptions && ReturnValue.isValid() &&
       !FnRetTy->isReferenceType()) {
@@ -553,10 +598,14 @@ void CodeGenFunction::EmitPostconditions() {
                   /*useEHCleanupForArray=*/true);
   }
 
-  for (const ContractStmt *S : Posts)
+  for (const ContractStmt *S : ContractsFD->postconditions())
     EmitStmt(S);
 
   PopCleanupBlocks(CleanupDepth);
+
+  // The remainder of the epilogue is not part of any postcondition.
+  if (CGDebugInfo *DI = getDebugInfo())
+    DI->EmitLocation(Builder, EndLoc);
 }
 
 // Emit the contract expression.

@@ -454,12 +454,14 @@ public:
   /// so that the contracts are evaluated exactly once per call.
   const FunctionDecl *ContractsFD = nullptr;
 
-  /// When parameters are destroyed in the callee, the postconditions must be
-  /// evaluated before the parameter cleanups. In that case, ReturnBlock is
-  /// temporarily redirected to a block that evaluates the postconditions, and
-  /// this holds the original return block.
+  /// While emitting the body of a function with postcondition assertions,
+  /// ReturnBlock is redirected to a block in which FinishFunction evaluates
+  /// the postconditions, and this holds the original return block.
   JumpDest PostconditionsSavedReturnBlock;
-  bool PostconditionsEmitted = false;
+  /// The cleanup depth enclosing the cleanups of the function body, i.e.
+  /// everything but the cleanups of the parameters, when the function has
+  /// postcondition assertions.
+  EHScopeStack::stable_iterator PostconditionsCleanupDepth;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -2708,6 +2710,13 @@ public:
   /// Emit a test that checks if the return value \p RV is nonnull.
   void EmitReturnValueCheck(llvm::Value *RV);
 
+  /// Returns true if \p FD has function contract assertions, precondition
+  /// assertions or postcondition assertions (respectively) which are evaluated
+  /// with a checking semantic, i.e. which require code to be emitted.
+  static bool hasCheckedFunctionContracts(const FunctionDecl *FD);
+  static bool hasCheckedPreconditions(const FunctionDecl *FD);
+  static bool hasCheckedPostconditions(const FunctionDecl *FD);
+
   /// Returns true if the function contract assertions of the function being
   /// emitted as \p GD should be emitted in that function. This is false for
   /// structor variants and other functions that merely delegate to another
@@ -2717,18 +2726,15 @@ public:
   /// Emit the precondition assertions of \p FD.
   void EmitPreconditions(const FunctionDecl *FD);
 
-  /// Prepare for emitting the postconditions of ContractsFD before the
-  /// cleanups of parameters destroyed in the callee, if there are any.
-  void BeginPostconditionsReturnBlock(const Stmt *Body);
+  /// Prepare for evaluating the postcondition assertions of ContractsFD when
+  /// the function returns. Must be called after the function prologue and
+  /// before any part of the function body has been emitted.
+  void BeginFunctionPostconditions();
 
-  /// If BeginPostconditionsReturnBlock redirected the return block, emit it
-  /// along with the postconditions and restore the original return block.
-  void EndPostconditionsReturnBlock();
-
-  /// Emit the postcondition assertions of ContractsFD. Must be called on the
-  /// normal return path after the return value has been stored into
-  /// ReturnValue and all cleanups of the body have been run.
-  void EmitPostconditions();
+  /// Emit the postcondition assertions of ContractsFD on the normal return
+  /// path. Called by FinishFunction once all cleanups of the function body
+  /// have been popped, and before the cleanups of the parameters are.
+  void EmitFunctionPostconditions(SourceLocation EndLoc);
 
   /// EmitStartEHSpec - Emit the start of the exception spec.
   void EmitStartEHSpec(const Decl *D);
