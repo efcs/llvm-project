@@ -763,6 +763,10 @@ def err_module_odr_violation_record : Error<
   "%select{method %5|constructor|destructor}4 "
     "with %6 for %ordinal7 template argument|"
   "%select{method %5|constructor|destructor}4 "
+    "with %6 function contract specifier%s6|"
+  "%select{method %5|constructor|destructor}4 "
+    "with %ordinal6 function contract specifier|"
+  "%select{method %5|constructor|destructor}4 "
     "with %select{no body|body}6|"
   "%select{method %5|constructor|destructor}4 "
     "with body|"
@@ -781,6 +785,8 @@ def err_module_odr_violation_record : Error<
   "function template %4 with %ordinal5 template parameter with one type|"
   "function template %4 with %ordinal5 template parameter %select{not |}6"
     "being a template parameter pack|"
+  "function template %4 with %5 function contract specifier%s5|"
+  "function template %4 with %ordinal5 function contract specifier|"
   "}3">;
 
 def note_module_odr_violation_record : Note<"but in '%0' found "
@@ -814,6 +820,10 @@ def note_module_odr_violation_record : Note<"but in '%0' found "
   "%select{method %3|constructor|destructor}2 "
     "with %4 for %ordinal5 template argument|"
   "%select{method %3|constructor|destructor}2 "
+    "with %4 function contract specifier%s4|"
+  "%select{method %3|constructor|destructor}2 "
+    "with a different %ordinal4 function contract specifier|"
+  "%select{method %3|constructor|destructor}2 "
     "with %select{no body|body}4|"
   "%select{method %3|constructor|destructor}2 "
     "with different body|"
@@ -832,6 +842,9 @@ def note_module_odr_violation_record : Note<"but in '%0' found "
   "function template %2 with %ordinal3 template parameter with different type|"
   "function template %2 with %ordinal3 template parameter %select{not |}4"
     "being a template parameter pack|"
+  "function template %2 with %3 function contract specifier%s3|"
+  "function template %2 with a different %ordinal3 function contract "
+    "specifier|"
   "}1">;
 
 def err_module_odr_violation_field : Error<
@@ -900,7 +913,9 @@ def err_module_odr_violation_function : Error<
   "%ordinal4 parameter with type %5%select{| decayed from %7}6|"
   "%ordinal4 parameter with%select{out|}5 a default argument|"
   "%ordinal4 parameter with a default argument|"
-  "function body"
+  "function body|"
+  "%4 function contract specifier%s4|"
+  "%ordinal4 function contract specifier"
   "}3">;
 
 def note_module_odr_violation_function : Note<"but in '%0' found "
@@ -910,7 +925,9 @@ def note_module_odr_violation_function : Note<"but in '%0' found "
   "%ordinal2 parameter with type %3%select{| decayed from %5}4|"
   "%ordinal2 parameter with%select{out|}3 a default argument|"
   "%ordinal2 parameter with a different default argument|"
-  "a different body"
+  "a different body|"
+  "%2 function contract specifier%s2|"
+  "a different %ordinal2 function contract specifier"
   "}1">;
 
 def err_module_odr_violation_enum : Error<

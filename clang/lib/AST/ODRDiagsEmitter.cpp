@@ -10,6 +10,7 @@
 #include "clang/AST/DeclFriend.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/ODRHash.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/Basic/DiagnosticAST.h"
 #include "clang/Basic/Module.h"
 
@@ -38,6 +39,42 @@ static unsigned computeODRHash(const TemplateArgument &TA) {
   ODRHash Hasher;
   Hasher.AddTemplateArgument(TA);
   return Hasher.CalculateHash();
+}
+
+/// Find the function contract specifiers which apply to a definition of a
+/// function (see ODRHash::AddFunctionDecl).
+static ArrayRef<ContractStmt *> getContractsForODR(const FunctionDecl *FD) {
+  // The declarations of the function from different translation units have
+  // been merged into a single redeclaration chain by now. Only consider the
+  // declarations that preceded the definition in its translation unit.
+  if (const ContractSpecifierDecl *Contracts =
+          FD->getContractsInEffect(/*InSameModuleOnly=*/true))
+    return Contracts->contracts();
+  return {};
+}
+
+static SourceRange getContractsRange(const FunctionDecl *FD,
+                                     ArrayRef<ContractStmt *> Contracts) {
+  if (Contracts.empty())
+    return FD->getSourceRange();
+  return SourceRange(Contracts.front()->getBeginLoc(),
+                     Contracts.back()->getEndLoc());
+}
+
+/// Find the first difference between the function contract specifiers of two
+/// definitions of a function. Returns std::nullopt if there is none;
+/// otherwise the index of the first function contract specifier that differs,
+/// or the number of specifiers if the definitions have a different number of
+/// them.
+static std::optional<unsigned>
+findContractODRMismatch(ArrayRef<ContractStmt *> First,
+                        ArrayRef<ContractStmt *> Second) {
+  if (First.size() != Second.size())
+    return std::max(First.size(), Second.size());
+  for (unsigned I = 0, N = First.size(); I != N; ++I)
+    if (computeODRHash(First[I]) != computeODRHash(Second[I]))
+      return I;
+  return std::nullopt;
 }
 
 std::string ODRDiagsEmitter::getOwningModuleNameForDiagnostic(const Decl *D) {
@@ -940,6 +977,8 @@ bool ODRDiagsEmitter::diagnoseMismatch(
     MethodNoTemplateArguments,
     MethodDifferentNumberTemplateArguments,
     MethodDifferentTemplateArgument,
+    MethodContractCount,
+    MethodContract,
     MethodSingleBody,
     MethodDifferentBody,
     FriendTypeFunction,
@@ -952,6 +991,8 @@ bool ODRDiagsEmitter::diagnoseMismatch(
     FunctionTemplateParameterDifferentDefaultArgument,
     FunctionTemplateParameterDifferentType,
     FunctionTemplatePackParameter,
+    FunctionTemplateContractCount,
+    FunctionTemplateContract,
   };
   auto DiagError = [FirstRecord, &FirstModule,
                     this](SourceLocation Loc, SourceRange Range,
@@ -1228,6 +1269,26 @@ bool ODRDiagsEmitter::diagnoseMismatch(
         DiagMethodNote(MethodDifferentTemplateArgument) << SecondTA << i + 1;
         return true;
       }
+    }
+
+    ArrayRef<ContractStmt *> FirstContracts = getContractsForODR(FirstMethod);
+    ArrayRef<ContractStmt *> SecondContracts = getContractsForODR(SecondMethod);
+    if (std::optional<unsigned> Index =
+            findContractODRMismatch(FirstContracts, SecondContracts)) {
+      if (FirstContracts.size() != SecondContracts.size()) {
+        DiagMethodError(MethodContractCount)
+            << (unsigned)FirstContracts.size()
+            << getContractsRange(FirstMethod, FirstContracts);
+        DiagMethodNote(MethodContractCount)
+            << (unsigned)SecondContracts.size()
+            << getContractsRange(SecondMethod, SecondContracts);
+      } else {
+        DiagMethodError(MethodContract)
+            << (*Index + 1) << FirstContracts[*Index]->getSourceRange();
+        DiagMethodNote(MethodContract)
+            << (*Index + 1) << SecondContracts[*Index]->getSourceRange();
+      }
+      return true;
     }
 
     // Compute the hash of the method as if it has no body.
@@ -1545,6 +1606,29 @@ bool ODRDiagsEmitter::diagnoseMismatch(
         }
       }
     }
+
+    const FunctionDecl *FirstFunction = FirstTemplate->getTemplatedDecl();
+    const FunctionDecl *SecondFunction = SecondTemplate->getTemplatedDecl();
+    ArrayRef<ContractStmt *> FirstContracts = getContractsForODR(FirstFunction);
+    ArrayRef<ContractStmt *> SecondContracts =
+        getContractsForODR(SecondFunction);
+    if (std::optional<unsigned> Index =
+            findContractODRMismatch(FirstContracts, SecondContracts)) {
+      if (FirstContracts.size() != SecondContracts.size()) {
+        DiagTemplateError(FunctionTemplateContractCount)
+            << (unsigned)FirstContracts.size()
+            << getContractsRange(FirstFunction, FirstContracts);
+        DiagTemplateNote(FunctionTemplateContractCount)
+            << (unsigned)SecondContracts.size()
+            << getContractsRange(SecondFunction, SecondContracts);
+      } else {
+        DiagTemplateError(FunctionTemplateContract)
+            << (*Index + 1) << FirstContracts[*Index]->getSourceRange();
+        DiagTemplateNote(FunctionTemplateContract)
+            << (*Index + 1) << SecondContracts[*Index]->getSourceRange();
+      }
+      return true;
+    }
     break;
   }
   }
@@ -1670,6 +1754,8 @@ bool ODRDiagsEmitter::diagnoseMismatch(
     ParameterSingleDefaultArgument,
     ParameterDifferentDefaultArgument,
     FunctionBody,
+    FunctionContractCount,
+    FunctionContract,
   };
 
   std::string FirstModule = getOwningModuleNameForDiagnostic(FirstFunction);
@@ -1778,6 +1864,36 @@ bool ODRDiagsEmitter::diagnoseMismatch(
 
     assert(computeODRHash(FirstParam) == computeODRHash(SecondParam) &&
            "Undiagnosed parameter difference.");
+  }
+
+  // The function contract specifiers are part of the definition.
+  ArrayRef<ContractStmt *> FirstContracts = getContractsForODR(FirstFunction);
+  ArrayRef<ContractStmt *> SecondContracts = getContractsForODR(SecondFunction);
+  if (std::optional<unsigned> Index =
+          findContractODRMismatch(FirstContracts, SecondContracts)) {
+    if (FirstContracts.size() != SecondContracts.size()) {
+      SourceRange FirstRange = getContractsRange(FirstFunction, FirstContracts);
+      SourceRange SecondRange =
+          getContractsRange(SecondFunction, SecondContracts);
+      DiagError(FirstContracts.empty() ? FirstFunction->getLocation()
+                                       : FirstRange.getBegin(),
+                FirstRange, FunctionContractCount)
+          << (unsigned)FirstContracts.size();
+      DiagNote(SecondContracts.empty() ? SecondFunction->getLocation()
+                                       : SecondRange.getBegin(),
+               SecondRange, FunctionContractCount)
+          << (unsigned)SecondContracts.size();
+    } else {
+      const ContractStmt *FirstContract = FirstContracts[*Index];
+      const ContractStmt *SecondContract = SecondContracts[*Index];
+      DiagError(FirstContract->getBeginLoc(), FirstContract->getSourceRange(),
+                FunctionContract)
+          << (*Index + 1);
+      DiagNote(SecondContract->getBeginLoc(), SecondContract->getSourceRange(),
+               FunctionContract)
+          << (*Index + 1);
+    }
+    return true;
   }
 
   // If no error has been generated before now, assume the problem is in
