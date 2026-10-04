@@ -4122,6 +4122,51 @@ void ContractSpecifierDecl::setOwningFunction(DeclContext *FD) {
     RND->setDeclContext(FD);
 }
 
+ContractSpecifierDecl::Difference
+ContractSpecifierDecl::findFirstDifference(const ASTContext &Ctx,
+                                           const ContractSpecifierDecl *X,
+                                           const ContractSpecifierDecl *Y) {
+  ArrayRef<ContractStmt *> XContracts, YContracts;
+  if (X)
+    XContracts = X->contracts();
+  if (Y)
+    YContracts = Y->contracts();
+
+  Difference Diff;
+  if (XContracts.size() != YContracts.size()) {
+    Diff.Kind = DifferenceKind::NumContracts;
+    return Diff;
+  }
+
+  for (unsigned I = 0, N = XContracts.size(); I != N; ++I) {
+    const ContractStmt *XC = XContracts[I];
+    const ContractStmt *YC = YContracts[I];
+    Diff.Index = I;
+    if (XC->getContractKind() != YC->getContractKind()) {
+      Diff.Kind = DifferenceKind::ContractKind;
+      return Diff;
+    }
+    if (XC->hasResultName() != YC->hasResultName()) {
+      Diff.Kind = DifferenceKind::ResultName;
+      return Diff;
+    }
+
+    llvm::FoldingSetNodeID XID, YID;
+    bool XHasLambdas =
+        XC->getCond()->ProfileContractPredicate(XID, Ctx, X->getDeclContext());
+    bool YHasLambdas =
+        YC->getCond()->ProfileContractPredicate(YID, Ctx, Y->getDeclContext());
+    if (XID != YID) {
+      Diff.Kind = DifferenceKind::Predicate;
+      return Diff;
+    }
+    Diff.ComparedLambdas |= XHasLambdas || YHasLambdas;
+  }
+
+  Diff.Index = 0;
+  return Diff;
+}
+
 bool ContractSpecifierDecl::hasInventedPlaceholdersTypes() const {
   auto *CRND = getCanonicalResultName();
   return CRND && CRND->hasInventedPlaceholderType();

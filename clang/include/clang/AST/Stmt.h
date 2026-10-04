@@ -57,6 +57,7 @@ class ASTContext;
 class Attr;
 class CapturedDecl;
 class Decl;
+class DeclContext;
 class Expr;
 class AddrLabelExpr;
 class LabelDecl;
@@ -1653,6 +1654,29 @@ public:
   /// only be true when we try to merge two declarations within modules.
   void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
                bool Canonical, bool ProfileLambdaExpr = false) const;
+
+  /// Produce a canonical representation of the predicate of a function
+  /// contract assertion, for determining whether two function contract
+  /// specifiers are the same ([dcl.contract.func]p5).
+  ///
+  /// This is the canonical profile of the statement, except that entities
+  /// declared within the predicate (the closure types of lambda-expressions
+  /// and their members, local variables, ...) are identified by their
+  /// structure and the position of their declaration rather than by their
+  /// identity. As a result, two predicates which consist of the same sequence
+  /// of tokens (modulo renaming of the function parameters, template
+  /// parameters and result binding) have the same profile even if they
+  /// contain lambda-expressions.
+  ///
+  /// \param PredicateContext the declaration context the predicate appears in;
+  /// that is, the function declaration the function contract specifier
+  /// appertains to.
+  ///
+  /// \returns true if a lambda-expression within the predicate was profiled
+  /// structurally.
+  bool ProfileContractPredicate(llvm::FoldingSetNodeID &ID,
+                                const ASTContext &Context,
+                                const DeclContext *PredicateContext) const;
 
   /// Calculate a unique representation for a statement that is
   /// stable across compiler invocations.

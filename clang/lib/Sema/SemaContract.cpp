@@ -267,6 +267,9 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     // contracts (i.e., contracts whose DeclContext matches the declaration).
     // Skip the implicit instantiation which won't have contracts.
     for (auto *Redecl : OldDecl->redecls()) {
+      // The new declaration may already be part of the redeclaration chain.
+      if (Redecl == NewDecl)
+        continue;
       if (Redecl->getTemplateSpecializationKind() == TSK_ExplicitSpecialization &&
           Redecl->hasContracts() &&
           Redecl->getContracts()->getDeclContext() == Redecl) {
@@ -313,12 +316,13 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     DK_Cond
   };
   unsigned ContractIndex = 0;
+  bool ComparedLambdas = false;
 
-  // p2900 [basic.contract.func]
-  // A declaration E of a function f that is not a first declaration shall have
-  // either no function contract-specifier-seq or the same
-  // function-contract-specifier-seq as any first declaration D reachable from
-  // E.
+  // [dcl.contract.func]p4:
+  //   A declaration D of a function or function template f that is not a first
+  //   declaration shall have either no function-contract-specifier-seq or the
+  //   same function-contract-specifier-seq as any first declaration F
+  //   reachable from D.
   const DifferenceKind DK = [&] {
     // Contracts may be omitted from following declarations.
     if (NewContracts.empty())
@@ -328,27 +332,45 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     if (OrigContracts.empty())
       return DK_OrigMissing;
 
-    if (OrigContracts.size() != NewContracts.size())
-      return DK_NumContracts;
-
     // ... And if they exist on the original declaration, they must be the same.
-    for (; ContractIndex < OrigContracts.size(); ++ContractIndex) {
-      auto *OC = OrigContracts[ContractIndex];
-      auto *NC = NewContracts[ContractIndex];
-
-      if (OC->getContractKind() != NC->getContractKind())
-        return DK_Kind;
-      if (OC->hasResultName() != NC->hasResultName())
-        return DK_ResultName;
-      if (!Context.hasSameExpr(OC->getCond(), NC->getCond()))
-        return DK_Cond;
+    ContractSpecifierDecl::Difference Diff =
+        ContractSpecifierDecl::findFirstDifference(Context, OrigContractSpec,
+                                                   NewContractSpec);
+    ContractIndex = Diff.Index;
+    ComparedLambdas = Diff.ComparedLambdas;
+    switch (Diff.Kind) {
+    case ContractSpecifierDecl::DifferenceKind::None:
+      return DK_None;
+    case ContractSpecifierDecl::DifferenceKind::NumContracts:
+      return DK_NumContracts;
+    case ContractSpecifierDecl::DifferenceKind::ContractKind:
+      return DK_Kind;
+    case ContractSpecifierDecl::DifferenceKind::ResultName:
+      return DK_ResultName;
+    case ContractSpecifierDecl::DifferenceKind::Predicate:
+      return DK_Cond;
     }
-    return DK_None;
+    llvm_unreachable("unhandled difference kind");
   }();
 
   // Nothing to diagnose.
-  if (DK == DK_None)
+  if (DK == DK_None) {
+    // [dcl.contract.func]p5: If this condition is not met solely due to the
+    // comparison of two lambda-expressions that are contained within P1 and
+    // P2, no diagnostic is required.
+    //
+    // Within a translation unit the closure types of two lambda-expressions
+    // are always distinct. We nevertheless treat lambda-expressions which
+    // consist of the same tokens as being the same, as is the case for
+    // declarations in different translation units.
+    bool InSameTU = !OrigDecl->isFromASTFile() || !OrigDecl->getOwningModule();
+    if (ComparedLambdas && InSameTU)
+      Diag(NewContracts.front()->getBeginLoc(),
+           diag::ext_contract_redecl_repeats_lambda)
+          << SourceRange(NewContracts.front()->getBeginLoc(),
+                         NewContracts.back()->getEndLoc());
     return false;
+  }
 
   NewContractSpec->setInvalidDecl(true);
 

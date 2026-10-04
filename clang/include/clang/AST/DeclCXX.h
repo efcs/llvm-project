@@ -4747,6 +4747,51 @@ public:
   /// Update the declaration context of this contract sequence and of any result name declarations contained within it.
   void setOwningFunction(DeclContext *FD);
 
+  /// The kind of the first difference between two
+  /// function-contract-specifier-seqs.
+  enum class DifferenceKind {
+    /// The sequences are the same.
+    None,
+    /// The sequences consist of a different number of specifiers.
+    NumContracts,
+    /// One specifier is a precondition, the other is a postcondition.
+    ContractKind,
+    /// Only one of the specifiers has a result-name-introducer.
+    ResultName,
+    /// The predicates of the specifiers are not the same.
+    Predicate,
+  };
+
+  struct Difference {
+    DifferenceKind Kind = DifferenceKind::None;
+
+    /// The index of the first specifier that differs, unless the sequences
+    /// consist of a different number of specifiers.
+    unsigned Index = 0;
+
+    /// Whether the predicates contain lambda-expressions that were considered
+    /// to be the same because they have the same structure. Strictly speaking
+    /// such lambda-expressions have different closure types if they appear in
+    /// the same translation unit.
+    bool ComparedLambdas = false;
+
+    explicit operator bool() const { return Kind != DifferenceKind::None; }
+  };
+
+  /// Determine whether two function-contract-specifier-seqs are the same
+  /// ([dcl.contract.func]p5): that is, whether they consist of the same
+  /// function-contract-specifiers in the same order, where the predicates of
+  /// two specifiers are the same if they would satisfy the one-definition
+  /// rule if placed in function definitions on the respective declarations,
+  /// except for renaming of parameters, template parameters and the result
+  /// binding.
+  ///
+  /// Either sequence may be null, which represents the absence of a
+  /// function-contract-specifier-seq.
+  static Difference findFirstDifference(const ASTContext &Ctx,
+                                        const ContractSpecifierDecl *X,
+                                        const ContractSpecifierDecl *Y);
+
   SourceRange getSourceRange() const override LLVM_READONLY;
 
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

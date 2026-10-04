@@ -13196,6 +13196,12 @@ def note_contract_spec_seq_arity_mismatch : Note<
 def note_previous_contract_spec_seq : Note<
   "previously declared %select{without|with %1}0 contracts here">;
 
+def ext_contract_redecl_repeats_lambda : Extension<
+  "redeclaration repeats a function contract specifier that contains a "
+  "lambda expression; the closure types are distinct, so the program is "
+  "ill-formed, no diagnostic required">,
+  InGroup<DiagGroup<"contract-lambda-redeclaration">>;
+
 def note_mismatched_contract : Note<
   "in contract specified here">;
 def note_previous_contracts : Note<
