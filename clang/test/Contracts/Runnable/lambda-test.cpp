@@ -6,16 +6,21 @@
 #include "my_assert.h"
 #include "contracts-runtime.h"
 
+// Globals named inside a contract predicate (including inside a lambda in the
+// predicate) are const, so record the static's address through a function.
 const int *fz = nullptr;
-constexpr int f(int x) pre([x=x](int y) { static int z(0);  z = x; fz = &z; return y > x; }(1000)) {
+constexpr bool set_fz(const int *p) { fz = p; return true; }
+constexpr int f(int x) pre([x=x](int y) { static int z(0);  z = x; set_fz(&z); return y > x; }(1000)) {
   return x;
 }
 
 template <class T>
 const T* gz = nullptr;
+template <class T>
+constexpr bool set_gz(const T *p) { gz<T> = p; return true; }
 
 template <class T>
-constexpr T g(T x) pre([x=x](T y) { static T z(0); z = x;  gz<T> = &z; return y > x; }(1000)) {
+constexpr T g(T x) pre([x=x](T y) { static T z(0); z = x;  set_gz<T>(&z); return y > x; }(1000)) {
   return x;
 }
 template int g(int);
@@ -24,7 +29,7 @@ template long g(long);
 struct A {
   constexpr A() : z(0) {}
 
-  int f(int x) pre([=,this](int y) { static A a; gz<A> = &a; a.z = z; return y > x; }(1000)) {
+  int f(int x) pre([=,this](int y) { static A a; set_gz<A>(&a); a.z = z; return y > x; }(1000)) {
     return x;
   }
 
@@ -35,7 +40,7 @@ struct A {
 struct B {
   constexpr B() : z(0) {}
 
-  int f(int x) pre([z=z]() { static B a; gz<B> = &a; a.z = z; return true; }()) {
+  int f(int x) pre([z=z]() { static B a; set_gz<B>(&a); a.z = z; return true; }()) {
     return x;
   }
 
