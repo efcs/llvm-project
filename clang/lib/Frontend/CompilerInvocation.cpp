@@ -619,6 +619,13 @@ static bool FixupInvocation(CompilerInvocation &Invocation,
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << GetInputKindName(IK) << "-fsycl";
 
+  // Contracts are a C++26 feature that is also accepted as an extension in
+  // C++11 and later. They are not supported in C or C++98.
+  if (LangOpts.Contracts && !LangOpts.CPlusPlus11)
+    Diags.Report(diag::err_drv_argument_not_allowed_with)
+        << "-fcontracts"
+        << LangStandard::getLangStandardForKind(LangOpts.LangStd).getName();
+
   if (Args.hasArg(OPT_fgnu89_inline) && LangOpts.CPlusPlus)
     Diags.Report(diag::err_drv_argument_not_allowed_with)
         << "-fgnu89-inline" << GetInputKindName(IK);
@@ -3770,11 +3777,6 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
          serializeSanitizerKinds(Opts.UBSanFeatureIgnoredSanitize))
       GenerateArg(Consumer, OPT_fsanitize_ignore_for_ubsan_feature_EQ,
                   Sanitizer);
-
-
-    for (StringRef ContractGroup :
-         Opts.ContractOpts.serializeContractGroupArgs())
-      GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
     return;
   }
 
@@ -4026,9 +4028,10 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
   if (!Opts.RandstructSeed.empty())
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
 
-  for (StringRef ContractGroup :
+  for (const std::string &ContractGroup :
        Opts.ContractOpts.serializeContractGroupArgs())
-    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ, ContractGroup);
+    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ,
+                ContractGroup);
 
   if (Opts.AllocTokenMax)
     GenerateArg(Consumer, OPT_falloc_token_max_EQ,
@@ -4752,8 +4755,7 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
 
   std::vector<std::string> ContractGroupValues =
       Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
-  Opts.ContractOpts.parseContractGroups(ContractGroupValues,
-                                           EmitContractDiag);
+  Opts.ContractOpts.parseContractGroups(ContractGroupValues, EmitContractDiag);
 
   return Diags.getNumErrors() == NumErrorsBefore;
 }

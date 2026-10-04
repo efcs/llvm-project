@@ -1,4 +1,4 @@
-//===- Contracts.cpp - C Language Family Language Options -----------------===//
+//===- ContractOptions.cpp - C++ Contract Options --------------------------===//
 //
 // Part of the LLVM Project, under the Apache License v2.0 with LLVM Exceptions.
 // See https://llvm.org/LICENSE.txt for license information.
@@ -11,6 +11,7 @@
 //===----------------------------------------------------------------------===//
 
 #include "clang/Basic/ContractOptions.h"
+#include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringSwitch.h"
@@ -55,19 +56,22 @@ static const char *semanticToString(ContractEvaluationSemantic Sem) {
 }
 
 std::vector<std::string> ContractOptions::serializeContractGroupArgs() const {
+  // The default semantic is serialized separately as
+  // -fcontract-evaluation-semantic=, so only the per-group entries are
+  // emitted here. Sort them so the output is deterministic.
   std::vector<std::string> ArgStrings;
-
-  ArgStrings.reserve(SemanticsByGroup.size() + 1);
-  ArgStrings.push_back(semanticToString(DefaultSemantic));
+  ArgStrings.reserve(SemanticsByGroup.size());
   for (const auto &Group : this->SemanticsByGroup) {
     ArgStrings.push_back(llvm::Twine(Group.first(), "=")
                              .concat(semanticToString(Group.second))
                              .str());
   }
+  llvm::sort(ArgStrings);
   return ArgStrings;
 }
 
-std::optional<ContractEvaluationSemantic> semanticFromString(StringRef Str) {
+static std::optional<ContractEvaluationSemantic>
+semanticFromString(StringRef Str) {
   return llvm::StringSwitch<std::optional<ContractEvaluationSemantic>>(Str)
       .Case("ignore", ContractEvaluationSemantic::Ignore)
       .Case("enforce", ContractEvaluationSemantic::Enforce)

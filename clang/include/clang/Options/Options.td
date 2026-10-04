@@ -1835,8 +1835,11 @@ def fcontract_evaluation_semantic_EQ : Joined<["-"], "fcontract-evaluation-seman
 
 def fcontract_group_evaluation_semantic_EQ : CommaJoined<["-"], "fcontract-group-evaluation-semantic=">,
   Visibility<[ClangOption, CC1Option]>,
-  HelpText<"Clang extension. Enable or disable contracts by group. The argument is a comma-separated "
-           "sequence of one or more group names, each prefixed by '+' or '-'.">;
+  HelpText<"Clang extension. Set the evaluation semantic of contracts by group. The argument is a "
+           "comma-separated list of '<group>=<semantic>' entries, where <semantic> is one of 'ignore', "
+           "'observe', 'enforce' or 'quick_enforce'. A contract annotated with "
+           "[[clang::contract_group(\"a.b\")]] uses the semantic of the most specific matching group "
+           "('a.b', then 'a'), falling back to -fcontract-evaluation-semantic=.">;
 
 defm contract_exceptions : BoolFOption<"contract-exceptions",
   LangOpts<"ContractExceptions">, DefaultTrue,

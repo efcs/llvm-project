@@ -581,18 +581,14 @@ public:
   /// The default stream kind used for HIP kernel launching.
   GPUDefaultStreamKind GPUDefaultStream;
 
-  /// C++ contracts evaluation mode
-  ContractEvaluationSemantic ContractEvalSemantic;
-
-  /// A list of options pretaining to c++ contracts and clang attributes about
-  /// them.
+  /// Options pertaining to C++ contracts: the default evaluation semantic and
+  /// the per-group semantics set with -fcontract-group-evaluation-semantic=.
   ContractOptions ContractOpts;
 
   /// Which overflow patterns should be excluded from sanitizer instrumentation
   unsigned OverflowPatternExclusionMask = 0;
 
   std::vector<std::string> OverflowPatternExclusionValues;
-
 
   /// The seed used by the randomize structure layout feature.
   std::string RandstructSeed;

@@ -46,7 +46,7 @@ enum class ContractGroupDiagnostic {
 /// The kind of contract.
 ///
 /// NOTE: These enumerations _do not_ match the values in
-/// std::contracts::assertion_kind because they start at 1.
+/// std::contracts::assertion_kind, which start at 1. See ContractAssertionKind.
 enum class ContractKind {
   /// A function precondition
   Pre,
@@ -71,15 +71,16 @@ enum class ContractAssertionKind {
   CAssert = 5
 };
 
-/// Contract evaluation mode. Determines whether to check contracts, and
-// whether contract failures cause compile errors.
-//
-// These values match up with std::contracts::evaluation_semantic. However, only
-// `enforce` and `observe` actually appear in STL enum.
+/// Contract evaluation semantic. Determines whether to check contracts, and
+/// what happens when a contract is violated.
+///
+/// NOTE: These values are Clang's internal encoding and are passed verbatim
+/// to the runtime entry point '__handle_contract_violation_v3'. They do *not*
+/// match std::contracts::evaluation_semantic (ignore=1, observe=2, enforce=3,
+/// quick_enforce=4); the library translates them. Do not renumber these
+/// without updating the runtime.
 enum class ContractEvaluationSemantic {
   // Contracts are parsed, syntax checked and type checked, but never evaluated.
-  // FIXME(EricWF): This doesn't yet map to an actual enumerator in
-  //  std::contracts::evaluation_semantic
   Ignore = 0,
 
   // Contracts are run, failures are reported, and when a contract fails the
@@ -92,9 +93,8 @@ enum class ContractEvaluationSemantic {
   // contracts are true for optimizing.
   Observe = 2,
 
-  // Contracts are run, failures cause an immediate trap
-  // FIXME(EricWF): This doesn't yet map to an actual enumerator in
-  //  std::contracts::evaluation_semantic
+  // Contracts are run, failures cause an immediate trap without invoking the
+  // contract-violation handler.
   QuickEnforce = 3,
 };
 
@@ -123,21 +123,21 @@ enum ContractScopeOffset {
   CSO_FunctionContext
 };
 
-/// Represents the set of contract groups that have been enabled or disabled
-/// on the command line using '-fclang-contract-groups='.
+/// Represents the contract evaluation semantics selected on the command line.
 ///
-/// A contract group is a string consisting of identifiers join by '.'. For
-/// example, "a.b.c" is a contract group with three subgroups.
+/// The default semantic is set with '-fcontract-evaluation-semantic=<sem>'.
+/// Individual contract groups can be given a different semantic with
+/// '-fcontract-group-evaluation-semantic=<group>=<sem>[,<group>=<sem>...]'.
 ///
-/// When determining if a particular contract check is enabled, we check if
-/// the user has enabled/disabled the group/subgroup that the check belongs to,
-/// in order of specificity. For example, passing
-///   '-fclang-contract-groups=-std,+std.hardening,-std.hardening.foo'
-/// will enable 'std.hardening.baz', but disable 'std.hardening.foo.bar' and
-/// 'std.baz'.
+/// A contract group is a string consisting of identifiers joined by '.'. For
+/// example, "a.b.c" is a contract group with three subgroups. A contract is
+/// placed in a group with [[clang::contract_group("a.b.c")]].
 ///
-/// TODO(EricWF): Should we match in the same manner as clang-tidy checks?
-///    Specifically, allow the use of '*' and drop all notion of groups?
+/// When determining the semantic for a particular contract, the most specific
+/// group with an explicitly specified semantic wins. For example, passing
+///   '-fcontract-group-evaluation-semantic=std=ignore,std.hardening=enforce'
+/// will enforce 'std.hardening.foo', but ignore 'std.bar'. Contracts in groups
+/// with no matching entry use the default semantic.
 class ContractOptions {
 public:
   ContractOptions() = default;
