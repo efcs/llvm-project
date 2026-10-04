@@ -762,6 +762,8 @@ void ASTStmtWriter::VisitDeclRefExpr(DeclRefExpr *E) {
   CurrentPackingBits.addBit(E->refersToEnclosingVariableOrCapture());
   CurrentPackingBits.addBits(E->isNonOdrUse(), /*Width=*/2);
   CurrentPackingBits.addBit(E->isImmediateEscalating());
+  CurrentPackingBits.addBit(E->isConstified());
+  CurrentPackingBits.addBit(E->isInContractContext());
   CurrentPackingBits.addBit(E->getDecl() != E->getFoundDecl());
   CurrentPackingBits.addBit(E->hasQualifier());
   CurrentPackingBits.addBit(E->hasTemplateKWAndArgsInfo());

@@ -298,7 +298,7 @@ ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
   void *Mem = C.Allocate(
       totalSizeToAlloc<Stmt *, const Attr *>(1 + HasResultName, NumAttrs),
       alignof(ContractStmt));
-  return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName);
+  return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName, NumAttrs);
 }
 
 ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,

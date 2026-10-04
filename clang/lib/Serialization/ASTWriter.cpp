@@ -833,6 +833,7 @@ static void AddStmtsExprs(llvm::BitstreamWriter &Stream,
   RECORD(EXPR_OBJC_BOOL_LITERAL);
   RECORD(STMT_CXX_CATCH);
   RECORD(STMT_CXX_TRY);
+  RECORD(STMT_CXX_CONTRACT);
   RECORD(STMT_CXX_FOR_RANGE);
   RECORD(EXPR_CXX_OPERATOR_CALL);
   RECORD(EXPR_CXX_MEMBER_CALL);
@@ -1144,6 +1145,8 @@ void ASTWriter::WriteBlockInfoBlock() {
   RECORD(DECL_HLSL_BUFFER);
   RECORD(DECL_OPENACC_DECLARE);
   RECORD(DECL_OPENACC_ROUTINE);
+  RECORD(DECL_RESULT_NAME);
+  RECORD(DECL_CONTRACT_SPECIFIER);
 
   // Statements and Exprs can occur in the Decls and Types block.
   AddStmtsExprs(Stream, Record);
@@ -7572,6 +7575,7 @@ void ASTRecordWriter::AddCXXDefinitionData(const CXXRecordDecl *D) {
       BitsPacker CaptureBits;
       CaptureBits.addBit(Capture.isImplicit());
       CaptureBits.addBits(Capture.getCaptureKind(), /*Width=*/3);
+      CaptureBits.addBit(Capture.isCapturedAcrossContract());
       Record->push_back(CaptureBits);
 
       switch (Capture.getCaptureKind()) {
@@ -7588,6 +7592,8 @@ void ASTRecordWriter::AddCXXDefinitionData(const CXXRecordDecl *D) {
                                                     : SourceLocation());
         break;
       }
+      if (Capture.isCapturedAcrossContract())
+        AddSourceLocation(Capture.getContractLoc());
     }
   }
 }

@@ -897,7 +897,7 @@ void ASTDeclReader::VisitValueDecl(ValueDecl *VD) {
 }
 
 void ASTDeclReader::VisitResultNameDecl(ResultNameDecl *VD) {
-  VisitNamedDecl(VD);
+  VisitValueDecl(VD);
   VD->setFunctionScopeDepth(Record.readInt());
   bool IsCanonical = Record.readInt();
   if (!IsCanonical) {
@@ -1575,7 +1575,8 @@ void ASTDeclReader::VisitFieldDecl(FieldDecl *FD) {
   FD->Mutable = Record.readInt();
 
   unsigned Bits = Record.readInt();
-  FD->StorageKind = Bits >> 1;
+  FD->IsConstifiedCapture = (Bits >> 3) & 1;
+  FD->StorageKind = (Bits >> 1) & 3;
   if (FD->StorageKind == FieldDecl::ISK_CapturedVLAType)
     FD->CapturedVLAType =
         cast<VariableArrayType>(Record.readType().getTypePtr());
@@ -2106,22 +2107,24 @@ void ASTDeclReader::ReadCXXDefinitionData(
       bool IsImplicit = CaptureBits.getNextBit();
       auto Kind =
           static_cast<LambdaCaptureKind>(CaptureBits.getNextBits(/*Width=*/3));
+      bool CapturedAcrossContract = CaptureBits.getNextBit();
       switch (Kind) {
       case LCK_StarThis:
       case LCK_This:
       case LCK_VLAType:
         new (ToCapture)
             Capture(Loc, IsImplicit, Kind, nullptr, SourceLocation());
-        ToCapture++;
         break;
       case LCK_ByCopy:
       case LCK_ByRef:
         auto *Var = readDeclAs<ValueDecl>();
         SourceLocation EllipsisLoc = readSourceLocation();
         new (ToCapture) Capture(Loc, IsImplicit, Kind, Var, EllipsisLoc);
-        ToCapture++;
         break;
       }
+      if (CapturedAcrossContract)
+        ToCapture->setCapturedAcrossContract(true, readSourceLocation());
+      ToCapture++;
     }
   }
 }
