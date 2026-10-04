@@ -1487,8 +1487,21 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
 
   // The precondition assertions are evaluated before the function body, which
   // includes the function-try-block if there is one.
+  bool InitializedVTablePointers = false;
   if (ContractsFD && hasCheckedPreconditions(ContractsFD)) {
     assert(!DelegateToBase && "delegating destructor evaluating contracts");
+
+    // [class.cdtor]p4: A virtual function called during the evaluation of a
+    // precondition assertion of a destructor calls the final overrider in
+    // the destructor's class, so initialize the vtable pointers first.
+    if (!CodeGenUtils::canSkipVTablePointerInitialization(
+            getContext(), Dtor, hasCheckedFunctionContracts)) {
+      if (CGM.getCodeGenOpts().StrictVTablePointers &&
+          CGM.getCodeGenOpts().OptimizationLevel > 0)
+        CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
+      InitializeVTablePointers(Dtor->getParent());
+    }
+    InitializedVTablePointers = true;
 
     // [except.ctor]p3: If the destructor exits via an exception, e.g. one
     // thrown by the contract-violation handler, the subobjects are still
@@ -1542,7 +1555,9 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     EnterDtorCleanups(Dtor, Dtor_Base);
 
     // Initialize the vtable pointers before entering the body.
-    if (!CodeGenUtils::canSkipVTablePointerInitialization(getContext(), Dtor)) {
+    if (!InitializedVTablePointers &&
+        !CodeGenUtils::canSkipVTablePointerInitialization(
+            getContext(), Dtor, hasCheckedFunctionContracts)) {
       // Insert the llvm.launder.invariant.group intrinsic before initializing
       // the vptrs to cancel any previous assumptions we might have made.
       if (CGM.getCodeGenOpts().StrictVTablePointers &&
@@ -1912,7 +1927,8 @@ public:
     if (isEmptyFieldForLayout(Context, Field))
       return;
     unsigned FieldIndex = Field->getFieldIndex();
-    if (CodeGenUtils::fieldHasTrivialDestructorBody(Context, Field)) {
+    if (CodeGenUtils::fieldHasTrivialDestructorBody(
+            Context, Field, CodeGenFunction::hasCheckedFunctionContracts)) {
       if (!StartIndex)
         StartIndex = FieldIndex;
     } else if (StartIndex) {
