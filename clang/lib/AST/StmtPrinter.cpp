@@ -2546,6 +2546,15 @@ void StmtPrinter::VisitLambdaExpr(LambdaExpr *Node) {
     }
   }
 
+  // Print any function contract specifiers.
+  if (const ContractSpecifierDecl *Contracts =
+          Node->getCallOperator()->getContracts()) {
+    for (ContractStmt *Contract : Contracts->contracts()) {
+      OS << ' ';
+      Visit(Contract);
+    }
+  }
+
   // Print the body.
   OS << ' ';
   if (Policy.TerseOutput || Policy.SuppressLambdaBody)
@@ -2901,36 +2910,31 @@ void StmtPrinter::VisitCoyieldExpr(CoyieldExpr *S) {
 // C++ contracts
 
 void StmtPrinter::VisitContractStmt(ContractStmt *Node) {
-  const char *Keyword = [=]() {
-    switch (Node->getContractKind()) {
-    case ContractKind::Assert:
-      return "contract_assert";
-    case ContractKind::Pre:
-      return "pre";
-    case ContractKind::Post:
-      return "post";
-    }
-    llvm_unreachable("unhandled case");
-  }();
+  // A contract_assert is a statement on its own; preconditions and
+  // postconditions are printed inline as part of a function declarator.
+  bool IsAssert = Node->getContractKind() == ContractKind::Assert;
+  if (IsAssert)
+    Indent();
 
-  // Print the contract keyword...
-  OS << Keyword;
+  OS << Node->getContractKindString();
 
-  // Then any attributes...
-  // FIXME: We assume any attributes appear in this position rather than at the
-  // start of the statement.
-  llvm::ArrayRef<const Attr *> Attrs = Node->getAttrs();
-  for (const auto *Attr : Attrs) {
+  // Attributes appertaining to the contract are written after the keyword:
+  //   pre [[attr]] ( ... )
+  for (const Attr *A : Node->getAttrs()) {
     OS << " ";
-    Attr->printPretty(OS, Policy);
-    if (Attr == Attrs.back())
-      OS << " ";
+    A->printPretty(OS, Policy);
   }
+  if (!Node->getAttrs().empty())
+    OS << " ";
+
   OS << "(";
+  if (const ResultNameDecl *RND = Node->getResultName())
+    OS << RND->getDeclName() << " : ";
   PrintExpr(Node->getCond());
   OS << ")";
-  if (Node->getContractKind() == ContractKind::Assert)
-    OS << ";";
+
+  if (IsAssert)
+    OS << ";" << NL;
 }
 
 // Obj-C
