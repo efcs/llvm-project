@@ -1,4 +1,4 @@
-
+// RUN: %clang_cc1 -std=c++26 -verify -fcontracts -fsyntax-only %s
 // RUN: %clang_cc1 -std=c++2b -verify -fcontracts -fsyntax-only %s
 
 
@@ -75,7 +75,3 @@ void test_nested_lambda_implicit_capture() {
     }()) {};
 }
 
-int main() {
-    // The main function is empty as these tests are meant to check compile-time errors
-    return 0;
-}

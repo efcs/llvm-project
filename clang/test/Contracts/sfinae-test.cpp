@@ -1,4 +1,4 @@
-// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected -verify-ignore-unexpected=warning %s -fcontracts
+// RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
 // expected-no-diagnostics
 
