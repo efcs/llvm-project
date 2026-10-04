@@ -10630,6 +10630,69 @@ TEST_P(ASTImporterOptionSpecificTestBase, AutoResultName) {
   EXPECT_TRUE(RND->getType()->isIntegerType());
 }
 
+// The imported function must get its own ContractSpecifierDecl, ContractStmts
+// and ResultNameDecls; nothing may be shared with (or re-parented from) the
+// source AST.
+TEST_P(ASTImporterOptionSpecificTestBase, ContractsAreImportedNotShared) {
+  Decl *FromTU = getTuDecl(
+      R"(
+      int foo(const int x) __pre(x > 0) __post(r : r > x) __post(r2 : r2 != 0) {
+        return x + 1;
+      }
+      )",
+      Lang_CXX23);
+  auto *From = FirstDeclMatcher<FunctionDecl>().match(
+      FromTU, functionDecl(hasName("foo")));
+  ContractSpecifierDecl *FromCSD = From->getContracts();
+  ASSERT_TRUE(FromCSD);
+  ASSERT_EQ(FromCSD->getNumContracts(), 3u);
+
+  FunctionDecl *To = Import(From, Lang_CXX23);
+  ASSERT_TRUE(To);
+  ContractSpecifierDecl *ToCSD = To->getContracts();
+  ASSERT_TRUE(ToCSD);
+  EXPECT_NE(ToCSD, FromCSD);
+  EXPECT_EQ(ToCSD->getDeclContext(), To);
+  EXPECT_EQ(&ToCSD->getASTContext(), &To->getASTContext());
+
+  // The source AST is left untouched.
+  EXPECT_EQ(From->getContracts(), FromCSD);
+  EXPECT_EQ(FromCSD->getDeclContext(), From);
+  for (const ResultNameDecl *RND : FromCSD->result_names())
+    EXPECT_EQ(RND->getDeclContext(), From);
+
+  ASSERT_EQ(ToCSD->getNumContracts(), 3u);
+  for (auto [FromC, ToC] :
+       llvm::zip(FromCSD->contracts(), ToCSD->contracts())) {
+    EXPECT_NE(FromC, ToC);
+    EXPECT_EQ(FromC->getContractKind(), ToC->getContractKind());
+    EXPECT_EQ(FromC->hasResultName(), ToC->hasResultName());
+  }
+
+  // The precondition refers to the imported parameter.
+  const auto *Cmp = cast<BinaryOperator>(
+      ToCSD->contracts()[0]->getCond()->IgnoreImplicit());
+  const auto *Ref = cast<DeclRefExpr>(Cmp->getLHS()->IgnoreImplicit());
+  EXPECT_EQ(Ref->getDecl(), To->getParamDecl(0));
+
+  // The result names are imported, typed, owned by the imported function, and
+  // the second one refers to the first as its canonical result name.
+  SmallVector<const ResultNameDecl *> ToRNs(ToCSD->result_names().begin(),
+                                            ToCSD->result_names().end());
+  ASSERT_EQ(ToRNs.size(), 2u);
+  for (const ResultNameDecl *RND : ToRNs) {
+    EXPECT_EQ(RND->getDeclContext(), To);
+    EXPECT_TRUE(RND->getType()->isIntegerType());
+    EXPECT_EQ(&RND->getASTContext(), &To->getASTContext());
+  }
+  EXPECT_TRUE(ToRNs[0]->isCanonicalResultName());
+  EXPECT_EQ(ToRNs[1]->getCanonicalResultName(), ToRNs[0]);
+  const auto *PostCmp = cast<BinaryOperator>(
+      ToCSD->contracts()[1]->getCond()->IgnoreImplicit());
+  EXPECT_EQ(cast<DeclRefExpr>(PostCmp->getLHS()->IgnoreImplicit())->getDecl(),
+            ToRNs[0]);
+}
+
 // Ensure we correctly import result names with the reference to the canonical
 // result name for the contract specifier.
 TEST_P(ASTImporterOptionSpecificTestBase, CanonicalResultName) {
