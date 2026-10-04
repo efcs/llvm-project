@@ -109,32 +109,46 @@ struct WithVBase : virtual VBase {
 // MSVC: ret
 WithVBase::WithVBase(int) {}
 
-// The complete destructor delegates to the base destructor.
+// The postcondition has to be evaluated after the virtual base has been
+// destroyed, so the complete destructor cannot delegate to the base
+// destructor: both run the user-written body and evaluate the contracts. See
+// contracts-destructor-vbases.cpp.
 //
 // CHECK-LABEL: define {{.*}} @_ZN9WithVBaseD2Ev(
 // CHECK: {{call|invoke}} {{.*}} @_Z9pre_checkv()
+// CHECK-NOT: _check
 // CHECK: {{call|invoke}} {{.*}} @_Z10post_checkv()
+// CHECK-NOT: _check
 // CHECK: ret
 //
 // CHECK-LABEL: define {{.*}} @_ZN9WithVBaseD1Ev(
+// CHECK-NOT: @_ZN9WithVBaseD2Ev(
+// CHECK: {{call|invoke}} {{.*}} @_Z9pre_checkv()
 // CHECK-NOT: _check
-// CHECK: {{call|invoke}} {{.*}} @_ZN9WithVBaseD2Ev(
+// CHECK: call {{.*}} @_ZN5VBaseD2Ev(
+// CHECK: {{call|invoke}} {{.*}} @_Z10post_checkv()
 // CHECK-NOT: _check
+// CHECK-NOT: @_ZN9WithVBaseD2Ev(
 // CHECK: ret
 //
 // MSVC-LABEL: define {{.*}} @"??1WithVBase@@QEAA@XZ"(
 // MSVC: {{call|invoke}} {{.*}} @"?pre_check@@YA_NXZ"()
 // MSVC: {{call|invoke}} {{.*}} @"?post_check@@YA_NXZ"()
 // MSVC: ret
-//
-// MSVC-LABEL: define {{.*}} @"??_DWithVBase@@QEAAXXZ"(
-// MSVC-NOT: _check
-// MSVC: ret
 WithVBase::~WithVBase() {}
 
 // Destroying a complete object requires the complete (Itanium D1) / vbase
 // (MSVC ??_D) destructor to be emitted.
 void use_withvbase() { WithVBase W(1); }
+// MSVC-LABEL: define {{.*}} @"??_DWithVBase@@QEAAXXZ"(
+// MSVC-NOT: @"??1WithVBase@@QEAA@XZ"(
+// MSVC: {{call|invoke}} {{.*}} @"?pre_check@@YA_NXZ"()
+// MSVC-NOT: _check
+// MSVC: call {{.*}} @"??1VBase@@QEAA@XZ"(
+// MSVC: {{call|invoke}} {{.*}} @"?post_check@@YA_NXZ"()
+// MSVC-NOT: _check
+// MSVC-NOT: @"??1WithVBase@@QEAA@XZ"(
+// MSVC: ret
 
 // An inheriting constructor calls the inherited constructor, which evaluates
 // the contracts.

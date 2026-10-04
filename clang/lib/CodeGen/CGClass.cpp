@@ -1303,6 +1303,34 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
   CM.finish();
 }
 
+/// Checks whether the complete object destructor of the given destructor can
+/// be emitted as a call to the base object destructor followed by the
+/// destruction of the virtual bases.
+bool CodeGenFunction::IsDestructorDelegationValid(
+    const CXXDestructorDecl *Dtor) {
+  // In the Microsoft ABI the complete destructor may have to be emitted in a
+  // translation unit which does not define the destructor. We can only
+  // delegate in that case.
+  const Stmt *Body = Dtor->getBody();
+  if (!Body)
+    return true;
+
+  // We can't delegate if the body is a function-try-block, because we'd
+  // introduce *two* handler blocks.
+  if (isa<CXXTryStmt>(Body))
+    return false;
+
+  // The postcondition assertions of a destructor are evaluated after all
+  // subobjects have been destroyed, including the virtual bases for a complete
+  // object. The base object destructor evaluates them before the virtual bases
+  // are destroyed, so the complete object destructor has to run the
+  // destructor body and evaluate the function contract assertions itself.
+  if (Dtor->getParent()->getNumVBases() && hasCheckedPostconditions(Dtor))
+    return false;
+
+  return true;
+}
+
 static void EmitConditionalArrayDtorCall(const CXXDestructorDecl *DD,
                                          CodeGenFunction &CGF,
                                          llvm::Value *ShouldDeleteCondition) {
@@ -1447,6 +1475,16 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     return;
   }
 
+  // If this is the complete variant, just invoke the base variant;
+  // the epilogue will destruct the virtual bases.  But we can't do
+  // this optimization if the body is a function-try-block, because
+  // we'd introduce *two* handler blocks, or if the destructor has
+  // postcondition assertions which have to be evaluated after the
+  // virtual bases have been destroyed.  In the Microsoft ABI, we
+  // always delegate if we don't have a definition in this TU.
+  bool DelegateToBase =
+      DtorType == Dtor_Complete && IsDestructorDelegationValid(Dtor);
+
   // If the body is a function-try-block, enter the try before
   // anything else.
   bool isTryBody = isa_and_nonnull<CXXTryStmt>(Body);
@@ -1457,11 +1495,6 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // Enter the epilogue cleanups.
   RunCleanupsScope DtorEpilogue(*this);
 
-  // If this is the complete variant, just invoke the base variant;
-  // the epilogue will destruct the virtual bases.  But we can't do
-  // this optimization if the body is a function-try-block, because
-  // we'd introduce *two* handler blocks.  In the Microsoft ABI, we
-  // always delegate because we might not have a definition in this TU.
   switch (DtorType) {
   case Dtor_Unified:
     llvm_unreachable("not expecting a unified dtor");
@@ -1479,7 +1512,7 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     // Enter the cleanup scopes for virtual bases.
     EnterDtorCleanups(Dtor, Dtor_Complete);
 
-    if (!isTryBody) {
+    if (DelegateToBase) {
       QualType ThisTy = Dtor->getFunctionObjectParameterType();
       EmitCXXDestructorCall(Dtor, Dtor_Base, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);

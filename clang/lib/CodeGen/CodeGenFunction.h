@@ -2513,6 +2513,7 @@ public:
                      SourceLocation StartLoc = SourceLocation());
 
   static bool IsConstructorDelegationValid(const CXXConstructorDecl *Ctor);
+  static bool IsDestructorDelegationValid(const CXXDestructorDecl *Dtor);
 
   void EmitConstructorBody(FunctionArgList &Args);
   void EmitDestructorBody(FunctionArgList &Args);

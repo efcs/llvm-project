@@ -514,11 +514,11 @@ bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
       return false;
     case Dtor_Complete:
       // Complete destructors of abstract classes are never called, and
-      // otherwise the complete destructor delegates to the base destructor
-      // unless the body is a function-try-block.
+      // otherwise the complete destructor either delegates to the base
+      // destructor or runs the destructor body itself.
       if (Dtor->getParent()->isAbstract())
         return false;
-      return isa_and_nonnull<CXXTryStmt>(Dtor->getBody());
+      return !IsDestructorDelegationValid(Dtor);
     case Dtor_Base:
     case Dtor_Unified:
     case Dtor_Comdat:
