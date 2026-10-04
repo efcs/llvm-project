@@ -327,8 +327,22 @@ void CodeGenFunction::EmitPostconditions() {
     return;
 
   EnsureInsertPoint();
+
+  // If evaluating a postcondition exits via an exception (e.g. because the
+  // violation handler throws when the semantic is 'observe'), the already
+  // constructed return object must be destroyed.
+  EHScopeStack::stable_iterator CleanupDepth = EHStack.stable_begin();
+  if (getLangOpts().Exceptions && ReturnValue.isValid() &&
+      !FnRetTy->isReferenceType()) {
+    if (QualType::DestructionKind DtorKind = FnRetTy.isDestructedType())
+      pushDestroy(EHCleanup, ReturnValue, FnRetTy, getDestroyer(DtorKind),
+                  /*useEHCleanupForArray=*/true);
+  }
+
   for (const ContractStmt *S : Posts)
     EmitStmt(S);
+
+  PopCleanupBlocks(CleanupDepth);
 }
 
 // Emit the contract expression.

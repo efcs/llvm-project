@@ -1,5 +1,6 @@
 // Postconditions are evaluated after the return value has been initialized
-// and the result name refers to it.
+// and the result name refers to it. If a postcondition exits via an exception,
+// the return object is destroyed.
 //
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fcxx-exceptions -fexceptions \
 // RUN:   -fcontract-evaluation-semantic=observe -triple x86_64-linux-gnu \
@@ -41,6 +42,49 @@ int &ref() post(r : &r == &gi) { return gi; }
 // CHECK: load i32, ptr %[[P]]
 // CHECK: icmp eq i32
 int &read_ref() post(r : r == 7) { return gi; }
+
+struct Obj {
+  int v;
+  Obj(int);
+  ~Obj();
+};
+
+// CHECK-LABEL: define {{.*}} void @_Z4makei(
+// CHECK-SAME: ptr {{.*}} sret(%struct.Obj) {{.*}} %[[RESULT:.*]], i32
+// CHECK: call void @_ZN3ObjC1Ei(ptr {{.*}} %[[RESULT]],
+// CHECK: getelementptr {{.*}} %[[RESULT]]
+// CHECK: invoke void @__handle_contract_violation_v3(
+// CHECK-NEXT: to label %{{.*}} unwind label %[[LPAD:.*]]
+// CHECK: ret void
+// CHECK: [[LPAD]]:
+// CHECK-NEXT: landingpad
+// CHECK-NEXT: cleanup
+// CHECK: call void @_ZN3ObjD1Ev(ptr {{.*}} %[[RESULT]])
+// CHECK: resume
+Obj make(int x) post(r : r.v == 0) { return Obj(x); }
+
+// CHECK-LABEL: define {{.*}} void @_Z9make_nrvoi(
+// CHECK-SAME: ptr {{.*}} sret(%struct.Obj) {{.*}} %[[RESULT:.*]], i32
+// CHECK: call void @_ZN3ObjC1Ei(ptr {{.*}} %[[RESULT]],
+// CHECK: nrvo.skipdtor:
+// CHECK: invoke void @__handle_contract_violation_v3(
+// CHECK-NEXT: to label %{{.*}} unwind label %[[LPAD:.*]]
+// CHECK: ret void
+// CHECK: [[LPAD]]:
+// CHECK-NEXT: landingpad
+// CHECK-NEXT: cleanup
+// CHECK: call void @_ZN3ObjD1Ev(ptr {{.*}} %[[RESULT]])
+// CHECK: resume
+Obj make_nrvo(int x) post(r : r.v == 0) {
+  Obj o(x);
+  return o;
+}
+
+// Without a postcondition there is no extra cleanup.
+// CHECK-LABEL: define {{.*}} void @_Z7no_posti(
+// CHECK-NOT: landingpad
+// CHECK: ret void
+Obj no_post(int x) pre(x != 0) { return Obj(x); }
 
 // CHECK-LABEL: define {{.*}} void @_Z7void_fnv()
 // CHECK: call {{.*}} @_Z5checkv()
