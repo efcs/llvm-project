@@ -71,7 +71,6 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
-#include "clang/Basic/EricWFDebug.h"
 
 using namespace clang;
 
@@ -3822,21 +3821,6 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
 }
 
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
-
-
-FunctionDecl *FunctionDecl::getDeclForContracts() {
-  // Try getting the contracts from the defining decl, and if those aren't present
-  // use the contracts on the first declaration.
-  if (auto *Def = getDefinition(); Def && Def->getContracts())
-    return Def;
-  return getCanonicalDecl();
-}
-
-const FunctionDecl *FunctionDecl::getDeclForContracts() const {
-  if (auto *Def = getDefinition(); Def && Def->getContracts())
-    return Def;
-  return getCanonicalDecl();
-}
 
 void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
   Contracts = CSD;
