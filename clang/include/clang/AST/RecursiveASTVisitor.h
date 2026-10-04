@@ -2307,7 +2307,7 @@ DEF_TRAVERSE_DECL(BindingDecl, {
   }
 })
 
-DEF_TRAVERSE_DECL(ResultNameDecl, {})
+DEF_TRAVERSE_DECL(ResultNameDecl, { TRY_TO(TraverseType(D->getType())); })
 
 DEF_TRAVERSE_DECL(MSPropertyDecl, { TRY_TO(TraverseDeclaratorHelper(D)); })
 
@@ -2393,12 +2393,9 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
         const_cast<Expr *>(TrailingRequiresClause.ConstraintExpr)));
   }
 
-  // Visit any contracts attached to the function declaration..
-#if 1 // TODO(EricWF): Enable this.
-  if (auto *Contracts = D->getContracts()) {
+  // Visit any contracts attached to the function declaration.
+  if (auto *Contracts = D->getContracts())
     TRY_TO(TraverseDecl(Contracts));
-  }
-#endif
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
     // Constructor initializers.
@@ -2944,6 +2941,9 @@ DEF_TRAVERSE_STMT(LambdaExpr, {
       TRY_TO(TraverseTypeLoc(Proto.getReturnLoc()));
     TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(
         const_cast<Expr *>(S->getTrailingRequiresClause().ConstraintExpr));
+
+    if (auto *Contracts = S->getCallOperator()->getContracts())
+      TRY_TO(TraverseDecl(Contracts));
 
     TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getBody());
   }
