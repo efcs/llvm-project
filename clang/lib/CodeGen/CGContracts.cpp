@@ -473,6 +473,11 @@ bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
   if (!hasCheckedFunctionContracts(FD))
     return false;
 
+  // A naked function has no prologue or epilogue, so there are neither
+  // parameters nor a result to evaluate the contract assertions with.
+  if (FD->hasAttr<NakedAttr>())
+    return false;
+
   // The lambda static invoker forwards to the call operator, which evaluates
   // the contracts.
   if (MD && MD->isLambdaStaticInvoker())
