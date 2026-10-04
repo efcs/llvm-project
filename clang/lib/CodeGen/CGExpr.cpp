@@ -3704,9 +3704,23 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   assert(E->isNonOdrUse() != NOUR_Unevaluated &&
          "should not emit an unevaluated operand");
 
-  // FIXME(EricWF): There's got to be more to this.
-  if (const auto *RND = dyn_cast<ResultNameDecl>(ND)) {
-    ((void)RND);
+  // A result name in a postcondition assertion refers to the object (or, for
+  // a function returning a reference, the referent) being returned. The
+  // postconditions are emitted after the return value has been stored into
+  // the return slot, so we can read it from there.
+  if (isa<ResultNameDecl>(ND)) {
+    if (!ReturnValue.isValid()) {
+      CGM.ErrorUnsupported(E, "result name outside of a postcondition");
+      return MakeAddrLValue(CreateMemTemp(T), T);
+    }
+    if (FnRetTy->isReferenceType()) {
+      LValueBaseInfo BaseInfo;
+      TBAAAccessInfo TBAAInfo;
+      Address Addr = EmitLoadOfReference(
+          MakeAddrLValue(ReturnValue, FnRetTy, AlignmentSource::Decl),
+          &BaseInfo, &TBAAInfo);
+      return MakeAddrLValue(Addr, T, BaseInfo, TBAAInfo);
+    }
     return MakeAddrLValue(ReturnValue, T, AlignmentSource::Decl);
   }
 

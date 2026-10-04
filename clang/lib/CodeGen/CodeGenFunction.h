@@ -448,10 +448,9 @@ public:
 
   CurrentContractInfo *CurContract();
 
-  // This is only used when exceptions are fully disabled. In this case,
-  // an enforced contract violation always terminates the program, so we
-  // can jump to a shared cleanup block without having to worry about continuing
-  // or cleanups;
+  /// The function whose precondition and postcondition assertions are emitted
+  /// as part of the current function, if any.
+  const FunctionDecl *ContractsFD = nullptr;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -2700,7 +2699,13 @@ public:
   /// Emit a test that checks if the return value \p RV is nonnull.
   void EmitReturnValueCheck(llvm::Value *RV);
 
-  void EmitPostContracts(llvm::Value *RV);
+  /// Emit the precondition assertions of \p FD.
+  void EmitPreconditions(const FunctionDecl *FD);
+
+  /// Emit the postcondition assertions of ContractsFD. Must be called on the
+  /// normal return path after the return value has been stored into
+  /// ReturnValue and all cleanups of the body have been run.
+  void EmitPostconditions();
 
   /// EmitStartEHSpec - Emit the start of the exception spec.
   void EmitStartEHSpec(const Decl *D);

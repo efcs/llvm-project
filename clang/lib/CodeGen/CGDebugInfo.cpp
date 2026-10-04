@@ -5336,8 +5336,7 @@ void CGDebugInfo::CreateLexicalBlock(SourceLocation Loc) {
   unsigned Line = getLineNumber(CurLoc);
   unsigned Column = Line ? getColumnNumber(CurLoc) : 0;
   LexicalBlockStack.emplace_back(DBuilder.createLexicalBlock(
-      cast_or_null<llvm::DIScope>(Back), getOrCreateFile(CurLoc), Line,
-      Column));
+      cast<llvm::DIScope>(Back), getOrCreateFile(CurLoc), Line, Column));
 }
 
 void CGDebugInfo::AppendAddressSpaceXDeref(
@@ -5359,10 +5358,9 @@ void CGDebugInfo::EmitLexicalBlockStart(CGBuilderTy &Builder,
   setLocation(Loc);
 
   // Emit a line table change for the current location inside the new scope.
-  if (!LexicalBlockStack.empty())
-    Builder.SetCurrentDebugLocation(llvm::DILocation::get(
-        CGM.getLLVMContext(), getLineNumber(Loc), getColumnNumber(Loc),
-        LexicalBlockStack.back(), CurInlinedAt));
+  Builder.SetCurrentDebugLocation(llvm::DILocation::get(
+      CGM.getLLVMContext(), getLineNumber(Loc), getColumnNumber(Loc),
+      LexicalBlockStack.back(), CurInlinedAt));
 
   if (DebugKind <= llvm::codegenoptions::DebugLineTablesOnly)
     return;

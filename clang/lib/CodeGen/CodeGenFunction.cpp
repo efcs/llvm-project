@@ -414,6 +414,11 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
   // Emit function epilog (to return).
   llvm::DebugLoc Loc = EmitReturnBlock();
 
+  // Evaluate the postcondition assertions on the normal return path, after
+  // the locals have been destroyed but before the return value is loaded.
+  if (ContractsFD)
+    EmitPostconditions();
+
   if (ShouldInstrumentFunction()) {
     if (CGM.getCodeGenOpts().InstrumentFunctions)
       CurFn->addFnAttr("instrument-function-exit", "__cyg_profile_func_exit");
@@ -1582,9 +1587,13 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
-  // FIXME(EricWF): I don't think this should go here.
-  for (ContractStmt *S : FD->preconditions())
-    EmitStmt(S);
+  // Emit the precondition assertions before anything else in the body (in
+  // particular, before any member or base initializers of a constructor). The
+  // postcondition assertions are emitted by FinishFunction.
+  if (FD->hasContracts()) {
+    ContractsFD = FD;
+    EmitPreconditions(FD);
+  }
 
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
@@ -1682,10 +1691,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
       Builder.ClearInsertionPoint();
     }
   }
-  // FIXME(EricWF): I don't think this should go here.
-  // Also we'll need to figure out how to reference the return value
-  // Post Contracts are emitted in ReturnValueCheck
-
   // Emit the standard function epilogue.
   FinishFunction(BodyRange.getEnd());
 

@@ -1,5 +1,5 @@
 // RUN: %clang -fcontracts -std=c++20 -fcontract-evaluation-semantic=observe %s -o %t
-// RUN:  %t 1>&2
+// RUN: %t
 
 #include "contracts.h"
 #include "contracts-runtime.h"

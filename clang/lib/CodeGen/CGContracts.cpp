@@ -315,6 +315,22 @@ static bool StmtCanThrow(const Stmt *S) {
   return false;
 }
 
+void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {
+  for (const ContractStmt *S : FD->preconditions())
+    EmitStmt(S);
+}
+
+void CodeGenFunction::EmitPostconditions() {
+  assert(ContractsFD && "no function contracts to emit");
+  auto Posts = ContractsFD->postconditions();
+  if (Posts.begin() == Posts.end())
+    return;
+
+  EnsureInsertPoint();
+  for (const ContractStmt *S : Posts)
+    EmitStmt(S);
+}
+
 // Emit the contract expression.
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
   assert(!CurContract() || CurContract()->Contract == &S);
