@@ -45,10 +45,8 @@ Assertion Failed: Source locations not equal
 Actual  : %s:%d in %s
 Expected: %s:%d in %s
 )cpp";
-    fprintf(stderr, fmt_str,
-            LHS.file_name(), (int)LHS.line(), LHS.function_name(),
-            RHS.file_name(), (int)RHS.line() + rhs_offset,
-            RHS.function_name());
+    fprintf(stderr, fmt_str, LHS.file_name(), (int)LHS.line(), LHS.function_name(),
+            RHS.file_name(), (int)RHS.line() + rhs_offset, RHS.function_name());
   }
   return value;
 }
@@ -112,7 +110,6 @@ void expect_location(int offset, std::source_location loc = std::source_location
   ::expected_loc = loc;
   expected_line_offset = offset;
 }
-
 unsigned evaluated_count;
 bool check_evaluated(bool value) {
   ++evaluated_count;
@@ -120,8 +117,8 @@ bool check_evaluated(bool value) {
 }
 
 void reset_counters() {
-  evaluated_count = 0;
-  handler_called = 0;
+evaluated_count = 0;
+handler_called = 0;
 }
 
 void test_contract_assert() {
@@ -214,7 +211,7 @@ int main(int argc, char **argv) {
     test_pre_condition();
     break;
   default:
-    assert(false && "Not a valid test case");
+  assert(false && "Not a valid test case");
   }
 
 
