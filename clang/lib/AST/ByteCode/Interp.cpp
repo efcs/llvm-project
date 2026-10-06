@@ -2729,6 +2729,12 @@ bool StartThisLifetime1(InterpState &S) {
 static void setLifeStateRecurse(PtrView Ptr, Lifetime L) {
   if (const Record *R = Ptr.getRecord()) {
     Ptr.setLifeState(L);
+    // The base class subobjects too: a trivially destructible base class is
+    // not destroyed by its own destructor, but is gone all the same (e.g. for
+    // the postcondition assertions of the destructor, which are evaluated
+    // after the destruction of the subobjects).
+    for (const Record::Base &B : R->bases())
+      setLifeStateRecurse(Ptr.atField(B.Offset), L);
     for (const Record::Field &Fi : R->fields())
       setLifeStateRecurse(Ptr.atField(Fi.Offset), L);
     return;

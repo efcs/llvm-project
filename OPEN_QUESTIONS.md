@@ -43,13 +43,24 @@ implementation rejects *any* use of `this` there, which is over-strict
 - Proposal: diagnose implicit/explicit member access of the object under
   construction/destruction only. (OpenBugs/over.call.func.p3.1.cpp)
 
-### 1.5 Destructor postconditions that name members
+### 1.5 Destructor postconditions that name members — RESOLVED (round three)
 `constexpr ~M() post(m == 0) { m = 0; }` used in constant evaluation: the AST
 evaluator reports a violation ("read of object outside its lifetime" — the
 postcondition runs after member destruction), the bytecode interpreter accepts,
 GCC rejects member use in a destructor postcondition outright.
 - Question: what is the evaluation point of a destructor postcondition relative to
   member destruction, and is naming a member ill-formed?
+- Decision: the postcondition assertions of a destructor are evaluated after the
+  destruction of all members and base classes (including virtual bases), in
+  constant evaluation exactly as in CodeGen (round two). Both evaluators now
+  agree: a predicate that reads a member or base subobject is not a core
+  constant expression, which is a contract violation (diagnosed with the
+  semantic's usual warning/error), and both add the note "the postcondition
+  assertions of a destructor are evaluated after the members and base classes
+  of the 'M' object have been destroyed". Whether naming a member there is
+  ill-formed outright (GCC's choice) is part of 1.4; we do not reject it in Sema.
+  Test: `clang/test/Contracts/constexpr-structors-and-lambdas.cpp` (`Late`,
+  `LateDerived`).
 
 ### 1.6 Constant destruction of static objects with destructor contracts
 The constant-destruction *test* ignores contracts (permitted by [expr.const] fn.
