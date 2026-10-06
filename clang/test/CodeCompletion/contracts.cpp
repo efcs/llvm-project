@@ -25,5 +25,5 @@ int f(const int x, const int y, const S s)
 
 auto l = [](int v) pre(v > 0) post(res : res > v) { return v; };
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -code-completion-at=%s:%(line-1):42 %s -o - | FileCheck -check-prefix=CHECK-LAMBDA %s
-// CHECK-LAMBDA: COMPLETION: res : [#auto#]res
+// CHECK-LAMBDA: COMPLETION: res : [#int#]res
 // CHECK-LAMBDA: COMPLETION: v : [#int#]v
