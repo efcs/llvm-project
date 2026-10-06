@@ -14,7 +14,6 @@
 #define LLVM_CLANG_LIB_CODEGEN_CODEGENFUNCTION_H
 
 #include "CGBuilder.h"
-#include "CGContracts.h"
 #include "CGLoopInfo.h"
 #include "CGValue.h"
 #include "CodeGenModule.h"
