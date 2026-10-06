@@ -8,207 +8,124 @@
 
 #include <__config>
 #include <contracts>
-#include <cstddef>
-#include <cstdio>
 #include <exception>
 #include <source_location>
 
-_LIBCPP_BEGIN_NAMESPACE_STD
+// The contract-violation runtime of the Itanium C++ Contracts ABI (the entry
+// points called by the compiler, the dispatch to the handler and the default
+// handler) is provided by libc++abi. This file provides the C++ interface to it
+// from [support.contract]: the accessors of std::contracts::contract_violation,
+// which read the chain of data blocks the runtime passes to the handler, and
+// std::contracts::invoke_default_contract_violation_handler.
+//
+// FIXME: When libc++ is built on top of another ABI library, nothing provides
+// the runtime: the entry points would need to be hosted by libc++ itself (as
+// is done for operator new), and the handler replacement mechanism of the ABI
+// depends on weak symbols, which Windows does not support across DLLs.
+#if defined(LIBCXX_BUILDING_LIBCXXABI)
+
+#  include <__contracts/abi.h>
+
+using namespace __cxxabiv1;
+
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
 
 namespace contracts {
 
 _LIBCPP_BEGIN_EXPLICIT_ABI_ANNOTATIONS
 
-struct __contract_violation_impl {
-  assertion_kind __kind_;
-  evaluation_semantic __semantic_;
-  contracts::detection_mode __mode_;
-  const char* __comment_;
-  source_location __location_;
-  exception_ptr __exception_;
+// The values of the ABI enumerations are those of the standard enumerators, so
+// the known values are translated by a cast. Unknown values (for instance the
+// kinds of assertions that other implementations or future standards may
+// produce) are passed through unchanged, as [support.contract.enum] allows
+// implementation-defined values.
+static_assert(static_cast<int>(assertion_kind::pre) == CXA_AK_PRE);
+static_assert(static_cast<int>(assertion_kind::post) == CXA_AK_POST);
+static_assert(static_cast<int>(assertion_kind::assert) == CXA_AK_ASSERT);
+static_assert(static_cast<int>(evaluation_semantic::ignore) == CXA_ES_IGNORE);
+static_assert(static_cast<int>(evaluation_semantic::observe) == CXA_ES_OBSERVE);
+static_assert(static_cast<int>(evaluation_semantic::enforce) == CXA_ES_ENFORCE);
+static_assert(static_cast<int>(evaluation_semantic::quick_enforce) == CXA_ES_QUICK_ENFORCE);
+static_assert(static_cast<int>(detection_mode::predicate_false) == CXA_DM_PREDICATE_FALSE);
+static_assert(static_cast<int>(detection_mode::evaluation_exception) == CXA_DM_EVALUATION_EXCEPTION);
 
-  _LIBCPP_HIDE_FROM_ABI contract_violation __make_violation() const noexcept { return contract_violation(this); }
-};
+assertion_kind contract_violation::kind() const noexcept {
+  return static_cast<assertion_kind>(
+      __cxa_find_field_value<__UINT8_TYPE__>(__chain_, CXA_FIELD_ASSERTION_KIND, CXA_AK_UNSPECIFIED));
+}
 
-const char* contract_violation::comment() const noexcept { return __impl_->__comment_; }
+evaluation_semantic contract_violation::semantic() const noexcept {
+  return static_cast<evaluation_semantic>(
+      __cxa_find_field_value<__UINT8_TYPE__>(__chain_, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED));
+}
 
-contracts::detection_mode contract_violation::detection_mode() const noexcept { return __impl_->__mode_; }
-
-exception_ptr contract_violation::evaluation_exception() const noexcept { return __impl_->__exception_; }
+contracts::detection_mode contract_violation::detection_mode() const noexcept {
+  return static_cast<contracts::detection_mode>(
+      __cxa_find_field_value<__UINT8_TYPE__>(__chain_, CXA_FIELD_DETECTION_MODE, CXA_DM_UNSPECIFIED));
+}
 
 bool contract_violation::is_terminating() const noexcept {
-  return __impl_->__semantic_ == evaluation_semantic::enforce ||
-         __impl_->__semantic_ == evaluation_semantic::quick_enforce;
+  evaluation_semantic __semantic = semantic();
+  return __semantic == evaluation_semantic::enforce || __semantic == evaluation_semantic::quick_enforce;
 }
 
-assertion_kind contract_violation::kind() const noexcept { return __impl_->__kind_; }
-
-source_location contract_violation::location() const noexcept { return __impl_->__location_; }
-
-evaluation_semantic contract_violation::semantic() const noexcept { return __impl_->__semantic_; }
-
-namespace {
-
-const char* __kind_to_string(assertion_kind __kind) noexcept {
-  switch (__kind) {
-  case assertion_kind::pre:
-    return "pre";
-  case assertion_kind::post:
-    return "post";
-  case assertion_kind::assert:
-    return "contract_assert";
-  }
-  return "<unknown assertion kind>";
+const char* contract_violation::comment() const noexcept {
+  const char* const* __comment = __cxa_find_field_ptr<const char*>(__chain_, CXA_FIELD_COMMENT);
+  return __comment && *__comment ? *__comment : "";
 }
 
-const char* __semantic_to_string(evaluation_semantic __semantic) noexcept {
-  switch (__semantic) {
-  case evaluation_semantic::ignore:
-    return "ignore";
-  case evaluation_semantic::observe:
-    return "observe";
-  case evaluation_semantic::enforce:
-    return "enforce";
-  case evaluation_semantic::quick_enforce:
-    return "quick_enforce";
-  }
-  return "<unknown semantic>";
+source_location contract_violation::location() const noexcept {
+  // The source location in the chain has the layout of the data a
+  // source_location refers to, and lives at least as long as the handler.
+  if (const __cxa_source_location* __loc =
+          __cxa_find_field_ptr<__cxa_source_location>(__chain_, CXA_FIELD_SOURCE_LOCATION))
+    return source_location::__create_from_pointer(__loc);
+  return source_location();
 }
 
-} // namespace
+exception_ptr contract_violation::evaluation_exception() const noexcept {
+  if (detection_mode() != detection_mode::evaluation_exception)
+    return exception_ptr();
+#  if !defined(_LIBCPP_ABI_MICROSOFT)
+  // The runtime records the exception the predicate exited with (the exception
+  // object, as std::exception_ptr refers to it) when it dispatches the
+  // violation, so that the result does not depend on which exception is
+  // currently being handled when this is called.
+  if (void* __exception = __cxa_find_field_value<void*>(__chain_, CXA_FIELD_EXCEPTION_PTR, nullptr))
+    return exception_ptr::__from_native_exception_pointer(__exception);
+#  endif
+  // The handler is invoked from within an active handler for the exception.
+  return current_exception();
+}
 
 void invoke_default_contract_violation_handler(const contract_violation& __violation) {
-  source_location __loc  = __violation.location();
-  const char* __file     = __loc.file_name();
-  const char* __function = __loc.function_name();
-  const char* __comment  = __violation.comment();
-  std::fprintf(
-      stderr,
-      "%s:%u: %s%scontract violation in %s(%s): %s (semantic: %s)\n",
-      __file && *__file ? __file : "<unknown file>",
-      static_cast<unsigned>(__loc.line()),
-      __function ? __function : "",
-      __function && *__function ? ": " : "",
-      __kind_to_string(__violation.kind()),
-      __comment ? __comment : "",
-      __violation.detection_mode() == contracts::detection_mode::evaluation_exception
-          ? "predicate evaluation exited via an exception"
-          : "predicate evaluated to false",
-      __semantic_to_string(__violation.semantic()));
-  std::fflush(stderr);
+  __contract_invoke_default_handler(&__violation);
 }
 
 _LIBCPP_END_EXPLICIT_ABI_ANNOTATIONS
 
 } // namespace contracts
 
-_LIBCPP_END_NAMESPACE_STD
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 
-// The contract-violation handler, ::handle_contract_violation, is replaceable
-// ([basic.contract.handler]). Following the same approach as
-// std::__libcpp_verbose_abort, the library provides a weak default definition
-// that a strong definition in the program overrides. A user definition may be
-// declared noexcept: noexcept is not part of the mangled name of a function, so
-// it replaces this one as well.
+// The default definition of the replaceable contract-violation handler
+// ([basic.contract.handler]). The runtime does not call this symbol: it calls
+// the program's replacement through the C-linkage symbol
+// __handle_contract_violation, which the compiler defines as an alias of a
+// replacement it compiles. This definition is what a program that declares and
+// calls ::handle_contract_violation itself gets, and it is weak so that a
+// replacement can be linked statically.
+//
+// Declaring the C-linkage symbol here keeps the compiler from emitting it as an
+// alias of this default definition.
+extern "C" void __handle_contract_violation(const std::contracts::contract_violation&);
+
+#  if !defined(_LIBCPP_OBJECT_FORMAT_COFF)
 _LIBCPP_OVERRIDABLE_FUNC_VIS void handle_contract_violation(const std::contracts::contract_violation&);
 
 [[gnu::weak]] void handle_contract_violation(const std::contracts::contract_violation& __violation) {
   std::contracts::invoke_default_contract_violation_handler(__violation);
 }
+#  endif
 
-namespace {
-
-// The layout of the data emitted by Clang (version 3) and passed to
-// __handle_contract_violation_v3. The {file, function, line, column} members
-// must stay contiguous and in this order: they have the same layout as the data
-// referred to by std::source_location.
-struct __contract_violation_data_v3 {
-  unsigned __version_;
-  const char* __file_;
-  const char* __function_;
-  unsigned __line_;
-  unsigned __column_;
-  const char* __comment_;
-  unsigned __contract_kind_;
-};
-
-// Clang's internal encoding of the evaluation semantic (clang::ContractEvaluationSemantic).
-// Note that it differs from std::contracts::evaluation_semantic.
-enum : unsigned char {
-  __clang_semantic_ignore        = 0,
-  __clang_semantic_enforce       = 1,
-  __clang_semantic_observe       = 2,
-  __clang_semantic_quick_enforce = 3,
-};
-
-std::contracts::evaluation_semantic __translate_semantic(unsigned char __sem) noexcept {
-  using std::contracts::evaluation_semantic;
-  switch (__sem) {
-  case __clang_semantic_ignore:
-    return evaluation_semantic::ignore;
-  case __clang_semantic_enforce:
-    return evaluation_semantic::enforce;
-  case __clang_semantic_observe:
-    return evaluation_semantic::observe;
-  case __clang_semantic_quick_enforce:
-    return evaluation_semantic::quick_enforce;
-  }
-  // Unknown values are treated conservatively.
-  return evaluation_semantic::enforce;
-}
-
-std::contracts::detection_mode __translate_detection_mode(unsigned char __mode) noexcept {
-  // Clang's encoding (clang::ContractDetectionMode) matches the standard enumerators.
-  return __mode == static_cast<unsigned char>(std::contracts::detection_mode::evaluation_exception)
-           ? std::contracts::detection_mode::evaluation_exception
-           : std::contracts::detection_mode::predicate_false;
-}
-
-std::contracts::assertion_kind __translate_kind(unsigned __kind) noexcept {
-  switch (__kind) {
-  case 1:
-    return std::contracts::assertion_kind::pre;
-  case 2:
-    return std::contracts::assertion_kind::post;
-  default:
-    return std::contracts::assertion_kind::assert;
-  }
-}
-
-} // namespace
-
-// Entry point called by Clang-generated code when a contract is violated.
-//
-//   __semantic: Clang's internal evaluation semantic (enforce=1, observe=2, ...)
-//   __mode:     the detection mode (predicate_false=1, evaluation_exception=2)
-//   __data:     pointer to the compiler-generated __contract_violation_data_v3
-//
-// When __mode is evaluation_exception, this is called from within the handler
-// that caught the exception, so std::current_exception() refers to it.
-extern "C" _LIBCPP_EXPORTED_FROM_ABI void
-__handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* __data);
-
-extern "C" void __handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* __data) {
-  using namespace std::contracts;
-  const __contract_violation_data_v3* __info = static_cast<const __contract_violation_data_v3*>(__data);
-
-  __contract_violation_impl __impl;
-  __impl.__semantic_ = __translate_semantic(__semantic);
-  __impl.__mode_     = __translate_detection_mode(__mode);
-  if (__info && __info->__version_ == 3) {
-    __impl.__kind_     = __translate_kind(__info->__contract_kind_);
-    __impl.__comment_  = __info->__comment_ ? __info->__comment_ : "";
-    __impl.__location_ = std::source_location::__create_from_pointer(&__info->__file_);
-  } else {
-    __impl.__kind_    = assertion_kind::assert;
-    __impl.__comment_ = "<unknown contract violation>";
-  }
-  if (__impl.__mode_ == detection_mode::evaluation_exception)
-    __impl.__exception_ = std::current_exception();
-
-  const contract_violation __violation = __impl.__make_violation();
-  ::handle_contract_violation(__violation);
-
-  if (__violation.is_terminating())
-    std::terminate();
-}
+#endif // LIBCXX_BUILDING_LIBCXXABI

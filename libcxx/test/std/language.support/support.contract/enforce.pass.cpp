@@ -16,9 +16,11 @@
 
 // With the enforce semantic, the contract-violation handler is called with a
 // terminating contract_violation, and the program is terminated when the
-// handler returns.
+// handler returns. The contract-violation runtime terminates by calling
+// std::abort(), which is not affected by a terminate handler.
 
 #include <contracts>
+#include <csignal>
 #include <cstdio>
 #include <cstdlib>
 #include <exception>
@@ -37,7 +39,8 @@ void handle_contract_violation(const contract_violation& v) {
 void f(int x) pre(x > 0) {}
 
 int main(int, char**) {
-  std::set_terminate([] {
+  std::set_terminate([] { std::_Exit(3); });
+  std::signal(SIGABRT, [](int) {
     // Exit successfully only if the handler was called exactly once with the
     // expected information before terminating.
     std::_Exit(handler_calls == 1 && handler_ok ? 0 : 2);

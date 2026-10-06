@@ -2319,6 +2319,7 @@
 {'is_defined': True, 'name': '__cxa_deleted_virtual', 'type': 'FUNC'}
 {'is_defined': True, 'name': '__cxa_demangle', 'type': 'FUNC'}
 {'is_defined': True, 'name': '__cxa_end_catch', 'type': 'FUNC'}
+{'is_defined': True, 'name': '__cxa_find_field', 'type': 'FUNC'}
 {'is_defined': True, 'name': '__cxa_free_dependent_exception', 'type': 'FUNC'}
 {'is_defined': True, 'name': '__cxa_free_exception', 'type': 'FUNC'}
 {'is_defined': True, 'name': '__cxa_get_exception_ptr', 'type': 'FUNC'}

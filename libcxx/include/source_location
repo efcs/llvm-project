@@ -38,6 +38,16 @@ namespace std {
 
 #  if _LIBCPP_STD_VER >= 20
 
+_LIBCPP_BEGIN_UNVERSIONED_NAMESPACE_STD
+namespace contracts {
+class contract_violation;
+}
+_LIBCPP_END_UNVERSIONED_NAMESPACE_STD
+
+#  endif
+
+#  if _LIBCPP_STD_VER >= 20
+
 _LIBCPP_BEGIN_NAMESPACE_STD
 
 class source_location {
@@ -57,15 +67,18 @@ class source_location {
   // unavoidable.
   using __bsl_ty _LIBCPP_NODEBUG = decltype(__builtin_source_location());
 
-public:
-  // Creates a source_location referring to compiler-generated data with the same layout as __impl. This is used by
-  // the contracts runtime, which receives such data from the compiler when a contract is violated.
+  // The source location of a contract violation is stored by the compiler in
+  // the data it passes to the contract-violation runtime, with the same layout
+  // as __impl (__cxxabiv1::__cxa_source_location of the Itanium C++ Contracts
+  // ABI). contract_violation::location() refers to that data directly.
+  friend class contracts::contract_violation;
   _LIBCPP_HIDE_FROM_ABI static source_location __create_from_pointer(const void* __ptr) noexcept {
     source_location __loc;
     __loc.__ptr_ = static_cast<const __impl*>(__ptr);
     return __loc;
   }
 
+public:
   // The defaulted __ptr argument is necessary so that the builtin is evaluated
   // in the context of the caller. An explicit value should never be provided.
   static consteval source_location current(__bsl_ty __ptr = __builtin_source_location()) noexcept {

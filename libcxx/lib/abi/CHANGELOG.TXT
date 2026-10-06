@@ -16,6 +16,42 @@ New entries should be added directly below the "Version" header.
 Version 24.0
 ------------
 
+* [libc++][Contracts] Implement the Itanium C++ Contracts ABI
+
+  The contract-violation runtime now follows the Itanium C++ Contracts ABI
+  (the P3850 specification): the entry points called by Clang-generated code
+  (__cxa_contract_violation and the __cxa_contract_violation_{kind}_{semantic}_
+  {mode}[_noexcept] family), the chain-walking __cxa_find_field and the default
+  handler __contract_invoke_default_handler are provided by libc++abi, and
+  std::contracts::contract_violation became a wrapper around the ABI's data
+  block chain. The previous entry point __handle_contract_violation_v3 is gone.
+
+  std::contracts is no longer declared in libc++'s versioning namespace, as the
+  ABI fixes the symbol names of contract_violation's member functions, so the
+  symbols below were renamed. On Apple platforms libc++ re-exports the new
+  libc++abi symbols.
+
+  All platforms
+  -------------
+  Symbol removed: _Z25handle_contract_violationRKNSt3__19contracts18contract_violationE
+  Symbol removed: _ZNKSt3__19contracts18contract_violation14detection_modeEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation14is_terminatingEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation20evaluation_exceptionEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation4kindEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation7commentEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation8locationEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation8semanticEv
+  Symbol removed: _ZNSt3__19contracts41invoke_default_contract_violation_handlerERKNS0_18contract_violationE
+  Symbol added: _Z25handle_contract_violationRKNSt9contracts18contract_violationE
+  Symbol added: _ZNKSt9contracts18contract_violation14detection_modeEv
+  Symbol added: _ZNKSt9contracts18contract_violation14is_terminatingEv
+  Symbol added: _ZNKSt9contracts18contract_violation20evaluation_exceptionEv
+  Symbol added: _ZNKSt9contracts18contract_violation4kindEv
+  Symbol added: _ZNKSt9contracts18contract_violation7commentEv
+  Symbol added: _ZNKSt9contracts18contract_violation8locationEv
+  Symbol added: _ZNKSt9contracts18contract_violation8semanticEv
+  Symbol added: _ZNSt9contracts41invoke_default_contract_violation_handlerERKNS_18contract_violationE
+
 * [libc++][Contracts] Add the C++26 contracts runtime (P2900R14)
 
   This adds the out-of-line members of std::contracts::contract_violation,

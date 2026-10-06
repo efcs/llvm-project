@@ -350,8 +350,10 @@
 #endif
 
 // This controls the availability of the C++26 contracts support in the dylib: std::contracts::contract_violation's
-// member functions, std::contracts::invoke_default_contract_violation_handler, the default
-// ::handle_contract_violation and the compiler entry point __handle_contract_violation_v3.
+// member functions, std::contracts::invoke_default_contract_violation_handler and the default
+// ::handle_contract_violation. The contract-violation runtime itself (the __cxa_contract_violation_* entry points
+// called by compiler-generated code, see <__contracts/abi.h>) was added to libc++abi in the same release.
+// FIXME: Compiler-generated calls to the entry points need the same deployment-target check (in the compiler).
 #define _LIBCPP_AVAILABILITY_HAS_CONTRACTS _LIBCPP_INTRODUCED_IN_LLVM_24
 #define _LIBCPP_AVAILABILITY_CONTRACTS _LIBCPP_INTRODUCED_IN_LLVM_24_ATTRIBUTE
 
