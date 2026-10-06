@@ -8,29 +8,57 @@
 //
 // This contains code to emit C++26 contract assertions.
 //
+// A contract assertion with a checking semantic evaluates its predicate and, if
+// the predicate is false or its evaluation exits via an exception, reports a
+// contract violation to the runtime library through the Itanium C++ Contracts
+// ABI (https://github.com/notadragon/efcs_contracts-abi-specification):
+//
+//  * The violation data is a static constant "data block" emitted once per
+//    assertion. It starts with a pointer to a descriptor table, which lists
+//    the fields the block contains (as field IDs and byte offsets), and a
+//    pointer to the next block of a chain (null here). Clang emits the
+//    "basic" layout: the source location, the predicate text ("comment") and
+//    the diagnostic message, all described by a single descriptor table that
+//    is shared by every data block of the translation unit.
+//
+//  * The violation is reported by passing the address of the data block to a
+//    runtime entry point whose name encodes the assertion kind, the evaluation
+//    semantic and the detection mode:
+//      __cxa_contract_violation_{pre,post,assert}_{observe,enforce}_{pf,ex}
+//    The '_noexcept' variants are used where an exception thrown by the
+//    violation handler could not propagate anyway; they do not unwind and
+//    terminate if the handler throws. The 'enforce' entry points never return.
+//    'quick_enforce' assertions trap instead of calling the runtime, and
+//    'ignore' assertions emit nothing.
+//
+//  * When the predicate exits via an exception, the entry point is called from
+//    within a handler for that exception, so that the runtime and the
+//    violation handler can observe it via std::current_exception().
+//
+//  * The runtime calls the user-replaceable handler ::handle_contract_violation
+//    through the C-linkage symbol __handle_contract_violation, which Clang
+//    emits as an alias of the handler in the translation unit defining it.
+//
 //===----------------------------------------------------------------------===//
 
 #include "CGCXXABI.h"
+#include "CGCleanup.h"
 #include "CGDebugInfo.h"
-#include "CGObjCRuntime.h"
-#include "CGOpenCLRuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
 #include "CodeGenPGO.h"
-#include "ConstantEmitter.h"
-#include "TargetInfo.h"
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attr.h"
+#include "clang/AST/Expr.h"
 #include "clang/AST/StmtCXX.h"
-#include "clang/AST/DeclObjC.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/CodeGen/ConstantInitBuilder.h"
-#include "llvm/ADT/ScopeExit.h"
-#include "llvm/ADT/SmallSet.h"
+#include "clang/Lex/Preprocessor.h"
 #include "llvm/IR/DataLayout.h"
 #include "llvm/IR/Instructions.h"
+#include "llvm/IR/IRBuilder.h"
 #include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
-#include <algorithm>
 #include <optional>
 
 using namespace clang;
@@ -50,117 +78,47 @@ constexpr ContractDetectionMode PredicateFailed =
 constexpr ContractDetectionMode ExceptionRaised =
     ContractDetectionMode::ExceptionRaised;
 
+namespace {
+
+/// Constants of the Itanium C++ Contracts ABI data format.
+namespace cxa {
+enum : uint8_t {
+  /// The descriptor table version this implementation emits.
+  TableVersion = 1,
+  /// The vendor ID of Clang (CXA_VENDOR_CLANG).
+  VendorClang = 0x2,
+
+  /// Field IDs of the standard fields emitted in the basic data block layout.
+  FieldSourceLocation = 0x01, // __cxa_source_location
+  FieldComment = 0x02,        // const char*: the predicate text
+  FieldMessage = 0x03,        // const char*: the diagnostic message
+};
+
+/// The name of the C-linkage symbol through which the runtime calls the
+/// replaceable contract-violation handler ::handle_contract_violation.
+constexpr const char *HandlerSymbolName = "__handle_contract_violation";
+} // namespace cxa
+
+} // namespace
+
 namespace clang::CodeGen {
 
-enum ContractCheckpoint {
-  EmittingContract,
-  EmittingTryBody,
-  EmittingCatchBody,
-};
-
-enum ContractEmissionStyle {
-  /// Emit the contract violation as an inline basic block immediately following
-  /// the predicate. The basic block is not shared by other contracts.
-  Inline,
-
-  /// Emit a single shared contract violation handler per-function.
-  /// This only works when exceptions are disabled, otherwise the violation
-  /// handler
-  /// may throw from the violation handler.
-  Shared
-};
-
-// The evaluation semantic and detection mode are passed to the violation
-// handler entry point as 'unsigned char', matching the underlying type of
-// std::contracts::evaluation_semantic and std::contracts::detection_mode used
-// by the library's definition of __handle_contract_violation_v3.
-template <class T>
-static llvm::Constant *CreateConstantInt(CodeGenFunction &CGF, T Sem) {
-  static_assert(std::is_same_v<T, ContractEvaluationSemantic> ||
-                std::is_same_v<T, ContractDetectionMode>);
-  return llvm::ConstantInt::get(CGF.Int8Ty, (unsigned)Sem);
-}
-
 struct CurrentContractInfo {
-
   const ContractStmt *Contract;
-  ContractEmissionStyle Style;
-  ContractCheckpoint Checkpoint = EmittingContract;
   ContractEvaluationSemantic Semantic;
-
-  llvm::BasicBlock *Violation = nullptr;
-  llvm::BasicBlock *End = nullptr;
-
-  llvm::Constant *ViolationInfoGV = nullptr;
-  Address EHPredicateStore = Address::invalid();
 };
-
-// A contract enforce block is a block used to create and call the violation
-// handler for contracts set to 'enforce'. Such contracts never return after
-// reporting a violation.
-//
-// It is used to create a single
-// block that can be used to handle all contract violations in a function.
-//
-// The block is created lazily, and is only created if a contract is emitted
-// with an enforce semantic.
-struct SharedEnforceBlock {
-  static SharedEnforceBlock Create(CodeGenFunction &CGF) {
-    SharedEnforceBlock This;
-
-
-    auto SavedIP = CGF.Builder.saveAndClearIP();
-
-    This.Block = CGF.createBasicBlock("contract.violation.handler");
-    CGF.Builder.SetInsertPoint(This.Block);
-    This.IncomingPHI = CGF.Builder.CreatePHI(CGF.VoidPtrTy, 4);
-
-    CGF.EmitHandleContractViolationCall(CreateConstantInt(CGF, Enforce),
-                                        CreateConstantInt(CGF, PredicateFailed),
-                                        This.IncomingPHI,
-                                        /*IsNoReturn=*/true);
-    CGF.Builder.CreateUnreachable();
-    CGF.Builder.ClearInsertionPoint();
-    CGF.Builder.restoreIP(SavedIP);
-
-    return This;
-  }
-
-  llvm::BasicBlock *Block = nullptr;
-  llvm::PHINode *IncomingPHI = nullptr;
-
-private:
-  SharedEnforceBlock() = default;
-};
-
-static void CreateTrap(CodeGenFunction &CGF) {
-  auto &Builder = CGF.Builder;
-  llvm::CallInst *TrapCall = CGF.EmitTrapCall(llvm::Intrinsic::trap);
-  TrapCall->setDoesNotReturn();
-  TrapCall->setDoesNotThrow();
-  Builder.CreateUnreachable();
-  Builder.ClearInsertionPoint();
-}
-
-static llvm::BasicBlock *CreateTrapBlock(CodeGenFunction &CGF) {
-  auto &Builder = CGF.Builder;
-  CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
-  // Set up the terminate handler.  This block is inserted at the very
-  // end of the function by FinishFunction.
-  llvm::BasicBlock *ContractViolationTrapBlock =
-      CGF.createBasicBlock("contract.violation.trap.handler");
-  Builder.SetInsertPoint(ContractViolationTrapBlock);
-
-  CreateTrap(CGF);
-
-  Builder.restoreIP(SavedIP);
-  return ContractViolationTrapBlock;
-}
 
 struct SharedTrapBlock {
   static SharedTrapBlock Create(CodeGenFunction &CGF) {
+    auto &Builder = CGF.Builder;
+    CGBuilderTy::InsertPoint SavedIP = Builder.saveAndClearIP();
+    // This block is inserted at the very end of the function by
+    // FinishFunction.
     SharedTrapBlock This;
-    This.Block = CreateTrapBlock(CGF);
+    This.Block = CGF.createBasicBlock("contract.violation.trap.handler");
+    Builder.SetInsertPoint(This.Block);
+    CGF.EmitContractViolationTrap();
+    Builder.restoreIP(SavedIP);
     return This;
   }
 
@@ -171,7 +129,6 @@ private:
 };
 
 struct CGContractData {
-  std::optional<SharedEnforceBlock> EnforceBlock;
   std::optional<SharedTrapBlock> TrapBlock;
   std::optional<CurrentContractInfo> CurContract;
 
@@ -179,12 +136,6 @@ struct CGContractData {
     if (!TrapBlock)
       TrapBlock = SharedTrapBlock::Create(CGF);
     return *TrapBlock;
-  }
-
-  SharedEnforceBlock &GetSharedEnforceBlock(CodeGenFunction &CGF) {
-    if (!EnforceBlock)
-      EnforceBlock = SharedEnforceBlock::Create(CGF);
-    return *EnforceBlock;
   }
 };
 
@@ -195,6 +146,7 @@ CurrentContractInfo *CodeGenFunction::CurContract() {
                                    : nullptr;
 }
 
+namespace {
 struct CurrentContractRAII {
   CurrentContractRAII(CodeGenFunction &CGF, CurrentContractInfo CurContract)
       : CGF(CGF) {
@@ -207,19 +159,12 @@ struct CurrentContractRAII {
   }
   CodeGenFunction &CGF;
 };
+} // namespace
 
 CGContractData *CGContractDataDeleter::Create() { return new CGContractData(); }
 void CGContractDataDeleter::operator()(CGContractData *Data) const {
-
   if (Data)
     delete Data;
-}
-
-llvm::BasicBlock *
-CodeGenFunction::GetSharedContractViolationEnforceBlock(bool Create) {
-  if (!ContractData->EnforceBlock && !Create)
-    return nullptr;
-  return ContractData->GetSharedEnforceBlock(*this).Block;
 }
 
 llvm::BasicBlock *
@@ -229,207 +174,439 @@ CodeGenFunction::GetSharedContractViolationTrapBlock(bool Create) {
   return ContractData->GetSharedTrapBlock(*this).Block;
 }
 
-void CodeGenFunction::EmitHandleContractViolationCall(
-    llvm::Constant *EvalSemantic, llvm::Constant *DetectionMode,
-    llvm::Value *ViolationInfoGV, bool IsNoReturn) {
-  auto &Ctx = getContext();
-
-  CanQualType ArgTypes[3] = {Ctx.UnsignedCharTy, Ctx.UnsignedCharTy,
-                             Ctx.VoidPtrTy};
-
-  const CGFunctionInfo &VFuncInfo =
-      CGM.getTypes().arrangeBuiltinFunctionDeclaration(getContext().VoidTy,
-                                                       ArgTypes);
-
-  // This must match the definition in the runtime library:
-  //   extern "C" void __handle_contract_violation_v3(
-  //       evaluation_semantic, detection_mode, void*);
-  // where both enumerations have 'unsigned char' as their underlying type.
-  StringRef TargetFuncName = "__handle_contract_violation_v3";
-  llvm::FunctionType *VFTy = CGM.getTypes().GetFunctionType(VFuncInfo);
-  llvm::FunctionCallee VFunc = CGM.CreateRuntimeFunction(VFTy, TargetFuncName);
-  if (auto *F = dyn_cast<llvm::Function>(VFunc.getCallee());
-      F && F->isDeclaration())
-    CGM.SetLLVMFunctionAttributes(GlobalDecl(), VFuncInfo, F,
-                                  /*IsThunk=*/false);
-
-  CallArgList Args;
-  Args.add(RValue::get(EvalSemantic), Ctx.UnsignedCharTy);
-  Args.add(RValue::get(DetectionMode), Ctx.UnsignedCharTy);
-  Args.add(RValue::get(ViolationInfoGV), Ctx.VoidPtrTy);
-
-  llvm::CallBase *CallOrInvoke = nullptr;
-  EmitCall(VFuncInfo, CGCallee::forDirect(VFunc), ReturnValueSlot(), Args,
-           &CallOrInvoke);
-
-  if (IsNoReturn) {
-    CallOrInvoke->setDoesNotReturn();
-    // For an invoke, the insertion point is now the normal destination, which
-    // is unreachable.
-    EnsureInsertPoint();
-    Builder.CreateUnreachable();
-    Builder.ClearInsertionPoint();
-  }
+void CodeGenFunction::EmitContractViolationTrap() {
+  llvm::CallInst *TrapCall = EmitTrapCall(llvm::Intrinsic::trap);
+  TrapCall->setDoesNotReturn();
+  TrapCall->setDoesNotThrow();
+  Builder.CreateUnreachable();
+  Builder.ClearInsertionPoint();
 }
 
-// Check if function can throw based on prototype noexcept, also works for
-// destructors which are implicitly noexcept but can be marked noexcept(false).
-static bool FunctionCanThrow(const FunctionDecl *D) {
-  if (!D)
+//===----------------------------------------------------------------------===//
+//                           Violation data emission
+//===----------------------------------------------------------------------===//
+
+namespace {
+
+/// The LLVM type of the basic data block, and the offsets of its fields.
+struct ContractDataBlockLayout {
+  /// { descriptor, next, { file, function, line, column }, comment, message }
+  llvm::StructType *Ty;
+  CharUnits Align;
+  /// The byte offsets of the fields from the start of the block, which are
+  /// recorded in the descriptor table.
+  CharUnits SourceLocation, Comment, Message;
+
+  enum Index { DescriptorIdx, NextIdx, SourceLocationIdx, CommentIdx, MessageIdx };
+
+  static ContractDataBlockLayout get(CodeGenModule &CGM) {
+    ASTContext &Ctx = CGM.getContext();
+    llvm::LLVMContext &LLVMCtx = CGM.getLLVMContext();
+    llvm::Type *PtrTy = CGM.DefaultPtrTy;
+    // struct __cxa_source_location {
+    //   const char* file_name; const char* function_name;
+    //   unsigned line; unsigned column;
+    // };
+    llvm::StructType *LocTy = llvm::StructType::get(
+        LLVMCtx, {PtrTy, PtrTy, CGM.IntTy, CGM.IntTy});
+
+    ContractDataBlockLayout Layout;
+    Layout.Ty = llvm::StructType::get(LLVMCtx, {PtrTy, PtrTy, LocTy, PtrTy, PtrTy});
+    Layout.Align = std::max(CGM.getPointerAlign(),
+                            Ctx.getTypeAlignInChars(Ctx.UnsignedIntTy));
+    const llvm::StructLayout *SL = CGM.getDataLayout().getStructLayout(Layout.Ty);
+    auto Offset = [&](unsigned Idx) {
+      return CharUnits::fromQuantity(SL->getElementOffset(Idx));
+    };
+    Layout.SourceLocation = Offset(SourceLocationIdx);
+    Layout.Comment = Offset(CommentIdx);
+    Layout.Message = Offset(MessageIdx);
+    return Layout;
+  }
+};
+
+} // namespace
+
+/// Get or create the descriptor table shared by all data blocks of the module.
+///
+/// The table has the layout of __cxa_descriptor_table_t:
+///
+///   uint8_t header;         // table version (high 4 bits), vendor (low 4)
+///   uint8_t num_entries;
+///   uint8_t field_ids[num_entries];
+///   <padding to alignof(__cxa_descriptor_data_t)>
+///   uintptr_t data[num_entries];   // byte offset of each field in the block
+///
+/// It is emitted as a packed struct with explicit padding, so that its layout
+/// is exactly the one of the ABI regardless of how LLVM lays out structs.
+static llvm::GlobalVariable *
+getContractDescriptorTable(CodeGenModule &CGM,
+                           const ContractDataBlockLayout &Layout,
+                           llvm::GlobalVariable *&Table) {
+  if (Table)
+    return Table;
+
+  ASTContext &Ctx = CGM.getContext();
+  const uint8_t FieldIDs[] = {cxa::FieldSourceLocation, cxa::FieldComment,
+                              cxa::FieldMessage};
+  const CharUnits FieldOffsets[] = {Layout.SourceLocation, Layout.Comment,
+                                    Layout.Message};
+  constexpr unsigned NumEntries = std::size(FieldIDs);
+
+  // __cxa_descriptor_data_t is a union of uintptr_t and const void*.
+  CharUnits DataAlign =
+      std::max(Ctx.getTypeAlignInChars(Ctx.getUIntPtrType()),
+               Ctx.getTypeAlignInChars(Ctx.VoidPtrTy));
+
+  ConstantInitBuilder Builder(CGM);
+  auto Desc = Builder.beginStruct();
+  Desc.setPacked(true);
+  Desc.addInt(CGM.Int8Ty, (cxa::TableVersion << 4) | cxa::VendorClang);
+  Desc.addInt(CGM.Int8Ty, NumEntries);
+  for (uint8_t ID : FieldIDs)
+    Desc.addInt(CGM.Int8Ty, ID);
+  CharUnits Offset = Desc.getNextOffsetFromGlobal();
+  for (CharUnits Pad = Offset.alignTo(DataAlign) - Offset; !Pad.isZero();
+       Pad -= CharUnits::One())
+    Desc.addInt(CGM.Int8Ty, 0);
+  for (CharUnits FieldOffset : FieldOffsets)
+    Desc.addInt(CGM.IntPtrTy, FieldOffset.getQuantity());
+
+  Table = Desc.finishAndCreateGlobal("__contract_descriptor_table", DataAlign,
+                                     /*constant=*/true,
+                                     llvm::GlobalValue::PrivateLinkage);
+  Table->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  return Table;
+}
+
+/// Compute the source location of the contract assertion \p S as the fields
+/// of __cxa_source_location: the (presumed) file name, the enclosing function
+/// \p D as __PRETTY_FUNCTION__ would name it, and the line and column of the
+/// contract keyword.
+static void getContractSourceLocation(CodeGenModule &CGM,
+                                      const ContractStmt *S, const Decl *D,
+                                      SmallVectorImpl<char> &File,
+                                      std::string &Function, unsigned &Line,
+                                      unsigned &Column) {
+  ASTContext &Ctx = CGM.getContext();
+  SourceManager &SM = Ctx.getSourceManager();
+  PresumedLoc PLoc =
+      SM.getPresumedLoc(SM.getExpansionRange(S->getBeginLoc()).getEnd());
+
+  File.clear();
+  Line = Column = 0;
+  if (PLoc.isValid()) {
+    StringRef FileName = PLoc.getFilename();
+    File.assign(FileName.begin(), FileName.end());
+    Preprocessor::processPathForFileMacro(File, Ctx.getLangOpts(),
+                                          Ctx.getTargetInfo());
+    Line = PLoc.getLine();
+    Column = PLoc.getColumn();
+  }
+
+  // This is the function name std::source_location::current() produces.
+  Function.clear();
+  if (D && !isa<TranslationUnitDecl>(D))
+    Function =
+        PredefinedExpr::ComputeName(PredefinedIdentKind::PrettyFunction, D);
+}
+
+llvm::Constant *CodeGenModule::GetAddrOfContractDataBlock(const ContractStmt *S,
+                                                          const Decl *D) {
+  D = D ? D->getCanonicalDecl() : nullptr;
+  llvm::Constant *&Entry = ContractDataBlocks[{S, D}];
+  if (Entry)
+    return Entry;
+
+  ASTContext &Ctx = getContext();
+
+  SmallString<256> File;
+  std::string Function;
+  unsigned Line, Column;
+  getContractSourceLocation(*this, S, D, File, Function, Line, Column);
+
+  // The comment is the source text of the predicate, and the message is the
+  // diagnostic message given by [[clang::contract_message]], if any. They are
+  // independent fields of the ABI (the message is the computed message of
+  // P3099), so a message does not replace the predicate text; instead, a
+  // contract_message attribute with include_source_text=false omits the text.
+  std::string Comment;
+  StringRef Message;
+  if (const auto *MessageAttr = S->getAttrAs<ContractMessageAttr>()) {
+    Message = MessageAttr->getMessage();
+    if (MessageAttr->getIncludeSourceText())
+      Comment = S->getSourceText(Ctx);
+  } else {
+    Comment = S->getSourceText(Ctx);
+  }
+
+  auto GetString = [&](StringRef Str) -> llvm::Constant * {
+    return GetAddrOfConstantCString(Str.str(), ".str.contract").getPointer();
+  };
+
+  // The data block is a __cxa_contract_data_block followed by the fields of
+  // the basic layout:
+  //
+  //   const __cxa_descriptor_table_t* descriptor;
+  //   const __cxa_contract_data_block* next;    // null
+  //   __cxa_source_location location;  // { file, function, line, column }
+  //   const char* comment;
+  //   const char* message;
+  ContractDataBlockLayout Layout = ContractDataBlockLayout::get(*this);
+  llvm::GlobalVariable *Descriptor =
+      getContractDescriptorTable(*this, Layout, ContractDescriptorTable);
+
+  ConstantInitBuilder Builder(*this);
+  auto Block = Builder.beginStruct(Layout.Ty);
+  Block.add(Descriptor);
+  Block.addNullPointer(DefaultPtrTy);
+  {
+    auto Location = Block.beginStruct(
+        cast<llvm::StructType>(Layout.Ty->getElementType(
+            ContractDataBlockLayout::SourceLocationIdx)));
+    Location.add(GetString(File));
+    Location.add(GetString(Function));
+    Location.addInt(IntTy, Line);
+    Location.addInt(IntTy, Column);
+    Location.finishAndAddTo(Block);
+  }
+  Block.add(GetString(Comment));
+  Block.add(GetString(Message));
+
+  llvm::GlobalVariable *GV = Block.finishAndCreateGlobal(
+      "__contract_data", Layout.Align, /*constant=*/true,
+      llvm::GlobalValue::PrivateLinkage);
+  GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
+  Entry = GV;
+  return GV;
+}
+
+//===----------------------------------------------------------------------===//
+//                           Violation handler alias
+//===----------------------------------------------------------------------===//
+
+/// Whether \p FD declares the replaceable contract-violation handler
+/// ([basic.contract.handler]): a function named ::handle_contract_violation
+/// with C++ language linkage, attached to the global module, taking a single
+/// 'const std::contracts::contract_violation&' and returning void.
+static bool isContractViolationHandler(const FunctionDecl *FD) {
+  if (!FD->getDeclName().isIdentifier() ||
+      FD->getName() != "handle_contract_violation")
     return false;
-  if (D->hasAttr<NoThrowAttr>())
+  if (!FD->getDeclContext()->getRedeclContext()->isTranslationUnit() ||
+      FD->isExternC() || FD->isCXXClassMember() || FD->isInlined() ||
+      FD->getTemplatedKind() != FunctionDecl::TK_NonTemplate ||
+      FD->isVariadic() || FD->getNumParams() != 1 ||
+      !FD->getReturnType()->isVoidType())
     return false;
-  const auto *Proto = D->getType()->getAs<FunctionProtoType>();
-  if (!Proto) {
-    // Function proto is not found, we conservatively assume throwing.
+
+  const auto *RefTy =
+      FD->getParamDecl(0)->getType()->getAs<LValueReferenceType>();
+  if (!RefTy)
+    return false;
+  QualType Pointee = RefTy->getPointeeType();
+  if (!Pointee.isConstQualified() || Pointee.isVolatileQualified())
+    return false;
+  const CXXRecordDecl *RD = Pointee->getAsCXXRecordDecl();
+  if (!RD || !RD->getIdentifier() || RD->getName() != "contract_violation")
+    return false;
+
+  // The class is std::contracts::contract_violation; the standard library may
+  // declare it in an inline namespace.
+  const auto *Contracts = dyn_cast<NamespaceDecl>(RD->getDeclContext());
+  while (Contracts && Contracts->isInline())
+    Contracts = dyn_cast<NamespaceDecl>(Contracts->getParent());
+  return Contracts && Contracts->getIdentifier() &&
+         Contracts->getName() == "contracts" &&
+         Contracts->getParent()->isStdNamespace();
+}
+
+void CodeGenModule::MaybeEmitContractViolationHandlerAlias(
+    const FunctionDecl *FD, llvm::Function *Fn) {
+  if (!FD->isExternallyVisible() || !isContractViolationHandler(FD))
+    return;
+
+  // The runtime calls the handler through a C-linkage symbol, so that handler
+  // resolution does not depend on the mangling of the handler's signature. A
+  // translation unit that declares that symbol itself (for instance, the
+  // runtime library providing the default handler) takes care of it.
+  if (getModule().getNamedValue(cxa::HandlerSymbolName) ||
+      !getContext()
+           .getTranslationUnitDecl()
+           ->lookup(DeclarationName(
+               &getContext().Idents.get(cxa::HandlerSymbolName)))
+           .empty())
+    return;
+
+  // The symbol is referenced only by the runtime library, which may be a
+  // shared library, so it must be visible outside of this module even when the
+  // handler itself is not (-fvisibility=hidden).
+  const llvm::Triple &Triple = getTriple();
+  if (Triple.isOSBinFormatMachO() || Triple.isNVPTX()) {
+    // The object format does not support aliases; emit a forwarding function
+    // instead, and keep it from being dead-stripped.
+    llvm::Function *Thunk = llvm::Function::Create(
+        Fn->getFunctionType(), Fn->getLinkage(), Fn->getAddressSpace(),
+        cxa::HandlerSymbolName, &getModule());
+    Thunk->setVisibility(llvm::GlobalValue::DefaultVisibility);
+    Thunk->setDSOLocal(Fn->isDSOLocal());
+    Thunk->setCallingConv(Fn->getCallingConv());
+    Thunk->setAttributes(Fn->getAttributes());
+    llvm::IRBuilder<> IRB(
+        llvm::BasicBlock::Create(getLLVMContext(), "entry", Thunk));
+    SmallVector<llvm::Value *, 1> Args;
+    for (llvm::Argument &Arg : Thunk->args())
+      Args.push_back(&Arg);
+    llvm::CallInst *Call = IRB.CreateCall(Fn, Args);
+    Call->setCallingConv(Fn->getCallingConv());
+    Call->setTailCallKind(llvm::CallInst::TCK_Tail);
+    IRB.CreateRetVoid();
+    addUsedGlobal(Thunk);
+    return;
+  }
+
+  auto *Alias = llvm::GlobalAlias::create(
+      Fn->getValueType(), Fn->getAddressSpace(), Fn->getLinkage(),
+      cxa::HandlerSymbolName, Fn, &getModule());
+  Alias->setVisibility(llvm::GlobalValue::DefaultVisibility);
+  Alias->setDSOLocal(Fn->isDSOLocal());
+}
+
+//===----------------------------------------------------------------------===//
+//                           Violation reporting
+//===----------------------------------------------------------------------===//
+
+/// Get the entry point of the contract-violation runtime for the given
+/// assertion kind, evaluation semantic and detection mode:
+///
+///   __cxa_contract_violation_{kind}_{semantic}_{mode}[_noexcept]
+///
+/// All entry points take the address of the data block chain as their only
+/// argument. The 'enforce' entry points do not return, and the '_noexcept'
+/// variants do not unwind: they terminate if the violation handler throws.
+static llvm::FunctionCallee
+getContractViolationEntryPoint(CodeGenModule &CGM, ContractKind Kind,
+                               ContractEvaluationSemantic Semantic,
+                               ContractDetectionMode Mode, bool IsNoexcept) {
+  SmallString<64> Name("__cxa_contract_violation_");
+  switch (Kind) {
+  case ContractKind::Pre:
+    Name += "pre";
+    break;
+  case ContractKind::Post:
+    Name += "post";
+    break;
+  case ContractKind::Assert:
+    Name += "assert";
+    break;
+  }
+  switch (Semantic) {
+  case Enforce:
+    Name += "_enforce";
+    break;
+  case Observe:
+    Name += "_observe";
+    break;
+  case Ignore:
+  case QuickEnforce:
+    llvm_unreachable("semantic has no runtime entry point");
+  }
+  switch (Mode) {
+  case PredicateFailed:
+    Name += "_pf";
+    break;
+  case ExceptionRaised:
+    Name += "_ex";
+    break;
+  case ContractDetectionMode::Unspecified:
+    llvm_unreachable("detection mode has no runtime entry point");
+  }
+  if (IsNoexcept)
+    Name += "_noexcept";
+
+  // FIXME: On Apple platforms, the entry points are only available in the
+  // system libc++abi starting with the release that ships the contracts
+  // runtime. Checking contracts should be diagnosed when the deployment target
+  // is older, as is done for other runtime-dependent features such as aligned
+  // allocation.
+  ASTContext &Ctx = CGM.getContext();
+  llvm::FunctionCallee Callee =
+      CGM.CreateRuntimeFunction(Ctx.VoidTy, {Ctx.VoidPtrTy}, Name);
+  if (auto *Fn = dyn_cast<llvm::Function>(Callee.getCallee())) {
+    llvm::AttrBuilder FnAttrs(CGM.getLLVMContext());
+    FnAttrs.addAttribute(llvm::Attribute::Cold);
+    if (Semantic == Enforce)
+      FnAttrs.addAttribute(llvm::Attribute::NoReturn);
+    if (IsNoexcept)
+      FnAttrs.addAttribute(llvm::Attribute::NoUnwind);
+    Fn->addFnAttrs(FnAttrs);
+  }
+  return Callee;
+}
+
+bool CodeGenFunction::isContractViolationInNoexceptContext() {
+  if (!getLangOpts().Exceptions)
     return true;
-  }
-  return !isNoexceptExceptionSpec(Proto->getExceptionSpecType()) ||
-         Proto->canThrow() != CT_Cannot;
-}
-
-static bool DestructorCanThrow(QualType T) {
-  if (const auto *RD = T->getBaseElementTypeUnsafe()->getAsCXXRecordDecl())
-    if (const CXXDestructorDecl *Dtor = RD->getDestructor())
-      return FunctionCanThrow(Dtor);
-  return false;
-}
-
-/// Determine whether evaluating \p S can exit via an exception. This is a
-/// conservative analysis: it returns true unless the expression is known not
-/// to throw.
-static bool StmtCanThrow(const Stmt *S) {
-  if (!S)
-    return false;
-
-  switch (S->getStmtClass()) {
-  case Stmt::CXXThrowExprClass:
-  case Stmt::ObjCMessageExprClass:
-  case Stmt::ObjCAtThrowStmtClass:
-    return true;
-
-  // Unevaluated operands.
-  case Stmt::CXXNoexceptExprClass:
-    return false;
-  case Stmt::UnaryExprOrTypeTraitExprClass:
-    // The operand of sizeof is unevaluated unless it has a VLA type, in which
-    // case we conservatively look at it.
-    if (!cast<UnaryExprOrTypeTraitExpr>(S)->getTypeOfArgument()
-             ->isVariablyModifiedType())
-      return false;
-    break;
-
-  case Stmt::ConstantExprClass:
-    // A constant expression that has been evaluated is emitted as a constant.
-    if (cast<ConstantExpr>(S)->hasAPValueResult())
-      return false;
-    break;
-
-  case Stmt::CXXTypeidExprClass: {
-    const auto *TE = cast<CXXTypeidExpr>(S);
-    if (!TE->isPotentiallyEvaluated())
-      return false;
-    // typeid of a dereferenced null pointer throws std::bad_typeid.
-    if (TE->hasNullCheck())
+  for (const EHScope &Scope : EHStack) {
+    switch (Scope.getKind()) {
+    case EHScope::Cleanup:
+      // Cleanups between the violation and a terminate scope need not run
+      // ([except.terminate]).
+      continue;
+    case EHScope::Terminate:
       return true;
-    break;
-  }
-
-  case Stmt::CXXDynamicCastExprClass:
-    // A dynamic_cast to a reference type throws std::bad_cast on failure.
-    if (!cast<CXXDynamicCastExpr>(S)->getType()->isPointerType())
-      return true;
-    break;
-
-  case Stmt::CallExprClass:
-  case Stmt::CXXMemberCallExprClass:
-  case Stmt::CXXOperatorCallExprClass:
-  case Stmt::UserDefinedLiteralClass:
-  case Stmt::CUDAKernelCallExprClass: {
-    const auto *CE = cast<CallExpr>(S);
-    if (const FunctionDecl *Callee = CE->getDirectCallee()) {
-      if (FunctionCanThrow(Callee))
-        return true;
-    } else {
-      // Indirect call. We can only tell from the type of the callee.
-      QualType CalleeTy = CE->getCallee()->getType();
-      if (const auto *PT = CalleeTy->getAs<PointerType>())
-        CalleeTy = PT->getPointeeType();
-      else if (const auto *MPT = CalleeTy->getAs<MemberPointerType>())
-        CalleeTy = MPT->getPointeeType();
-      const auto *Proto = CalleeTy->getAs<FunctionProtoType>();
-      if (!Proto || !Proto->isNothrow())
-        return true;
+    case EHScope::Catch:
+    case EHScope::Filter:
+      return false;
     }
-    break;
   }
-
-  case Stmt::CXXConstructExprClass:
-  case Stmt::CXXTemporaryObjectExprClass:
-    if (FunctionCanThrow(cast<CXXConstructExpr>(S)->getConstructor()))
-      return true;
-    break;
-
-  case Stmt::CXXInheritedCtorInitExprClass:
-    if (FunctionCanThrow(cast<CXXInheritedCtorInitExpr>(S)->getConstructor()))
-      return true;
-    break;
-
-  case Stmt::CXXNewExprClass: {
-    const auto *NE = cast<CXXNewExpr>(S);
-    // An array new with a non-constant bound may throw
-    // std::bad_array_new_length.
-    if (NE->isArray())
-      return true;
-    if (FunctionCanThrow(NE->getOperatorNew()))
-      return true;
-    break;
-  }
-
-  case Stmt::CXXDeleteExprClass: {
-    const auto *DE = cast<CXXDeleteExpr>(S);
-    if (FunctionCanThrow(DE->getOperatorDelete()))
-      return true;
-    QualType DT = DE->getDestroyedType();
-    if (!DT.isNull() && DestructorCanThrow(DT))
-      return true;
-    break;
-  }
-
-  case Stmt::CXXBindTemporaryExprClass:
-    // The destructor call of the temporary is not represented in children(),
-    // so check it explicitly.
-    if (FunctionCanThrow(
-            cast<CXXBindTemporaryExpr>(S)->getTemporary()->getDestructor()))
-      return true;
-    break;
-
-  case Stmt::CXXDefaultArgExprClass:
-    return StmtCanThrow(cast<CXXDefaultArgExpr>(S)->getExpr());
-  case Stmt::CXXDefaultInitExprClass:
-    return StmtCanThrow(cast<CXXDefaultInitExpr>(S)->getExpr());
-  case Stmt::OpaqueValueExprClass:
-    return StmtCanThrow(cast<OpaqueValueExpr>(S)->getSourceExpr());
-
-  case Stmt::LambdaExprClass: {
-    // Creating the closure object only evaluates the capture initializers;
-    // the body is not evaluated.
-    for (const Expr *Init : cast<LambdaExpr>(S)->capture_inits())
-      if (StmtCanThrow(Init))
-        return true;
-    return false;
-  }
-
-  default:
-    break;
-  }
-
-  for (const Stmt *Child : S->children())
-    if (StmtCanThrow(Child))
-      return true;
-
   return false;
 }
+
+void CodeGenFunction::EmitContractViolation(const ContractStmt &S,
+                                            ContractDetectionMode Mode) {
+  ContractEvaluationSemantic Semantic = S.getSemantic(getContext());
+  switch (Semantic) {
+  case Ignore:
+    return;
+  case QuickEnforce:
+    // No handler, no data: trap.
+    EmitContractViolationTrap();
+    return;
+  case Enforce:
+  case Observe:
+    break;
+  }
+
+  // The data block names the innermost enclosing function, as
+  // std::source_location::current() would.
+  llvm::Constant *Data = CGM.GetAddrOfContractDataBlock(&S, CurCodeDecl);
+  bool IsNoexcept = isContractViolationInNoexceptContext();
+  llvm::FunctionCallee EntryPoint = getContractViolationEntryPoint(
+      CGM, S.getContractKind(), Semantic, Mode, IsNoexcept);
+  llvm::Value *Args[] = {Data};
+
+  if (Semantic == Enforce) {
+    if (IsNoexcept) {
+      llvm::CallInst *Call = EmitNounwindRuntimeCall(EntryPoint, Args);
+      Call->setDoesNotReturn();
+      Builder.CreateUnreachable();
+    } else {
+      EmitNoreturnRuntimeCallOrInvoke(EntryPoint, Args);
+    }
+    Builder.ClearInsertionPoint();
+    return;
+  }
+
+  if (IsNoexcept)
+    EmitNounwindRuntimeCall(EntryPoint, Args);
+  else
+    EmitRuntimeCallOrInvoke(EntryPoint, Args);
+}
+
+//===----------------------------------------------------------------------===//
+//                           Contract assertions
+//===----------------------------------------------------------------------===//
 
 /// Returns true if \p FD has a function contract assertion (of kind \p Kind,
 /// if given) which is evaluated with a checking semantic.
@@ -626,185 +803,49 @@ void CodeGenFunction::EmitFunctionPostconditions(SourceLocation EndLoc) {
     DI->EmitLocation(Builder, EndLoc);
 }
 
-// Emit the contract expression.
 void CodeGenFunction::EmitContractStmt(const ContractStmt &S) {
-  assert(!CurContract() || CurContract()->Contract == &S);
-
-  if (!CurContract()) {
-    // FIXME(EricWF): Remove this. It's a hack to prevent crashing.
-
-    EmitContractStmtAsFullStmt(S);
-
-  } else if (CurContract()->Checkpoint == EmittingTryBody) {
-    return EmitContractStmtAsTryBody(S);
-  } else if (CurContract()->Checkpoint == EmittingCatchBody) {
-    return EmitContractStmtAsCatchBody(S);
-  } else {
-    llvm_unreachable("Invalid checkpoint");
-  }
-}
-
-// FIXME(EricWF): Do I really need this?
-void CodeGenFunction::EmitContractStmtAsTryBody(const ContractStmt &S) {
-  assert(CurContract() && CurContract()->Contract == &S &&
-         CurContract()->Checkpoint == EmittingTryBody);
-  Builder.CreateStore(EmitScalarExpr(S.getCond()),
-                      CurContract()->EHPredicateStore);
-
-}
-
-void CodeGenFunction::EmitContractStmtAsCatchBody(const ContractStmt &S) {
-  assert(CurContract() && CurContract()->Contract == &S &&
-         CurContract()->Checkpoint == EmittingCatchBody);
-  auto CurInfo = CurContract();
-
-  if (CurInfo->Semantic == Enforce || CurInfo->Semantic == Observe) {
-    // We have to emit the contract violation block inside the catch block so
-    // that the handler can see the exception via std::current_exception
-    EmitHandleContractViolationCall(
-        CreateConstantInt(*this, CurInfo->Semantic),
-        CreateConstantInt(*this, ExceptionRaised), CurInfo->ViolationInfoGV,
-        /*IsNoReturn=*/CurInfo->Semantic == Enforce);
-  } else if (CurInfo->Semantic == QuickEnforce) {
-    CreateTrap(*this);
-  } else {
-    llvm_unreachable("Unhandled semantic");
-  }
-}
-
-static CXXTryStmt *BuildTryCatch(const ContractStmt &S, CodeGenFunction &CGF) {
-  auto &Ctx = CGF.getContext();
-  auto Loc = S.getCond()->getExprLoc();
-
-  llvm::SmallVector<Stmt *> BodyStmts;
-  BodyStmts.push_back(const_cast<ContractStmt *>(&S));
-
-  // FIXME(EricWF): THIS IS A TERRIBLE HACK.
-  //   In order to emit the contract assertion violation in the catch block
-  //   we add the current statement to a dummy handler, and then detect
-  //   when we're inside that dummy handler to only emit the violation
-  //
-  // This should have some other representation, but I don't want to eagerly
-  // build all these nodes in the AST.
-
-  auto *CatchStmt =
-      CompoundStmt::Create(Ctx, BodyStmts, FPOptionsOverride(), Loc, Loc);
-  auto *Catch =
-      new (Ctx) CXXCatchStmt(Loc, /*exDecl=*/nullptr, /*block=*/CatchStmt);
-  auto *TryBody =
-      CompoundStmt::Create(Ctx, BodyStmts, FPOptionsOverride(), Loc, Loc);
-  return CXXTryStmt::Create(Ctx, Loc, TryBody, Catch);
-}
-
-void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
-  assert(CurContract() == nullptr);
-  // FIXME(EricWF): We recursively call EmitContractStmt to build the catch
-  // block that reports contract violations that have thrown. In order to do
-  // this without building additional AST nodes, use this Stmt as the body
-  // of the catch block, detecting when we're inside the catch block to only
-  // emit the violation.
-
-  ContractEvaluationSemantic Semantic = S.getSemantic(getContext());
+  assert(!CurContract() && "contract assertions do not nest");
 
   // [basic.contract.eval]p4: The evaluation of a contract assertion using the
   // ignore semantic has no effect.
+  ContractEvaluationSemantic Semantic = S.getSemantic(getContext());
   if (Semantic == Ignore)
     return;
 
-  const auto Style = [&]() {
-    switch (Semantic) {
-    case Enforce: {
-      if (!getLangOpts().Exceptions)
-        return Shared;
-    }
-      LLVM_FALLTHROUGH;
-    case Observe:
-      return Inline;
-    case QuickEnforce:
-      return Shared;
-    case ContractEvaluationSemantic::Ignore:
-    
-      llvm_unreachable("unhandled semantic");
-    }
-  }();
-
-  auto Violation = [&]() {
-    switch (Style) {
-    case Inline:
-      return createBasicBlock("contract.violation");
-    case Shared:
-      assert(Semantic == Enforce || Semantic == QuickEnforce);
-      return Semantic == Enforce ? GetSharedContractViolationEnforceBlock()
-                                  : GetSharedContractViolationTrapBlock();
-    }
-  }();
+  CurrentContractRAII CurContractRAII(*this, {&S, Semantic});
 
   llvm::BasicBlock *End = createBasicBlock("contract.end");
+  // Violations of quick_enforce assertions share one trap block per function;
+  // the others are reported inline.
+  llvm::BasicBlock *Violation = Semantic == QuickEnforce
+                                    ? GetSharedContractViolationTrapBlock()
+                                    : createBasicBlock("contract.violation");
 
-  llvm::Constant *ViolationInfo = nullptr;
-  if (Semantic != ContractEvaluationSemantic::QuickEnforce) {
-    ViolationInfo = CGM.GetAddrOfUnnamedGlobalConstantDecl(
-                           getContext().BuildViolationObject(
-                               &S, dyn_cast_or_null<FunctionDecl>(CurFuncDecl)), "contract.loc")
-                        .getPointer();
-  }
-
-  CurrentContractRAII CurContractRAII(*this,
-                                      {.Contract = &S,
-                                       .Style = Style,
-                                       .Checkpoint = EmittingContract,
-                                       .Semantic = Semantic,
-                                       .Violation = Violation,
-                                       .End = End,
-                                       .ViolationInfoGV = ViolationInfo});
-
-  llvm::Value *BranchOn;
-  if (getLangOpts().Exceptions && getLangOpts().ContractExceptions && StmtCanThrow(S.getCond())) {
-
-    CurContract()->EHPredicateStore = CreateTempAlloca(
-        Builder.getInt1Ty(), CharUnits::One(), "contract.pred.value");
-    // Set the initial value to true. If the contract throws, we'll see the true
-    // value after the catch block is done handling the exception.
-    Builder.CreateStore(Builder.getTrue(), CurContract()->EHPredicateStore);
-
-    assert(Builder.GetInsertBlock());
-    EnsureInsertPoint();
-
-    auto *Try = BuildTryCatch(S, *this);
-    EnterCXXTryStmt(*Try);
-    CurContract()->Checkpoint = EmittingTryBody;
-    EmitStmt(Try->getTryBlock());
-    CurContract()->Checkpoint = EmittingCatchBody;
-    ExitCXXTryStmt(*Try);
-    CurContract()->Checkpoint = EmittingContract;
-
-    BranchOn = Builder.CreateLoad(CurContract()->EHPredicateStore);
-  } else {
-    BranchOn = EmitScalarExpr(S.getCond());
-  }
-
-  if (Style == Shared && Semantic == Enforce) {
-    EnsureInsertPoint();
-    ContractData->GetSharedEnforceBlock(*this).IncomingPHI->addIncoming(
-        ViolationInfo, Builder.GetInsertBlock());
-  }
+  // Catch any exception the evaluation of the predicate exits with, and report
+  // the violation from within the handler: the contract-violation handler is
+  // invoked from within an active implicit handler for that exception
+  // ([basic.contract.eval]).
+  bool CatchExceptions =
+      getLangOpts().CXXExceptions && getLangOpts().ContractExceptions;
+  if (CatchExceptions)
+    EnterCatchAllScope();
 
   // Contract violations are unexpected: keep the violation handling out of
   // the fast path.
+  llvm::Value *Predicate = EvaluateExprAsBool(S.getCond());
   Builder.CreateCondBr(
-      BranchOn, End, Violation,
+      Predicate, End, Violation,
       llvm::MDBuilder(getLLVMContext()).createLikelyBranchWeights());
+  Builder.ClearInsertionPoint();
 
-  // If we're creating a trap, the violation block will be created once for the
-  // function. Otherwise, we need to create a call to the violation handler.
-  if (Style == Inline) {
-    EmitBlock(CurContract()->Violation);
-    Builder.SetInsertPoint(CurContract()->Violation);
-    EmitHandleContractViolationCall(CreateConstantInt(*this, Semantic),
-                                    CreateConstantInt(*this, PredicateFailed),
-                                    CurContract()->ViolationInfoGV,
-                                    /*IsNoReturn=*/Semantic == Enforce);
-    if (Semantic != Enforce)
+  if (CatchExceptions)
+    ExitCatchAllScope(S.getBeginLoc(), End,
+                      [&] { EmitContractViolation(S, ExceptionRaised); });
+
+  if (Semantic != QuickEnforce) {
+    EmitBlock(Violation);
+    EmitContractViolation(S, PredicateFailed);
+    if (HaveInsertPoint())
       Builder.CreateBr(End);
   }
 

@@ -4647,7 +4647,7 @@ ConstantAddress CodeGenModule::GetAddrOfMSGuidDecl(const MSGuidDecl *GD) {
 }
 
 ConstantAddress CodeGenModule::GetAddrOfUnnamedGlobalConstantDecl(
-    const UnnamedGlobalConstantDecl *GCD, StringRef Name) {
+    const UnnamedGlobalConstantDecl *GCD) {
   CharUnits Alignment = getContext().getTypeAlignInChars(GCD->getType());
 
   llvm::GlobalVariable **Entry = nullptr;
@@ -4664,9 +4664,10 @@ ConstantAddress CodeGenModule::GetAddrOfUnnamedGlobalConstantDecl(
   Init = Emitter.emitForInitializer(V, GCD->getType().getAddressSpace(),
                                     GCD->getType());
 
-  auto *GV = new llvm::GlobalVariable(
-      getModule(), Init->getType(),
-      /*isConstant=*/true, llvm::GlobalValue::PrivateLinkage, Init, Name);
+  auto *GV = new llvm::GlobalVariable(getModule(), Init->getType(),
+                                      /*isConstant=*/true,
+                                      llvm::GlobalValue::PrivateLinkage, Init,
+                                      ".constant");
   GV->setUnnamedAddr(llvm::GlobalValue::UnnamedAddr::Global);
   GV->setAlignment(Alignment.getAsAlign());
 
@@ -7080,6 +7081,9 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
     CodeGenFunction(*this).GenerateCode(GD, Fn, FI);
 
   setNonAliasAttributes(GD, Fn);
+
+  if (getLangOpts().CPlusPlus)
+    MaybeEmitContractViolationHandlerAlias(D, Fn);
 
   bool ShouldAddOptNone = !CodeGenOpts.DisableO0ImplyOptNone &&
                           (CodeGenOpts.OptimizationLevel == 0) &&

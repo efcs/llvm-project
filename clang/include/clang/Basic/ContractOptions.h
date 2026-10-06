@@ -39,7 +39,7 @@ enum class ContractGroupDiagnostic {
 /// The kind of contract.
 ///
 /// NOTE: These enumerations _do not_ match the values in
-/// std::contracts::assertion_kind, which start at 1. See ContractAssertionKind.
+/// std::contracts::assertion_kind, which start at 1.
 enum class ContractKind {
   /// A function precondition
   Pre,
@@ -51,27 +51,14 @@ enum class ContractKind {
   Assert
 };
 
-// std::contracts::assertion_kind
-enum class ContractAssertionKind {
-  Pre = 1,
-
-  Post = 2,
-
-  Assert = 3,
-
-  Manual = 4,
-
-  CAssert = 5
-};
-
 /// Contract evaluation semantic. Determines whether to check contracts, and
 /// what happens when a contract is violated.
 ///
-/// NOTE: These values are Clang's internal encoding and are passed verbatim
-/// to the runtime entry point '__handle_contract_violation_v3'. They do *not*
-/// match std::contracts::evaluation_semantic (ignore=1, observe=2, enforce=3,
-/// quick_enforce=4); the library translates them. Do not renumber these
-/// without updating the runtime.
+/// NOTE: These values are Clang's internal encoding. They do *not* match
+/// std::contracts::evaluation_semantic (ignore=1, observe=2, enforce=3,
+/// quick_enforce=4), and they are never passed to the runtime: the evaluation
+/// semantic is encoded in the name of the runtime entry point that CodeGen
+/// calls (see CGContracts.cpp).
 enum class ContractEvaluationSemantic {
   // Contracts are parsed, syntax checked and type checked, but never evaluated.
   Ignore = 0,
@@ -91,8 +78,8 @@ enum class ContractEvaluationSemantic {
   QuickEnforce = 3,
 };
 
-/// The result of checking a contract. The second two values match
-/// std::contracts::detection_mode.
+/// How a contract violation was detected. The values match the enumerators of
+/// std::contracts::detection_mode (and of the Itanium C++ Contracts ABI).
 enum class ContractDetectionMode {
   Unspecified = 0,
   PredicateFailed = 1,

@@ -3845,6 +3845,25 @@ public:
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
+  /// Enter a scope that catches every exception thrown by the code emitted
+  /// until the matching ExitCatchAllScope. Unlike EnterCXXTryStmt, the handler
+  /// is not a CXXCatchStmt but IR emitted by the callback passed to
+  /// ExitCatchAllScope. This is used for constructs with a compiler-generated
+  /// handler, such as contract assertions whose predicate exits via an
+  /// exception.
+  void EnterCatchAllScope();
+
+  /// Exit the scope entered by EnterCatchAllScope. If any exception can reach
+  /// the handler, the handler is emitted: the exception is caught (so that it
+  /// is the currently handled exception, visible via std::current_exception),
+  /// \p EmitHandlerBody is invoked to emit the body of the handler, and the
+  /// handler is exited. If the body falls through, control branches to
+  /// \p ContBB. The normal path, if it has an insertion point, also branches
+  /// to \p ContBB. \p ContBB itself is not emitted. The insertion point is
+  /// cleared on return.
+  void ExitCatchAllScope(SourceLocation Loc, llvm::BasicBlock *ContBB,
+                         llvm::function_ref<void()> EmitHandlerBody);
+
   void EmitCXXTryStmt(const CXXTryStmt &S);
   void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
@@ -4740,21 +4759,36 @@ public:
   LValue EmitObjCSelectorLValue(const ObjCSelectorExpr *E);
   void EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
 
+  /// Get the block, shared by all quick_enforce contract assertions of the
+  /// function, that traps on a contract violation. It is created on first use
+  /// unless \p Create is false.
   llvm::BasicBlock *GetSharedContractViolationTrapBlock(bool Create = true);
-  llvm::BasicBlock *GetSharedContractViolationEnforceBlock(bool Create = true);
 
+  /// Emit a contract assertion: evaluate its predicate and report a contract
+  /// violation if it is false or exits via an exception.
   void EmitContractStmt(const ContractStmt &S);
 
+  /// Report a violation of the contract assertion \p S, detected as \p Mode,
+  /// according to the evaluation semantic of \p S: call the runtime entry
+  /// point of the Itanium C++ Contracts ABI selected by the kind, semantic and
+  /// detection mode with the address of the static data block describing the
+  /// assertion (enforce, observe), trap (quick_enforce), or emit nothing
+  /// (ignore). When the violation does not return (enforce, quick_enforce),
+  /// the insertion point is cleared. For an exception violation, this must be
+  /// called from within a handler for the exception.
+  void EmitContractViolation(const ContractStmt &S, ContractDetectionMode Mode);
+
+  /// Emit a trap that terminates the program on a contract violation, and
+  /// clear the insertion point.
+  void EmitContractViolationTrap();
+
 private:
-  void EmitContractStmtAsTryBody(const ContractStmt &);
-  void EmitContractStmtAsCatchBody(const ContractStmt &S);
-  void EmitContractStmtAsFullStmt(const ContractStmt &S);
+  /// Whether an exception thrown by the contract-violation handler at the
+  /// current point could not propagate out of the function anyway, in which
+  /// case the non-unwinding '_noexcept' runtime entry points are used.
+  bool isContractViolationInNoexceptContext();
 
 public:
-  void EmitHandleContractViolationCall(llvm::Constant *Semantic,
-                                       llvm::Constant *DetectionMode,
-                                       llvm::Value *ViolationDataGV,
-                                       bool IsNoReturn);
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission

@@ -71,6 +71,7 @@ class ObjCImplementationDecl;
 class ObjCEncodeExpr;
 class BlockExpr;
 class CharUnits;
+class ContractStmt;
 class Decl;
 class Expr;
 class Stmt;
@@ -522,6 +523,14 @@ private:
   llvm::DenseMap<llvm::Constant *, llvm::GlobalVariable *> ConstantStringMap;
   llvm::DenseMap<const UnnamedGlobalConstantDecl *, llvm::GlobalVariable *>
       UnnamedGlobalConstantDeclMap;
+
+  /// The descriptor table and the per-assertion data blocks emitted for the
+  /// Itanium C++ Contracts ABI. See CGContracts.cpp.
+  llvm::GlobalVariable *ContractDescriptorTable = nullptr;
+  llvm::DenseMap<std::pair<const ContractStmt *, const Decl *>,
+                 llvm::Constant *>
+      ContractDataBlocks;
+
   llvm::DenseMap<const Decl*, llvm::Constant *> StaticLocalDeclMap;
   llvm::DenseMap<const Decl*, llvm::GlobalVariable*> StaticLocalDeclGuardMap;
   llvm::DenseMap<const Expr*, llvm::Constant *> MaterializedGlobalTemporaryMap;
@@ -1187,8 +1196,19 @@ public:
 
   /// Get the address of a UnnamedGlobalConstant
   ConstantAddress
-  GetAddrOfUnnamedGlobalConstantDecl(const UnnamedGlobalConstantDecl *GCD,
-                                     StringRef Name = ".constant");
+  GetAddrOfUnnamedGlobalConstantDecl(const UnnamedGlobalConstantDecl *GCD);
+
+  /// Get the address of the static data block that describes the contract
+  /// assertion \p S, evaluated as part of \p D, to the contract-violation
+  /// runtime (Itanium C++ Contracts ABI).
+  llvm::Constant *GetAddrOfContractDataBlock(const ContractStmt *S,
+                                             const Decl *D);
+
+  /// If \p FD is a definition of the replaceable contract-violation handler
+  /// ::handle_contract_violation, emit the C-linkage symbol through which the
+  /// contract-violation runtime calls it (Itanium C++ Contracts ABI).
+  void MaybeEmitContractViolationHandlerAlias(const FunctionDecl *FD,
+                                              llvm::Function *Fn);
 
   /// Get the address of a template parameter object.
   ConstantAddress

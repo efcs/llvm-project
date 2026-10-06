@@ -17,7 +17,7 @@ int f2(const int x) pre([&] { return x > 0; }()) { return x; }
 inline int f3(int x) pre([] { return true; }()) { return x; }
 
 // CHECK-LABEL: define linkonce_odr {{.*}} @_ZZ1tIiEiT_ENKUliE_clEi(
-// CHECK: br i1 {{.*}}, label %contract.end, label %contract.violation.handler
+// CHECK: br i1 {{.*}}, label %contract.end, label %contract.violation
 template <class T> int t(T v) {
   auto l = [](T x) pre(x > 0) { return x; };
   return l(v);

@@ -1,115 +1,135 @@
+// A minimal contract-violation runtime for the runnable tests, so that they do
+// not depend on the standard library's. It implements the entry points of the
+// Itanium C++ Contracts ABI that Clang calls when a contract assertion is
+// violated, reading the data block chain the compiler emits for the assertion.
+
 #ifndef CONTRACTS_CONTRACTS_RUNTIME_H
 #define CONTRACTS_CONTRACTS_RUNTIME_H
 
 #include "contracts.h"
+#include <stddef.h>
+#include <stdint.h>
+#include <stdlib.h>
 
 namespace __cxxabi {
-namespace {
 
-using namespace std::contracts;
+// The wire format: see <__contracts/abi.h> in libc++.
+enum : uint8_t {
+  CXA_AK_PRE = 0x01,
+  CXA_AK_POST = 0x02,
+  CXA_AK_ASSERT = 0x03,
 
-template <int N>
-struct _BuiltinContractStruct;
+  CXA_ES_OBSERVE = 0x02,
+  CXA_ES_ENFORCE = 0x03,
 
-template <>
-struct _BuiltinContractStruct<0> {
-  enum { VERSION = 1 };
-  int version;
+  CXA_DM_PREDICATE_FALSE = 0x01,
+  CXA_DM_EVALUATION_EXCEPTION = 0x02,
+
+  CXA_FIELD_SOURCE_LOCATION = 0x01,
+  CXA_FIELD_COMMENT = 0x02,
+  CXA_FIELD_MESSAGE = 0x03,
+  CXA_FIELD_EXTENDED = 0x40,
 };
 
-template <>
-struct _BuiltinContractStruct<1> {
-  enum { VERSION = 1 };
-  unsigned version; // the version of the struct
-  const char* comment;
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned contract_kind;
-  unsigned eval_semantic;
-  unsigned detection_mode;
+struct __cxa_source_location {
+  const char* file_name;
+  const char* function_name;
+  unsigned line;
+  unsigned column;
 };
 
-template <>
-struct _BuiltinContractStruct<2> {
-  enum { VERSION = 2 };
-  unsigned version; // the version of the struct
-  const char* comment;
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned contract_kind;
-  unsigned eval_semantic;
+union __cxa_descriptor_data_t {
+  uintptr_t offset;
+  const void* pointer;
 };
 
-template <>
-struct _BuiltinContractStruct<3> {
-  enum { VERSION = 3 };
-  unsigned long version; // the version of the struct
-  const char* file;
-  const char* function;
-  unsigned lineno = 0;
-  unsigned column = 0;
-  const char* comment;
-  unsigned contract_kind;
-};
+struct __cxa_descriptor_table_t {
+  uint8_t header;
+  uint8_t num_entries;
+  uint8_t field_ids[];
 
-union _BuiltinContractStructUnion {
-  _BuiltinContractStruct<0> v0;
-  _BuiltinContractStruct<1> v1;
-  _BuiltinContractStruct<2> v2;
-  _BuiltinContractStruct<3> v3;
-};
-
-
-_ContractViolationImpl create_impl(void* data, evaluation_semantic* sem = nullptr, _DetectionMode* mode = nullptr) {
-  _BuiltinContractStructUnion* data_union = static_cast<_BuiltinContractStructUnion*>(data);
-  switch (data_union->v0.version) {
-  case 1:
-    return _ContractViolationImpl{
-        .kind     = static_cast<assertion_kind>(data_union->v1.contract_kind),
-        .semantic = static_cast<evaluation_semantic>(data_union->v1.eval_semantic),
-        .mode     = static_cast<_DetectionMode>(data_union->v1.detection_mode),
-        .comment  = data_union->v1.comment,
-        .location = std::source_location::current()};
-  case 2:
-    return _ContractViolationImpl{
-        .kind     = static_cast<assertion_kind>(data_union->v2.contract_kind),
-        .semantic = static_cast<evaluation_semantic>(data_union->v2.eval_semantic),
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = data_union->v2.comment,
-        .location = std::source_location::current()};
-  case 3:
-    return _ContractViolationImpl{
-        .kind     = static_cast<assertion_kind>(data_union->v3.contract_kind),
-        .semantic = sem ? *sem : evaluation_semantic::enforce,
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = data_union->v3.comment,
-        .location = std::source_location::__create_from_pointer(
-            reinterpret_cast<const char*>(data) + __builtin_offsetof(_BuiltinContractStruct<3>, file))};
-  default:
-    return _ContractViolationImpl{
-        .kind     = assertion_kind::assert,
-        .semantic = sem ? *sem : evaluation_semantic::enforce,
-        .mode     = mode ? *mode : _DetectionMode::predicate_false,
-        .comment  = "<unknown contract violation>",
-        .location = std::source_location()};
+  const __cxa_descriptor_data_t* data() const {
+    uintptr_t p = reinterpret_cast<uintptr_t>(field_ids + num_entries);
+    p = (p + alignof(__cxa_descriptor_data_t) - 1) & ~uintptr_t(alignof(__cxa_descriptor_data_t) - 1);
+    return reinterpret_cast<const __cxa_descriptor_data_t*>(p);
   }
+};
+
+struct __cxa_contract_data_block {
+  const __cxa_descriptor_table_t* descriptor;
+  const __cxa_contract_data_block* next;
+};
+
+// First-found-wins lookup of a field in the chain.
+inline const void* find_field(const __cxa_contract_data_block* chain, uint8_t id) {
+  for (const __cxa_contract_data_block* block = chain; block; block = block->next) {
+    const __cxa_descriptor_table_t* desc = block->descriptor;
+    if (!desc)
+      continue;
+    const __cxa_descriptor_data_t* data = desc->data();
+    for (uint8_t i = 0; i < desc->num_entries; ++i) {
+      if (desc->field_ids[i] != id)
+        continue;
+      if (id >= CXA_FIELD_EXTENDED)
+        return data[i].pointer;
+      return reinterpret_cast<const char*>(block) + data[i].offset;
+    }
+  }
+  return nullptr;
 }
 
-} // namespace
+inline const char* find_string(const __cxa_contract_data_block* chain, uint8_t id) {
+  const char* const* p = static_cast<const char* const*>(find_field(chain, id));
+  return p && *p ? *p : "";
+}
+
+inline std::contracts::_ContractViolationImpl
+create_impl(void* data, uint8_t kind, uint8_t semantic, uint8_t mode) {
+  using namespace std::contracts;
+  const __cxa_contract_data_block* chain = static_cast<const __cxa_contract_data_block*>(data);
+  _ContractViolationImpl impl;
+  impl.kind = static_cast<assertion_kind>(kind);
+  impl.semantic = static_cast<evaluation_semantic>(semantic);
+  impl.mode = static_cast<_DetectionMode>(mode);
+  impl.comment = find_string(chain, CXA_FIELD_COMMENT);
+  impl.message = find_string(chain, CXA_FIELD_MESSAGE);
+  impl.location = std::source_location::__create_from_pointer(find_field(chain, CXA_FIELD_SOURCE_LOCATION));
+  return impl;
+}
+
+inline void dispatch(void* data, uint8_t kind, uint8_t semantic, uint8_t mode) {
+  std::contracts::_ContractViolationImpl impl = create_impl(data, kind, semantic, mode);
+  std::contracts::__handle_contract_violation_internal(impl.__create_violation());
+}
 
 } // namespace __cxxabi
 
-extern "C" inline void
-__handle_contract_violation_v3(unsigned char __semantic, unsigned char __mode, void* dataptr) {
-  using namespace std::contracts;
-  evaluation_semantic sem = static_cast<evaluation_semantic>(__semantic);
-  _DetectionMode mode = static_cast<_DetectionMode>(__mode);
+// The entry points: __cxa_contract_violation_{kind}_{semantic}_{mode}[_noexcept].
+// The 'enforce' variants never return (the handler terminates the program),
+// and the '_noexcept' variants terminate if the handler throws.
+#define CONTRACTS_RUNTIME_ENTRY_POINT(name, kind, semantic, mode)                                  \
+  extern "C" inline void __cxa_contract_violation_##name(void* data) {                               \
+    __cxxabi::dispatch(data, kind, semantic, mode);                                                \
+  }                                                                                                \
+  extern "C" inline void __cxa_contract_violation_##name##_noexcept(void* data) noexcept {           \
+    __cxxabi::dispatch(data, kind, semantic, mode);                                                \
+  }
 
-  // Impl needs to outlive the violation
-  _ContractViolationImpl impl  = __cxxabi::create_impl(dataptr, &sem, &mode);
-  std::contracts::__handle_contract_violation_internal(impl.__create_violation());
-}
+#define CONTRACTS_RUNTIME_ENTRY_POINTS(name, kind)                                                 \
+  CONTRACTS_RUNTIME_ENTRY_POINT(name##_observe_pf, kind, __cxxabi::CXA_ES_OBSERVE,                 \
+                                __cxxabi::CXA_DM_PREDICATE_FALSE)                                  \
+  CONTRACTS_RUNTIME_ENTRY_POINT(name##_observe_ex, kind, __cxxabi::CXA_ES_OBSERVE,                 \
+                                __cxxabi::CXA_DM_EVALUATION_EXCEPTION)                             \
+  CONTRACTS_RUNTIME_ENTRY_POINT(name##_enforce_pf, kind, __cxxabi::CXA_ES_ENFORCE,                 \
+                                __cxxabi::CXA_DM_PREDICATE_FALSE)                                  \
+  CONTRACTS_RUNTIME_ENTRY_POINT(name##_enforce_ex, kind, __cxxabi::CXA_ES_ENFORCE,                 \
+                                __cxxabi::CXA_DM_EVALUATION_EXCEPTION)
+
+CONTRACTS_RUNTIME_ENTRY_POINTS(pre, __cxxabi::CXA_AK_PRE)
+CONTRACTS_RUNTIME_ENTRY_POINTS(post, __cxxabi::CXA_AK_POST)
+CONTRACTS_RUNTIME_ENTRY_POINTS(assert, __cxxabi::CXA_AK_ASSERT)
+
+#undef CONTRACTS_RUNTIME_ENTRY_POINTS
+#undef CONTRACTS_RUNTIME_ENTRY_POINT
 
 #endif // CONTRACTS_CONTRACTS_RUNTIME_H

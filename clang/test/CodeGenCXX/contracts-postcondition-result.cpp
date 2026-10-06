@@ -53,7 +53,7 @@ struct Obj {
 // CHECK-SAME: ptr {{.*}} sret(%struct.Obj) {{.*}} %[[RESULT:.*]], i32
 // CHECK: call void @_ZN3ObjC1Ei(ptr {{.*}} %[[RESULT]],
 // CHECK: getelementptr {{.*}} %[[RESULT]]
-// CHECK: invoke void @__handle_contract_violation_v3(
+// CHECK: invoke void @__cxa_contract_violation_post_observe_pf(
 // CHECK-NEXT: to label %{{.*}} unwind label %[[LPAD:.*]]
 // CHECK: ret void
 // CHECK: [[LPAD]]:
@@ -67,7 +67,7 @@ Obj make(int x) post(r : r.v == 0) { return Obj(x); }
 // CHECK-SAME: ptr {{.*}} sret(%struct.Obj) {{.*}} %[[RESULT:.*]], i32
 // CHECK: call void @_ZN3ObjC1Ei(ptr {{.*}} %[[RESULT]],
 // CHECK: nrvo.skipdtor:
-// CHECK: invoke void @__handle_contract_violation_v3(
+// CHECK: invoke void @__cxa_contract_violation_post_observe_pf(
 // CHECK-NEXT: to label %{{.*}} unwind label %[[LPAD:.*]]
 // CHECK: ret void
 // CHECK: [[LPAD]]:

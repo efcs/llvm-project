@@ -12,15 +12,16 @@ __attribute__((weak)) void handle_contract_violation(const std::contracts::contr
 
 namespace std::contracts {
 
-enum class assertion_kind : unsigned {
+enum class assertion_kind : unsigned char {
   pre = 1,
   post = 2,
   assert = 3
 };
 enum class evaluation_semantic : unsigned char {
-  __unspecified = 0,
-  enforce = 1,
-  observe = 2
+  ignore = 1,
+  observe = 2,
+  enforce = 3,
+  quick_enforce = 4
 };
 enum class detection_mode : unsigned char {
   predicate_false = 1,
@@ -39,6 +40,7 @@ public:
 
    std::source_location location() const noexcept;
    const char* comment() const noexcept;
+   const char* message() const noexcept;
    _DetectionMode detection_mode() const noexcept;
    assertion_kind kind() const noexcept;
    evaluation_semantic semantic() const noexcept;
@@ -75,6 +77,7 @@ struct _ContractViolationImpl {
   evaluation_semantic semantic  = evaluation_semantic::enforce;
   _DetectionMode mode           = _DetectionMode::predicate_false;
   const char* comment           = nullptr;
+  const char* message           = nullptr;
   std::source_location location = std::source_location::current();
 
   contract_violation __create_violation()  {
@@ -83,7 +86,8 @@ struct _ContractViolationImpl {
 };
 
 std::source_location contract_violation::location() const noexcept { return __impl_->location; }
-const char* contract_violation::comment() const noexcept { return __impl_->comment; }
+const char* contract_violation::comment() const noexcept { return __impl_->comment ? __impl_->comment : ""; }
+const char* contract_violation::message() const noexcept { return __impl_->message ? __impl_->message : ""; }
 _DetectionMode contract_violation::detection_mode() const noexcept { return __impl_->mode; }
 assertion_kind contract_violation::kind() const noexcept { return __impl_->kind; }
 evaluation_semantic contract_violation::semantic() const noexcept { return __impl_->semantic; }

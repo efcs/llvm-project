@@ -507,7 +507,6 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
                         llvm::MDNode::get(getLLVMContext(), {}));
   }
 
-  EmitIfUsed(*this, GetSharedContractViolationEnforceBlock(false));
   EmitIfUsed(*this, GetSharedContractViolationTrapBlock(false));
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
