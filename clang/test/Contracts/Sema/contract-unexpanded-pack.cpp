@@ -1,15 +1,4 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -verify %s
-// XFAIL: *
-//
-// OPEN BUG (sema-templates, crash): an unexpanded parameter pack in a contract
-// predicate is not diagnosed at template-definition time; instantiating the
-// contract then trips
-//   SemaTemplateVariadic.cpp: DiagnoseUnexpandedParameterPack:
-//   Assertion `(!Unexpanded.empty() || LambdaReferencingOuterPacks)` failed
-// from TreeTransform::TransformContractStmt -> ActOnCondition.
-//   Expected ([temp.variadic]/7): "expression contains unexpanded parameter
-//     pack 'args'" on the pre/post line.
-//   Actual: assertion failure (crash) at `template void sub<int, int>(...)`.
 
 // A contract condition is a full-expression: like any other, it must not
 // contain an unexpanded parameter pack.  This has to be diagnosed at

@@ -1,14 +1,4 @@
 // RUN: %clang_cc1 -std=c++26 -verify -fcontracts -fsyntax-only %s
-// XFAIL: *
-//
-// OPEN BUG (sema, postcondition parameters): the [dcl.contract.func]/7 checks
-// (const, no array type, no function type for a parameter odr-used by a
-// postcondition) are not run for a NON-GENERIC lambda's call operator.  The
-// checks hang off ActOnFunctionDeclarator, which a lambda's operator() never
-// reaches; a generic lambda is diagnosed through the instantiation path.
-//   Expected (P2900R14 [dcl.contract.func]/7, [dcl.contract.func]/3 note 2):
-//     errors for non_generic::{non_const,array,function} and nested::inner.
-//   Actual: no diagnostic for those; generic::non_const is diagnosed.
 
 // [dcl.contract.func]'s restrictions on a parameter odr-used by a
 // postcondition -- it must be const, and must not have array or function type

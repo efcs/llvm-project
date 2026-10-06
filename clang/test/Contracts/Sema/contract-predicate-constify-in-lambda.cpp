@@ -16,8 +16,7 @@
 //   * a member reached through a CAPTURED `*this` must not be constified,
 //     since /3+e marks `++this->z` and `++z` "OK, captured *this" -- the rule
 //     constifies a VARIABLE declared outside the assertion, and a non-static
-//     data member of the captured object is not one (Clang gets this wrong;
-//     see OpenBugs/constify-captured-this-member.cpp); and
+//     data member of the captured object is not one; and
 //   * a FUNCTION-LOCAL STATIC must be constified, being "a variable declared
 //     outside of C" like any other.  Naming it DIRECTLY in a predicate is the
 //     control kept below, which is what separates a lambda gap from a
@@ -44,12 +43,12 @@ struct Y {
       pre([=, &i, *this]() mutable {
         // expected-error@+1 {{cannot assign to variable 'n' because it is considered 'const' inside of a contract}}
         ++n;
-        // expected-error@+1 {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+        // expected-error@+1 {{cannot assign to variable 'i' because it is considered 'const' inside of a contract}}
         ++i;
         ++p;       // OK: a member of the closure type
         ++r;       // OK: a non-reference member of the closure type
-        // `++this->z` / `++z` through the captured *this are OK per the
-        // standard's example; see OpenBugs/constify-captured-this-member.cpp.
+        ++this->z; // OK: the captured *this
+        ++z;       // OK: the captured *this
         (void)x;
         (void)px;
 
@@ -58,7 +57,7 @@ struct Y {
 
         [&]() {
           int k = 34;
-          // expected-error@+1 {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+          // expected-error@+1 {{cannot assign to variable 'i' because it is considered 'const' inside of a contract}}
           ++i;
           ++j; // OK
           ++k; // OK

@@ -11,16 +11,6 @@
 // the file at all.
 //
 // RUN: %clang_cc1 -std=c++26 -fcontracts -ast-print %s | FileCheck %s
-// XFAIL: *
-//
-// OPEN BUG (sema/AST): a dependent contract predicate that holds a temporary
-// with a non-trivial destructor is wrapped in a GNU statement-expression.  A
-// dirty enclosing cleanup state makes ActOnFinishFullStmt return the
-// ContractStmt inside `({ ... })`, and ActionResult::getAs's static_cast stores
-// that wrapper as a bogus ContractStmt.
-//   Expected: -ast-print shows `pre(Guard(10) <= V)` / `post(R : ...)`.
-//   Actual: `template <class T> void f(const T &V) ({ pre(Guard(10) <= V) });`
-//   The runtime half is Runnable/contract-dependent-predicate-temporary.cpp.
 
 struct Guard {
   long V;

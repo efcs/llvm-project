@@ -24,20 +24,10 @@
 // GCC accepts all of this already; the guard is mirrored as
 // g++.dg/contracts/cpp26/contract-dependent-predicate-temporary.C.
 //
-// XFAIL: *
-// Clang crashes on the decl-then-definition shapes (MemberOutOfLine::*,
-// free_decl_then_def): a function template declared with a type-dependent
-// predicate that materializes a temporary of a class with a non-trivial
-// destructor, and later defined without the contract.  Rebuilding the
-// contract for the definition (Sema::InstantiateContractSpecifier ->
-// TreeTransform::TransformContractStmt) first diagnoses "value of type
-// 'void' is not contextually convertible to 'bool'" (plus "capturing result
-// name 'R' in a lambda expression or block is not supported yet" when the
-// postcondition has a result name) and then segfaults in TransformAttr.
-// Expected per [dcl.contract.func]/3-5 and [temp.inst]: the contract from the
-// first declaration applies to the definition and is evaluated against the
-// definition's parameters, exactly as for the on_definition / TrivialTemp /
-// NonDependent / NotATemplate shapes, which all work.
+// The decl-then-definition shapes (MemberOutOfLine::*, free_decl_then_def)
+// used to crash: rebuilding the contract for the definition diagnosed "value
+// of type 'void' is not contextually convertible to 'bool'" and segfaulted in
+// TransformAttr.  Fixed in round two; kept as a regression test.
 //
 // REQUIRES: contracts-libcxx
 // RUN: %clangxx -std=c++26 %s -fcontracts \

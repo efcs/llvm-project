@@ -47,7 +47,7 @@ Categories:
 | allowed-mask-quick-enforce.cpp | quick_enforce traps on a violated pre (`not --crash`) | pass |
 | contract-assert-handler-throw-catchable.cpp | handler exception from `contract_assert` is caught by an enclosing try in the same function | pass |
 | contract-declarator-positions.cpp | contracts after complicated declarators / trailing return types bind to the function and see its parameters | pass |
-| contract-dependent-predicate-temporary.cpp | dependent predicate holding a non-trivially-destructible temporary, in-class decl + out-of-line definition | **XFAIL** (clang crashes, see below) |
+| contract-dependent-predicate-temporary.cpp | dependent predicate holding a non-trivially-destructible temporary, in-class decl + out-of-line definition | pass (was XFAIL on the round-one base; fixed in round two) |
 | contract-result-binding-identity.cpp | one result binding denotes one object; `&r == ptr` for a non-trivially-copyable class | pass |
 | contract-result-binding-mutation-class.cpp | mutation through the result binding (class results, coerced / sret) is observable by the caller | pass |
 | contract-result-binding-mutation.cpp | mutation through the result binding (scalar results) is observable; no temporary for non-trivial class | pass |
@@ -139,7 +139,7 @@ are unchanged: 259 pass, 5 unsupported.
 
 | Test | Area | Verdict | Detail |
 |---|---|---|---|
-| contract-dependent-predicate-temporary.cpp | sema (template instantiation) | (i) our bug, `XFAIL: *` | A function template declared with a type-dependent predicate that materializes a temporary with a non-trivial destructor, then defined out of line without the contract: rebuilding the contract for the definition diagnoses "value of type 'void' is not contextually convertible to 'bool'" (and, with a result name, "capturing result name 'R' ... not supported yet") and segfaults in `TreeTransform::TransformAttr` under `Sema::InstantiateContractSpecifier`. Contract on the definition, trivially-destructible temporary, non-dependent predicate and non-template all work. Minimal repro: `template <class T> void f(const T &V) pre(Guard(10) <= V); template <class T> void f(const T &V) {} int main() { f(20); }` with `struct Guard { Guard(long); ~Guard() {} }`. |
+| contract-dependent-predicate-temporary.cpp | sema (template instantiation) | (i) our bug on the round-one base, fixed in round two (XFAIL removed) | A function template declared with a type-dependent predicate that materializes a temporary with a non-trivial destructor, then defined out of line without the contract: rebuilding the contract for the definition diagnoses "value of type 'void' is not contextually convertible to 'bool'" (and, with a result name, "capturing result name 'R' ... not supported yet") and segfaults in `TreeTransform::TransformAttr` under `Sema::InstantiateContractSpecifier`. Contract on the definition, trivially-destructible temporary, non-dependent predicate and non-template all work. Minimal repro: `template <class T> void f(const T &V) pre(Guard(10) <= V); template <class T> void f(const T &V) {} int main() { f(20); }` with `struct Guard { Guard(long); ~Guard() {} }`. |
 
 No expectation in the imported tests had to be corrected against P2900R14.
 Two expectations worth knowing about, both satisfied by our implementation:
