@@ -81,6 +81,19 @@ Round one called `std::terminate()` after the handler returned under `enforce`
 Note that P2900's "the implicit handler remains active" wording only has meaning
 for the terminate path.
 
+### 1.10 Predicate text: as spelled vs. as expanded
+`comment()` and the diagnostics use the predicate as spelled in the source
+(`"GT(x, 0)"` for a macro-built predicate); GCC uses the expanded form
+(`"((a)>(b))"`). Both are implementation-defined. Keep "as spelled"? (Separately,
+preprocessor directive lines inside a multi-line predicate currently leak into
+the text — that is a bug, see round three.)
+
+### 1.11 Static analyzer under `observe`
+`int f(int *p) pre(p != nullptr) { return *p; }` reports a null dereference under
+`observe` only, because an observed predicate is modelled as a branch that may be
+false. Arguably right (the function does continue after a violation), but it will
+be noisy. Model observed predicates as assumptions too, or keep the precise model?
+
 ## 2. Itanium contracts ABI (P3850) — spec issues to raise with Joshua Berne
 
 Found while implementing the spec (`specification-proposal.rst`, branch
@@ -152,6 +165,13 @@ Found while implementing the spec (`specification-proposal.rst`, branch
   libc++'s reserved-name tests forbid), `[[clang::contract_group]]` +
   `-fcontract-group-evaluation-semantic=` (string groups compete with P3400 label
   objects), `[[clang::contract_message]]`, `_LIBCPP_HARDENING_USE_CONTRACTS`.
+- **Lambdas in predicates across translation units are never compared.** The AST
+  reader merges corresponding closure types before the contract comparison runs,
+  so two TUs declaring `int f(int x) pre([](int v){ return v > 0; }(x))` with
+  different lambda bodies are not diagnosed by `-Wmismatched-contract-specifiers`
+  (the closure-type ODR check that would catch it is suppressed when contract
+  entities were renamed). No diagnostic required (NDR), but worth knowing; a fix
+  needs the comparison to run on the unmerged closure definitions.
 - **Runtime hosting when libc++ is not built on libc++abi** (Windows/vcruntime,
   libcxxrt, libsupc++): the contracts runtime is currently compiled out entirely.
   Host the entry points in libc++ as a fallback, or declare the configuration
