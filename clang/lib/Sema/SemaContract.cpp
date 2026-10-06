@@ -214,7 +214,6 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                                 SourceLocation IDLoc,
                                                 IdentifierInfo *II,
                                                 unsigned FunctionScopeDepth) {
-  // assert(S && S->isContractAssertScope() && "Invalid scope for result name");
   assert(II && "ResultName requires an identifier");
 
   bool IsInvalid = false;
@@ -272,8 +271,6 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
     Diag(IDLoc, diag::err_result_name_not_allowed) << II;
     New->setInvalidDecl(true);
   }
-
-  assert(!S || S->isContractAssertScope());
 
   // Add the parameter declaration into this scope.
   if (S)

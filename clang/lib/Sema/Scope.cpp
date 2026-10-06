@@ -17,7 +17,7 @@
 
 using namespace clang;
 
-void Scope::setFlags(Scope *parent, unsigned long flags) {
+void Scope::setFlags(Scope *parent, unsigned flags) {
   AnyParent = parent;
   Flags = flags;
 
@@ -47,7 +47,6 @@ void Scope::setFlags(Scope *parent, unsigned long flags) {
     // transmit the parent's 'order' flag, if exists
     if (parent->getFlags() & OpenMPOrderClauseScope)
       Flags |= OpenMPOrderClauseScope;
-
   } else {
     Depth = 0;
     PrototypeDepth = 0;
@@ -93,7 +92,7 @@ void Scope::setFlags(Scope *parent, unsigned long flags) {
   }
 }
 
-void Scope::Init(Scope *parent, unsigned long flags) {
+void Scope::Init(Scope *parent, unsigned flags) {
   setFlags(parent, flags);
 
   DeclsInScope.clear();
@@ -203,13 +202,13 @@ void Scope::applyNRVO() {
 LLVM_DUMP_METHOD void Scope::dump() const { dumpImpl(llvm::errs()); }
 
 void Scope::dumpImpl(raw_ostream &OS) const {
-  unsigned long Flags = getFlags();
+  unsigned Flags = getFlags();
   bool HasFlags = Flags != 0;
 
   if (HasFlags)
     OS << "Flags: ";
 
-  std::pair<unsigned long, const char *> FlagInfo[] = {
+  std::pair<unsigned, const char *> FlagInfo[] = {
       {FnScope, "FnScope"},
       {BreakScope, "BreakScope"},
       {ContinueScope, "ContinueScope"},
@@ -239,12 +238,10 @@ void Scope::dumpImpl(raw_ostream &OS) const {
       {OpenMPOrderClauseScope, "OpenMPOrderClauseScope"},
       {LambdaScope, "LambdaScope"},
       {OpenACCComputeConstructScope, "OpenACCComputeConstructScope"},
-      {OpenACCLoopConstructScope, "OpenACCLoopConstructScope"},
       {TypeAliasScope, "TypeAliasScope"},
       {FriendScope, "FriendScope"},
-      {ContractAssertScope, "ContractAssertScope"}
-  };
-
+      {OpenACCComputeConstructScope, "OpenACCComputeConstructScope"},
+      {OpenACCLoopConstructScope, "OpenACCLoopConstructScope"}};
 
   for (auto Info : FlagInfo) {
     if (Flags & Info.first) {

@@ -509,7 +509,7 @@ public:
     // ParseScope - Construct a new object to manage a scope in the
     // parser Self where the new Scope is created with the flags
     // ScopeFlags, but only when we aren't about to enter a compound statement.
-    ParseScope(Parser *Self, unsigned long ScopeFlags, bool EnteredScope = true,
+    ParseScope(Parser *Self, unsigned ScopeFlags, bool EnteredScope = true,
                bool BeforeCompoundStmt = false)
         : Self(Self) {
       if (EnteredScope && !BeforeCompoundStmt)
@@ -544,7 +544,7 @@ public:
 
   public:
     MultiParseScope(Parser &Self) : Self(Self) {}
-    void Enter(unsigned long ScopeFlags) {
+    void Enter(unsigned ScopeFlags) {
       Self.EnterScope(ScopeFlags);
       ++NumScopes;
     }
@@ -558,7 +558,7 @@ public:
   };
 
   /// EnterScope - Start a new scope.
-  void EnterScope(unsigned long ScopeFlags);
+  void EnterScope(unsigned ScopeFlags);
 
   /// ExitScope - Pop a scope off the scope stack.
   void ExitScope();
@@ -951,14 +951,14 @@ private:
   /// RAII object used to modify the scope flags for the current scope.
   class ParseScopeFlags {
     Scope *CurScope;
-    unsigned long OldFlags = 0;
+    unsigned OldFlags = 0;
     ParseScopeFlags(const ParseScopeFlags &) = delete;
     void operator=(const ParseScopeFlags &) = delete;
 
   public:
     /// Set the flags for the current scope to ScopeFlags. If ManageFlags is
     /// false, this object does nothing.
-    ParseScopeFlags(Parser *Self, unsigned long ScopeFlags, bool ManageFlags = true);
+    ParseScopeFlags(Parser *Self, unsigned ScopeFlags, bool ManageFlags = true);
 
     /// Restore the flags for the current scope to what they were before this
     /// object overrode them.
@@ -7488,7 +7488,7 @@ public:
   /// [GNU]   '__label__' identifier-list ';'
   /// \endverbatim
   ///
-  StmtResult ParseCompoundStatement(bool isStmtExpr, unsigned long ScopeFlags);
+  StmtResult ParseCompoundStatement(bool isStmtExpr, unsigned ScopeFlags);
 
   /// Parse any pragmas at the start of the compound expression. We handle these
   /// separately since some pragmas (FP_CONTRACT) must appear before any C

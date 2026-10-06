@@ -224,7 +224,9 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     return StmtError();
   }
 
-  ParseScope ContractScope(this, Scope::DeclScope | Scope::ContractAssertScope);
+  // [basic.scope.contract]: Each contract assertion introduces a
+  // contract-assertion scope.
+  ParseScope ContractScope(this, Scope::DeclScope);
   EnterExpressionEvaluationContext EC(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
