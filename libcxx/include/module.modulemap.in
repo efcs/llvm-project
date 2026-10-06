@@ -1245,6 +1245,8 @@ module std {
   }
 
   module contracts {
+    module abi { header "__contracts/abi.h" }
+
     header "contracts"
     export *
   }

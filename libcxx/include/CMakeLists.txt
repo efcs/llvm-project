@@ -350,6 +350,7 @@ set(files
   __configuration/platform.h
   __configuration/pstl.h
   __configuration/utility.h
+  __contracts/abi.h
   __coroutine/coroutine_handle.h
   __coroutine/coroutine_traits.h
   __coroutine/noop_coroutine_handle.h
