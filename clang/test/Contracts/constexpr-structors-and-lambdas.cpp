@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -verify=expected,observe %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -verify=expected,observe %s -fexperimental-new-constant-interpreter -DNEW_INTERP
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s -fexperimental-new-constant-interpreter -DNEW_INTERP
 
 // The function contract assertions of constructors, destructors, assignment
 // operators and lambdas are evaluated during constant evaluation.
@@ -112,6 +114,9 @@ constexpr int fails = f(1);
 
 // The postcondition assertions of a destructor are evaluated after the
 // members have been destroyed, so they can't read the members.
+// FIXME: The bytecode interpreter doesn't end the lifetime of the members
+// before it evaluates the postcondition assertions.
+#ifndef NEW_INTERP
 struct Late {
   int v;
   constexpr Late(int v) : v(v) {}
@@ -133,6 +138,7 @@ constexpr int late = g();
 // enforce-note@#Late-var {{in call to 'l.~Late()'}}
 // enforce-note@-10 {{in call to 'g()'}}
 // enforce-note@#Late-var {{declared here}}
+#endif
 
 // Whether a variable has constant destruction does not depend on the
 // contract assertions of its destructor.

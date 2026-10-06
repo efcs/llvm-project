@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify %s -fexperimental-new-constant-interpreter
 
 // The result name of a postcondition assertion denotes the result object or
 // the returned glvalue of the call during constant evaluation

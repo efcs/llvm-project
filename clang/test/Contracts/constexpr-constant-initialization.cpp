@@ -2,6 +2,10 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=observe -verify=expected,observe %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,terminating %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=quick_enforce -verify=expected,terminating %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=ignore -verify=expected,ignore %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=observe -verify=expected,observe %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,terminating %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=quick_enforce -verify=expected,terminating %s -fexperimental-new-constant-interpreter
 
 // C++26 [expr.const.init]p4: Whether a variable is constant-initialized is
 // determined with all contract assertions using the ignore semantic, so that

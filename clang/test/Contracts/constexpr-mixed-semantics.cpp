@@ -1,4 +1,5 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -fcontract-group-evaluation-semantic=lib=enforce,quiet=ignore -verify=expected,warn %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -fcontract-group-evaluation-semantic=lib=enforce,quiet=ignore -verify=expected,warn %s -fexperimental-new-constant-interpreter
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -fcontract-group-evaluation-semantic=lib=enforce,quiet=ignore -Wno-contract-violation -verify=expected %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -fcontract-group-evaluation-semantic=lib=enforce,quiet=ignore -Werror=contract-violation -verify=expected,werror %s
 

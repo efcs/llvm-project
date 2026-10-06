@@ -2,6 +2,8 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=observe -verify=expected,observe %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,terminating %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=quick_enforce -verify=expected,terminating %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=observe -verify=expected,observe %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,terminating %s -fexperimental-new-constant-interpreter
 
 // C++26 [basic.contract.eval]p7: A contract violation occurs when [...] the
 // evaluation of the predicate is performed in a context that is manifestly

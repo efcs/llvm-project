@@ -2,6 +2,8 @@
 // RUN: %clang_cc1 -fcontracts -std=c++26 -fsyntax-only -fcontract-evaluation-semantic=observe -DSIZE=2 -verify %s
 // RUN: %clang_cc1 -fcontracts -std=c++26 -fsyntax-only -fcontract-evaluation-semantic=enforce -DSIZE=2 -verify %s
 // RUN: %clang_cc1 -fcontracts -std=c++26 -fsyntax-only -fcontract-evaluation-semantic=quick_enforce -DSIZE=2 -verify %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -fsyntax-only -fcontract-evaluation-semantic=ignore -DSIZE=1 -verify %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -fcontracts -std=c++26 -fsyntax-only -fcontract-evaluation-semantic=enforce -DSIZE=2 -verify %s -fexperimental-new-constant-interpreter
 
 // [basic.contract.eval] - Example #2
 constexpr int f(int i) {

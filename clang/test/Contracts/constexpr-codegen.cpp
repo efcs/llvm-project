@@ -2,6 +2,7 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-unknown-linux-gnu -Wno-division-by-zero -fcontract-evaluation-semantic=observe -emit-llvm -o - %s | FileCheck %s --check-prefixes=CHECK,CHECKED
 // RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-unknown-linux-gnu -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -emit-llvm -o - %s | FileCheck %s --check-prefixes=CHECK,CHECKED
 // RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-unknown-linux-gnu -Wno-division-by-zero -fcontract-evaluation-semantic=quick_enforce -emit-llvm -o - %s | FileCheck %s --check-prefixes=CHECK,CHECKED
+// RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-unknown-linux-gnu -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -emit-llvm -o - %s -fexperimental-new-constant-interpreter | FileCheck %s --check-prefixes=CHECK,CHECKED
 
 // Whether a variable is constant-initialized does not depend on the
 // evaluation semantic of the contract assertions that its initializer

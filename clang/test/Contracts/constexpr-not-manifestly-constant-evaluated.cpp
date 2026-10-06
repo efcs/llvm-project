@@ -2,6 +2,8 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wall -Wextra -Wno-unused -fcontract-evaluation-semantic=observe -verify %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wall -Wextra -Wno-unused -fcontract-evaluation-semantic=enforce -verify %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wall -Wextra -Wno-unused -fcontract-evaluation-semantic=quick_enforce -verify %s
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wall -Wextra -Wno-unused -fcontract-evaluation-semantic=observe -verify %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -Wall -Wextra -Wno-unused -fcontract-evaluation-semantic=enforce -verify %s -fexperimental-new-constant-interpreter
 
 // expected-no-diagnostics
 

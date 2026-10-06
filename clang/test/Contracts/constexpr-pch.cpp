@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fcontract-evaluation-semantic=observe -emit-pch -o %t.pch %s -verify=pch
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fcontract-evaluation-semantic=observe -include-pch %t.pch -fsyntax-only %s -verify=use
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fcontract-evaluation-semantic=observe -emit-pch -o %t.pch %s -verify=pch -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fcontract-evaluation-semantic=observe -include-pch %t.pch -fsyntax-only %s -verify=use -fexperimental-new-constant-interpreter
 
 // A contract violation in the initializer of a variable is diagnosed where
 // the variable is defined. Evaluating the initializer again to get the value

@@ -93,6 +93,11 @@ public:
     return *Alloc;
   }
 
+  /// The number of dynamic allocations performed so far.
+  unsigned getNumDynamicAllocations() const {
+    return Alloc ? Alloc->getNumAllocations() : 0;
+  }
+
   /// Diagnose any dynamic allocations that haven't been freed yet.
   /// Will return \c false if there were any allocations to diagnose,
   /// \c true otherwise.
@@ -270,10 +275,15 @@ public:
   /// Things needed to do speculative execution.
   SmallVectorImpl<PartialDiagnosticAt> *PrevDiags = nullptr;
   bool PrevDiagsEmitted = false;
+  SmallVectorImpl<PartialDiagnosticAt> *PrevContractDiags = nullptr;
+  bool PrevHasContractViolation = false;
 #ifndef NDEBUG
   unsigned SpeculationDepth = 0;
 #endif
   unsigned DiagIgnoreDepth = 0;
+  /// The number of nested evaluations in which contract violations are
+  /// ignored.
+  unsigned IgnoreContractViolationsDepth = 0;
   std::optional<bool> ConstantContextOverride;
 
   llvm::SmallVector<
