@@ -364,6 +364,7 @@ SymbolInfo index::getSymbolInfo(const Decl *D) {
       Info.SubKind = SymbolSubKind::UsingEnum;
       break;
     case Decl::Binding:
+    case Decl::ResultName:
       Info.Kind = SymbolKind::Variable;
       Info.Lang = SymbolLanguage::CXX;
       break;

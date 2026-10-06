@@ -872,6 +872,13 @@ bool CursorVisitor::VisitFunctionDecl(FunctionDecl *ND) {
       return true;
   }
 
+  // Visit the function contract specifiers (preconditions and
+  // postconditions), which follow the declarator.
+  if (const ContractSpecifierDecl *Contracts = ND->getContracts())
+    for (ContractStmt *CS : Contracts->contracts())
+      if (Visit(MakeCXCursor(CS, StmtParent, TU, RegionOfInterest)))
+        return true;
+
   if (ND->doesThisDeclarationHaveABody() && !ND->isLateTemplateParsed()) {
     if (CXXConstructorDecl *Constructor = dyn_cast<CXXConstructorDecl>(ND)) {
       // Find the initializers that were written in the source.
@@ -3997,6 +4004,12 @@ bool CursorVisitor::RunVisitorWorkList(VisitorWorkList &WL) {
             return true;
         }
       }
+      // Visit the function contract specifiers of the lambda-declarator.
+      if (const ContractSpecifierDecl *Contracts =
+              E->getCallOperator()->getContracts())
+        for (ContractStmt *CS : Contracts->contracts())
+          if (Visit(MakeCXCursor(CS, StmtParent, TU, RegionOfInterest)))
+            return true;
       break;
     }
 
