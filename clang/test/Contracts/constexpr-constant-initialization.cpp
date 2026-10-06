@@ -187,6 +187,30 @@ static_assert(sizeof(array) / sizeof(int) == 1); // observe-error {{static asser
                                                  // observe-note {{expression evaluates to '2 == 1'}} terminating-note {{expression evaluates to '2 == 1'}}
 } // namespace predicate_changes_the_initializer
 
+namespace class_types {
+// The value computed with the contract assertions checked is the value of
+// the variable, also if it needs non-trivial cleanup in the AST.
+struct Buf {
+  int data[4];
+  constexpr Buf(int v) pre(v > 0) : data{v, v, v, v} {} // #Buf
+};
+Buf b1(1);
+Buf b0(0);
+// observe-warning@#Buf {{precondition 'v > 0' evaluated to false}}
+// observe-note@-2 {{in call to 'Buf(0)'}}
+// terminating-error@-3 {{constant initialization of 'b0' failed when checking its contract assertions}}
+// terminating-note@#Buf {{precondition 'v > 0' evaluated to false}}
+// terminating-note@-5 {{in call to 'Buf(0)'}}
+// terminating-note@-6 {{'b0' is constant-initialized because}}
+const Buf &ref = Buf(0);
+// observe-warning@#Buf {{precondition 'v > 0' evaluated to false}}
+// observe-note@-2 {{in call to 'Buf(0)'}}
+// terminating-error@-3 {{constant initialization of 'ref' failed when checking its contract assertions}}
+// terminating-note@#Buf {{precondition 'v > 0' evaluated to false}}
+// terminating-note@-5 {{in call to 'Buf(0)'}}
+// terminating-note@-6 {{'ref' is constant-initialized because}}
+} // namespace class_types
+
 namespace templates {
 template <class T> const int tv = l(sizeof(T));
 // observe-warning@#l {{precondition 'c >= 2' evaluated to false}}

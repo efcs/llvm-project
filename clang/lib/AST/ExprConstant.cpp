@@ -7283,6 +7283,8 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
   if (IsTrivialMemoryOperation(MD)) {
     unsigned ExplicitOffset = MD->isExplicitObjectMemberFunction() ? 1 : 0;
     assert(ObjectArg);
+    if (!EvaluatePreconditions(Info, Callee))
+      return false;
     APValue RHSValue;
     if (!handleTrivialCopy(Info, MD->getParamDecl(0), Args[0], RHSValue,
                            MD->getParent()->isUnion()))
@@ -7294,7 +7296,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                           RHSValue))
       return false;
     ObjectArg->moveInto(Result);
-    return true;
+    return EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
   } else if (MD && isLambdaCallOperator(MD)) {
     // We're in a lambda; determine the lambda capture field maps unless we're
     // just constexpr checking a lambda's call operator. constexpr checking is
@@ -7342,28 +7344,14 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
          CallScope.destroy();
 }
 
-/// Evaluate a constructor call.
-static bool HandleConstructorCall(const Expr *E, const LValue &This,
-                                  CallRef Call,
-                                  const CXXConstructorDecl *Definition,
-                                  EvalInfo &Info, APValue &Result,
-                                  bool IsCompleteClass) {
-
-  SourceLocation CallLoc = E->getExprLoc();
-  if (!Info.CheckCallLimit(CallLoc))
-    return false;
-
+/// Evaluate the function-body of a constructor, including its
+/// ctor-initializer, in the current frame.
+static bool
+EvaluateConstructorBody(const Expr *E, const LValue &This,
+                        const CXXConstructorDecl *Definition, EvalInfo &Info,
+                        APValue &Result,
+                        EvalInfo::EvaluatingConstructorRAII &EvalObj) {
   const CXXRecordDecl *RD = Definition->getParent();
-  if (!Info.getLangOpts().CPlusPlus26 && RD->getNumVBases()) {
-    Info.FFDiag(CallLoc, diag::note_constexpr_virtual_base) << RD;
-    return false;
-  }
-
-  EvalInfo::EvaluatingConstructorRAII EvalObj(
-      Info,
-      ObjectUnderConstruction{This.getLValueBase(), This.Designator.Entries},
-      RD->getNumBases());
-  CallStackFrame Frame(Info, E->getSourceRange(), Definition, &This, E, Call);
 
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
@@ -7575,6 +7563,38 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
          LifetimeExtendedScope.destroy();
 }
 
+/// Evaluate a constructor call.
+static bool HandleConstructorCall(const Expr *E, const LValue &This,
+                                  CallRef Call,
+                                  const CXXConstructorDecl *Definition,
+                                  EvalInfo &Info, APValue &Result,
+                                  bool IsCompleteClass) {
+  SourceLocation CallLoc = E->getExprLoc();
+  if (!Info.CheckCallLimit(CallLoc))
+    return false;
+
+  const CXXRecordDecl *RD = Definition->getParent();
+  if (!Info.getLangOpts().CPlusPlus26 && RD->getNumVBases()) {
+    Info.FFDiag(CallLoc, diag::note_constexpr_virtual_base) << RD;
+    return false;
+  }
+
+  EvalInfo::EvaluatingConstructorRAII EvalObj(
+      Info,
+      ObjectUnderConstruction{This.getLValueBase(), This.Designator.Entries},
+      RD->getNumBases());
+  CallStackFrame Frame(Info, E->getSourceRange(), Definition, &This, E, Call);
+
+  // The precondition assertions of a constructor are evaluated before its
+  // function-body, which includes the ctor-initializer. The postcondition
+  // assertions are evaluated once the object is fully constructed.
+  APValue NoResult;
+  return EvaluatePreconditions(Info, Definition) &&
+         EvaluateConstructorBody(E, This, Definition, Info, Result, EvalObj) &&
+         EvaluatePostconditions(Info, Definition, E, NoResult,
+                                /*ResultSlot=*/nullptr);
+}
+
 static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
                                   const LValue &This, APValue &Value,
                                   QualType T, bool IsCompleteClass = true) {
@@ -7700,6 +7720,9 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
     return false;
   }
 
+  if (!EvaluatePreconditions(Info, Definition))
+    return false;
+
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
   APValue RetVal;
@@ -7709,7 +7732,8 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
 
   // A union destructor does not implicitly destroy its members.
   if (RD->isUnion())
-    return true;
+    return EvaluatePostconditions(Info, Definition, /*E=*/nullptr, RetVal,
+                                  /*ResultSlot=*/nullptr);
 
   if (!ASTContext::hasLayout(RD))
     return false;
@@ -7777,7 +7801,11 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
 
   // The period of destruction ends now. The object is gone.
   Value = APValue();
-  return true;
+
+  // The postcondition assertions of a destructor are evaluated after the
+  // destruction of all members and base classes.
+  return EvaluatePostconditions(Info, Definition, /*E=*/nullptr, RetVal,
+                                /*ResultSlot=*/nullptr);
 }
 
 namespace {
@@ -22364,6 +22392,10 @@ static bool EvaluateDestruction(const ASTContext &Ctx, APValue::LValueBase Base,
   Info.setEvaluatingDecl(Base, DestroyedValue,
                          EvalInfo::EvaluatingDeclKind::Dtor);
   Info.InConstantContext = IsConstantDestruction;
+  // Whether an object has constant destruction depends on whether its
+  // destruction would be a core constant expression, which contract
+  // assertions never affect.
+  Info.IgnoreContracts = true;
 
   LValue LVal;
   LVal.set(Base);
@@ -22550,6 +22582,10 @@ bool VarDecl::evaluateDestruction(
                                       : EvaluationMode::ConstantFold,
                                   EStatus);
     Settings.InConstantContext = IsConstantDestruction;
+    // Whether an object has constant destruction depends on whether its
+    // destruction would be a core constant expression, which contract
+    // assertions never affect.
+    Settings.IgnoreContracts = true;
     if (!Ctx.getInterpContext().evaluateDestruction(Settings, this,
                                                     std::move(DestroyedValue)))
       return false;
