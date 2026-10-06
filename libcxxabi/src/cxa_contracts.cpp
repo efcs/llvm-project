@@ -69,14 +69,12 @@ __cxa_find_field(const __cxa_contract_data_block* chain, const uint8_t* ids, uin
 
 namespace {
 
-template <class T>
-T find_field_value(const __cxa_contract_data_block* chain, uint8_t id, T default_value) {
-  return __cxa_find_field_value<T>(chain, id, default_value);
-}
-
+// The value of a string field, or nullptr if the chain has no such field or
+// the field is null. The compiler leaves the message null when the assertion
+// has none, which is distinct from an empty message.
 const char* find_string(const __cxa_contract_data_block* chain, uint8_t id) {
   const char* const* p = __cxa_find_field_ptr<const char*>(chain, id);
-  return p && *p ? *p : "";
+  return p ? *p : nullptr;
 }
 
 //===----------------------------------------------------------------------===//
@@ -287,8 +285,10 @@ extern "C" _LIBCXXABI_FUNC_VIS void __contract_invoke_default_handler(const void
     line     = loc->line;
   }
 
-  const char* kind = "<unknown assertion kind>";
-  switch (find_field_value<uint8_t>(chain, CXA_FIELD_ASSERTION_KIND, CXA_AK_UNSPECIFIED)) {
+  char unknown_kind[32];
+  const char* kind         = unknown_kind;
+  const uint8_t kind_value = __cxa_find_field_value<uint8_t>(chain, CXA_FIELD_ASSERTION_KIND, CXA_AK_UNSPECIFIED);
+  switch (kind_value) {
   case CXA_AK_PRE:
     kind = "pre";
     break;
@@ -308,10 +308,15 @@ extern "C" _LIBCXXABI_FUNC_VIS void __contract_invoke_default_handler(const void
   case CXA_AK_IMPLICIT:
     kind = "implicit";
     break;
+  default:
+    std::snprintf(unknown_kind, sizeof(unknown_kind), "<unknown kind %u>", static_cast<unsigned>(kind_value));
+    break;
   }
 
-  const char* semantic = "<unknown semantic>";
-  switch (find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED)) {
+  char unknown_semantic[32];
+  const char* semantic         = unknown_semantic;
+  const uint8_t semantic_value = __cxa_find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED);
+  switch (semantic_value) {
   case CXA_ES_IGNORE:
     semantic = "ignore";
     break;
@@ -324,25 +329,38 @@ extern "C" _LIBCXXABI_FUNC_VIS void __contract_invoke_default_handler(const void
   case CXA_ES_QUICK_ENFORCE:
     semantic = "quick_enforce";
     break;
+  default:
+    std::snprintf(
+        unknown_semantic, sizeof(unknown_semantic), "<unknown semantic %u>", static_cast<unsigned>(semantic_value));
+    break;
   }
 
   const char* cause =
-      find_field_value<uint8_t>(chain, CXA_FIELD_DETECTION_MODE, CXA_DM_UNSPECIFIED) == CXA_DM_EVALUATION_EXCEPTION
+      __cxa_find_field_value<uint8_t>(chain, CXA_FIELD_DETECTION_MODE, CXA_DM_UNSPECIFIED) == CXA_DM_EVALUATION_EXCEPTION
           ? "predicate evaluation exited via an exception"
           : "predicate evaluated to false";
 
+  // The assertion is described as kind(comment: "message"), without the parts
+  // the chain lacks: a null or empty message is absent, and the comment is
+  // absent when it is empty (an assertion whose message replaces its text).
   const char* comment = find_string(chain, CXA_FIELD_COMMENT);
   const char* message = find_string(chain, CXA_FIELD_MESSAGE);
+  if (!comment)
+    comment = "";
+  if (!message)
+    message = "";
+  const char* separator = *comment && *message ? ": " : "";
 
   std::fprintf(stderr,
-               "%s:%u: %s%scontract violation in %s(%s%s%s%s): %s (semantic: %s)\n",
+               "%s:%u: %s%scontract violation in %s(%s%s%s%s%s): %s (semantic: %s)\n",
                *file ? file : "<unknown file>",
                line,
                function,
                *function ? ": " : "",
                kind,
                comment,
-               *message ? ": \"" : "",
+               separator,
+               *message ? "\"" : "",
                message,
                *message ? "\"" : "",
                cause,
@@ -356,12 +374,12 @@ extern "C" _LIBCXXABI_FUNC_VIS void __contract_invoke_default_handler(const void
 
 extern "C" _LIBCXXABI_FUNC_VIS void __cxa_contract_violation(void* data) {
   const __cxa_contract_data_block* chain = static_cast<const __cxa_contract_data_block*>(data);
-  dispatch(chain, find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED));
+  dispatch(chain, __cxa_find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED));
 }
 
 extern "C" _LIBCXXABI_FUNC_VIS void __cxa_contract_violation_noexcept(void* data) noexcept {
   const __cxa_contract_data_block* chain = static_cast<const __cxa_contract_data_block*>(data);
-  dispatch_noexcept(chain, find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED));
+  dispatch_noexcept(chain, __cxa_find_field_value<uint8_t>(chain, CXA_FIELD_EVALUATION_SEMANTIC, CXA_ES_UNSPECIFIED));
 }
 
 #define CONTRACT_VIOLATION_OBSERVE_ENTRY_POINT(name, kind, mode, is_exception)                                        \

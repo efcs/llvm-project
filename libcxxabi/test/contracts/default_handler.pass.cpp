@@ -44,11 +44,29 @@ int main(int, char**) {
   __cxa_contract_violation_pre_observe_pf(block.data());
   __cxa_contract_violation_assert_observe_ex_noexcept(block.data());
 
+  // The message is absent when it is null (an assertion without a message) or
+  // empty, and the comment is absent when it is empty (an assertion whose
+  // message replaces its text).
+  BasicBlock no_message    = make_basic_block("file.cpp", "int f(int)", 43, 7, "x > 1", nullptr);
+  BasicBlock empty_message = make_basic_block("file.cpp", "int f(int)", 44, 7, "x > 2", "");
+  BasicBlock message_only  = make_basic_block("file.cpp", "int f(int)", 45, 7, "", "x must be positive");
+  BasicBlock nothing       = make_basic_block("file.cpp", "int f(int)", 46, 7, "", nullptr);
+  __cxa_contract_violation_pre_observe_pf(no_message.data());
+  __cxa_contract_violation_pre_observe_pf(empty_message.data());
+  __cxa_contract_violation_pre_observe_pf(message_only.data());
+  __cxa_contract_violation_pre_observe_pf(nothing.data());
+
   // Through the C-linkage default handler symbol, with a chain that has none of
   // the fields.
   KindBlock kinds = make_kind_block(CXA_AK_POST, CXA_ES_ENFORCE, CXA_DM_PREDICATE_FALSE);
   Violation v     = {kinds.get()};
   __contract_invoke_default_handler(&v);
+
+  // Unknown kinds and semantics (of other implementations or future standards)
+  // are printed with their value.
+  KindBlock unknown   = make_kind_block(0x09, 0x0A, CXA_DM_EVALUATION_EXCEPTION, block.get());
+  Violation unknown_v = {unknown.get()};
+  __contract_invoke_default_handler(&unknown_v);
   std::fflush(stderr);
 
   std::string output = read_file(path);
@@ -56,7 +74,17 @@ int main(int, char**) {
                           "predicate evaluated to false (semantic: observe)\n"));
   assert(contains(output, "file.cpp:42: int f(int): contract violation in contract_assert(x > 0: \"x must be positive\"): "
                           "predicate evaluation exited via an exception (semantic: observe)\n"));
+  assert(contains(output, "file.cpp:43: int f(int): contract violation in pre(x > 1): "
+                          "predicate evaluated to false (semantic: observe)\n"));
+  assert(contains(output, "file.cpp:44: int f(int): contract violation in pre(x > 2): "
+                          "predicate evaluated to false (semantic: observe)\n"));
+  assert(contains(output, "file.cpp:45: int f(int): contract violation in pre(\"x must be positive\"): "
+                          "predicate evaluated to false (semantic: observe)\n"));
+  assert(contains(output, "file.cpp:46: int f(int): contract violation in pre(): "
+                          "predicate evaluated to false (semantic: observe)\n"));
   assert(contains(output, "<unknown file>:0: contract violation in post(): predicate evaluated to false "
                           "(semantic: enforce)\n"));
+  assert(contains(output, "file.cpp:42: int f(int): contract violation in <unknown kind 9>(x > 0: \"x must be positive\"): "
+                          "predicate evaluation exited via an exception (semantic: <unknown semantic 10>)\n"));
   return 0;
 }
