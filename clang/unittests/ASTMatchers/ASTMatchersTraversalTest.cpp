@@ -6723,5 +6723,61 @@ TEST(ContractSpecificMatcher, breathingTest) {
                       true, {"-std=c++23", "-fcontracts"}));
 }
 
+TEST(ContractSpecificMatcher, Kinds) {
+  const char *Code = R"cpp(
+      int f(const int x) pre(x > 0) post(r : r > 0) post(x > 1) {
+        contract_assert(x > 2);
+        return x;
+      }
+      int g(int x) { contract_assert(x > 0); return x; }
+  )cpp";
+  std::vector<std::string> Args = {"-std=c++26", "-fcontracts"};
+
+  EXPECT_TRUE(matchesConditionally(
+      Code, functionDecl(hasName("f"), hasFunctionContracts()), true, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code, functionDecl(hasName("g"), hasFunctionContracts()), false, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code, contractStmt(isPrecondition(), hasResultName(resultNameDecl())),
+      false, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code, contractStmt(isContractAssert(), hasResultName(resultNameDecl())),
+      false, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code,
+      functionDecl(hasName("f"),
+                   hasContractSpecifier(hasAnyContract(isPrecondition()))),
+      true, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code,
+      functionDecl(hasName("f"),
+                   hasContractSpecifier(hasAnyContract(isContractAssert()))),
+      false, Args));
+  EXPECT_TRUE(matchesConditionally(
+      Code, contractSpecifierDecl(hasAnyContract(hasResultName(hasName("r")))),
+      true, Args));
+  // The result name is a child of the postcondition.
+  EXPECT_TRUE(matchesConditionally(
+      Code, contractStmt(isPostcondition(), has(resultNameDecl())), true,
+      Args));
+}
+
+TEST(ContractSpecificMatcher, ForEachContract) {
+  const char *Code = R"cpp(
+      int f(const int x) pre(x > 0) post(r : r > 0) post(x > 1) { return x; }
+  )cpp";
+  std::vector<std::string> Args = {"-std=c++26", "-fcontracts"};
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      Code,
+      functionDecl(hasContractSpecifier(
+          forEachContract(contractStmt(isPostcondition()).bind("post")))),
+      std::make_unique<VerifyIdIsBoundTo<ContractStmt>>("post", 2), Args));
+  EXPECT_TRUE(matchAndVerifyResultTrue(
+      Code,
+      functionDecl(
+          hasContractSpecifier(forEachContract(contractStmt().bind("c")))),
+      std::make_unique<VerifyIdIsBoundTo<ContractStmt>>("c", 3), Args));
+}
+
 } // namespace ast_matchers
 } // namespace clang

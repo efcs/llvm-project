@@ -2907,18 +2907,18 @@ extern const internal::VariadicDynCastAllOfMatcher<Stmt, PredefinedExpr>
 extern const internal::VariadicDynCastAllOfMatcher<Stmt, DesignatedInitExpr>
     designatedInitExpr;
 
-
-
-/// Matches C++ contract statements.
+/// Matches C++26 contract assertions: preconditions, postconditions and
+/// assertion statements.
 ///
-/// Example matches pre(x), post(x), and contract_assert(x)
+/// Example matches pre(x), post(x) and contract_assert(x)
 /// \code
 ///   void f(int x) pre(x) post(x) { contract_assert(x); }
 /// \endcode
 extern const internal::VariadicDynCastAllOfMatcher<Stmt, ContractStmt>
     contractStmt;
 
-/// Matches C++ contract statements.
+/// Matches the function-contract-specifier-seq of a function declaration,
+/// which holds its preconditions and postconditions.
 ///
 /// Example matches the node containing both pre(x) and post(x), but not
 /// contract_assert(x)
@@ -2928,14 +2928,16 @@ extern const internal::VariadicDynCastAllOfMatcher<Stmt, ContractStmt>
 extern const internal::VariadicDynCastAllOfMatcher<Decl, ContractSpecifierDecl>
     contractSpecifierDecl;
 
-/// Matches the contract specifier sequence on a function declaration.
+/// Matches a function declaration whose function-contract-specifier-seq
+/// matches the given matcher.
 ///
-/// For example, given the code-
+/// Given
 /// \code
 ///   void f(int x) pre(x) post(x) { contract_assert(x); }
+///   void g(int x) { contract_assert(x); }
 /// \endcode
-/// functionDecl(hasContractSpecifier()))
-///   matches the function declaration of 'f'.
+/// functionDecl(hasContractSpecifier(contractSpecifierDecl()))
+///   matches the declaration of 'f', but not that of 'g'.
 AST_MATCHER_P(FunctionDecl, hasContractSpecifier,
               internal::Matcher<ContractSpecifierDecl>, InnerMatcher) {
   if (const auto *RetValue = Node.getContracts())
@@ -2943,14 +2945,15 @@ AST_MATCHER_P(FunctionDecl, hasContractSpecifier,
   return false;
 }
 
-/// Matches a contract that's part of a function contract specifier
+/// Matches a function-contract-specifier-seq which contains a contract
+/// assertion matching the given matcher.
 ///
 /// Given
 /// \code
-///   int foo(int x) post(r : r) { return x; }
+///   int f(int x) pre(x > 0) post(r : r > 0) { return x; }
 /// \endcode
-/// functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
-///   matches \code post(r : r) \endcode
+/// functionDecl(hasContractSpecifier(hasAnyContract(isPostcondition())))
+///   matches the declaration of 'f'.
 AST_MATCHER_P(ContractSpecifierDecl, hasAnyContract,
               internal::Matcher<ContractStmt>, InnerMatcher) {
   return matchesFirstInPointerRange(InnerMatcher, Node.contracts().begin(),
@@ -2958,14 +2961,14 @@ AST_MATCHER_P(ContractSpecifierDecl, hasAnyContract,
                                     Builder) != Node.contracts().end();
 }
 
-/// Matches any using shadow declaration.
+/// Matches a postcondition whose result name matches the given matcher.
 ///
 /// Given
 /// \code
-///   int foo(int x) post(r : r) { return x; }
+///   int f(int x) post(r : r > 0) post(x > 0) { return x; }
 /// \endcode
-/// functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
-///   matches \code post(r : r) \endcode
+/// contractStmt(hasResultName(hasName("r")))
+///   matches post(r : r > 0), but not post(x > 0).
 AST_MATCHER_P(ContractStmt, hasResultName, internal::Matcher<ResultNameDecl>,
               InnerMatcher) {
   if (const auto *RetValue = Node.getResultName())
@@ -2973,16 +2976,17 @@ AST_MATCHER_P(ContractStmt, hasResultName, internal::Matcher<ResultNameDecl>,
   return false;
 }
 
-/// Matches each method overridden by the given method. This matcher may
-/// produce multiple matches.
+/// Matches each contract assertion of a function-contract-specifier-seq
+/// which matches the given matcher. This matcher may produce multiple
+/// matches.
 ///
 /// Given
 /// \code
-///  int f() pre(x) post(x) post(r: r) { contract_assert(x); return x; }
+///   int f(int x) pre(x) post(x) post(r : r) { contract_assert(x); return x; }
 /// \endcode
 /// functionDecl(hasContractSpecifier(forEachContract(isPostcondition().bind("post"))))
-///   matches 'post(x)' and 'post(r: r)'
-///
+///   matches the declaration of 'f' twice, binding 'post' to post(x) and to
+///   post(r : r).
 AST_MATCHER_P(ContractSpecifierDecl, forEachContract,
               internal::Matcher<ContractStmt>, InnerMatcher) {
   BoundNodesTreeBuilder Result;
@@ -3000,42 +3004,45 @@ AST_MATCHER_P(ContractSpecifierDecl, forEachContract,
   return Matched;
 }
 
-/// Matches a contract precondition.
+/// Matches a precondition assertion.
 ///
-/// Example matches pre(x) but not post(x) or contract_assert(x) (matcher =
-/// contractStmt(isPrecondition()))
+/// Example matches pre(x) but not post(x) or contract_assert(x)
+///     (matcher = contractStmt(isPrecondition()))
 /// \code
-/// auto f = [x=3] () pre(x) post(x) { contract_assert(x); return x; };
+///   int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 /// \endcode
 AST_MATCHER(ContractStmt, isPrecondition) {
   return Node.getContractKind() == ContractKind::Pre;
 }
 
-/// Matches a contract postcondition.
+/// Matches a postcondition assertion.
 ///
-/// Example matches post(x) but not pre(x) or contract_assert(x) (matcher = contractStmt(isPostcondition()))
+/// Example matches post(x) but not pre(x) or contract_assert(x)
+///     (matcher = contractStmt(isPostcondition()))
 /// \code
-/// auto f = [x=3]() { return x; };
+///   int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 /// \endcode
 AST_MATCHER(ContractStmt, isPostcondition) {
   return Node.getContractKind() == ContractKind::Post;
 }
 
-/// Matches a contract postcondition.
+/// Matches an assertion statement.
 ///
-/// Example matches contract_assert(x) but not pre(x) or post(x) (matcher = contractStmt(isContractAssert()))
+/// Example matches contract_assert(x) but not pre(x) or post(x)
+///     (matcher = contractStmt(isContractAssert()))
 /// \code
-/// int f(int x) pre(x) post(x) { contract_assert(x); }
+///   int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 /// \endcode
 AST_MATCHER(ContractStmt, isContractAssert) {
   return Node.getContractKind() == ContractKind::Assert;
 }
 
-/// Matches a function declaration that contains either pre or post conditions.
-/// It does not match functions whos body contain `contract_assert` statements.
+/// Matches a function declaration which has a function-contract-specifier-seq,
+/// that is, preconditions or postconditions. It does not match a function
+/// whose body merely contains assertion statements.
 ///
-/// Example matches 'f' but not 'g' (matcher = functionDecl(hasFunctionContracts()))
-///
+/// Example matches 'f' but not 'g'
+///     (matcher = functionDecl(hasFunctionContracts()))
 /// \code
 ///   void f(int x) pre(x) post(x) { }
 ///   void g(int x) { contract_assert(x); }
@@ -3044,11 +3051,11 @@ AST_MATCHER(FunctionDecl, hasFunctionContracts) {
   return Node.getContracts() != nullptr;
 }
 
-/// Matches C++ result name declaration inside a post condition.
+/// Matches the result name declared by a postcondition assertion.
 ///
-/// Example matches \c r in \c post(r : x)
+/// Example matches \c r in \c post(r : r > 0)
 /// \code
-///   int f(int x) post(r : x);
+///   int f(int x) post(r : r > 0);
 /// \endcode
 extern const internal::VariadicDynCastAllOfMatcher<Decl, ResultNameDecl>
     resultNameDecl;

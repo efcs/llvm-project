@@ -692,7 +692,8 @@ Example matches integral
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Decl.html">Decl</a>&gt;</td><td class="name" onclick="toggle('contractSpecifierDecl0')"><a name="contractSpecifierDecl0Anchor">contractSpecifierDecl</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;...</td></tr>
-<tr><td colspan="4" class="doc" id="contractSpecifierDecl0"><pre>Matches C++ contract statements.
+<tr><td colspan="4" class="doc" id="contractSpecifierDecl0"><pre>Matches the function-contract-specifier-seq of a function declaration,
+which holds its preconditions and postconditions.
 
 Example matches the node containing both pre(x) and post(x), but not
 contract_assert(x)
@@ -1061,10 +1062,10 @@ Example matches '{ *p; }'
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Decl.html">Decl</a>&gt;</td><td class="name" onclick="toggle('resultNameDecl0')"><a name="resultNameDecl0Anchor">resultNameDecl</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ResultNameDecl.html">ResultNameDecl</a>&gt;...</td></tr>
-<tr><td colspan="4" class="doc" id="resultNameDecl0"><pre>Matches C++ result name declaration inside a post condition.
+<tr><td colspan="4" class="doc" id="resultNameDecl0"><pre>Matches the result name declared by a postcondition assertion.
 
-Example matches r in post(r : x)
-  int f(int x) post(r : x);
+Example matches r in post(r : r &gt; 0)
+  int f(int x) post(r : r &gt; 0);
 </pre></td></tr>
 
 
@@ -1593,9 +1594,10 @@ continueStmt()
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Stmt.html">Stmt</a>&gt;</td><td class="name" onclick="toggle('contractStmt0')"><a name="contractStmt0Anchor">contractStmt</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;...</td></tr>
-<tr><td colspan="4" class="doc" id="contractStmt0"><pre>Matches C++ contract statements.
+<tr><td colspan="4" class="doc" id="contractStmt0"><pre>Matches C++26 contract assertions: preconditions, postconditions and
+assertion statements.
 
-Example matches pre(x), post(x), and contract_assert(x)
+Example matches pre(x), post(x) and contract_assert(x)
   void f(int x) pre(x) post(x) { contract_assert(x); }
 </pre></td></tr>
 
@@ -4294,27 +4296,29 @@ stringLiteral(hasSize(4))
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isContractAssert0')"><a name="isContractAssert0Anchor">isContractAssert</a></td><td></td></tr>
-<tr><td colspan="4" class="doc" id="isContractAssert0"><pre>Matches a contract postcondition.
+<tr><td colspan="4" class="doc" id="isContractAssert0"><pre>Matches an assertion statement.
 
-Example matches contract_assert(x) but not pre(x) or post(x) (matcher = contractStmt(isContractAssert()))
-int f(int x) pre(x) post(x) { contract_assert(x); }
+Example matches contract_assert(x) but not pre(x) or post(x)
+    (matcher = contractStmt(isContractAssert()))
+  int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 </pre></td></tr>
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isPostcondition0')"><a name="isPostcondition0Anchor">isPostcondition</a></td><td></td></tr>
-<tr><td colspan="4" class="doc" id="isPostcondition0"><pre>Matches a contract postcondition.
+<tr><td colspan="4" class="doc" id="isPostcondition0"><pre>Matches a postcondition assertion.
 
-Example matches post(x) but not pre(x) or contract_assert(x) (matcher = contractStmt(isPostcondition()))
-auto f = [x=3]() { return x; };
+Example matches post(x) but not pre(x) or contract_assert(x)
+    (matcher = contractStmt(isPostcondition()))
+  int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 </pre></td></tr>
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isPrecondition0')"><a name="isPrecondition0Anchor">isPrecondition</a></td><td></td></tr>
-<tr><td colspan="4" class="doc" id="isPrecondition0"><pre>Matches a contract precondition.
+<tr><td colspan="4" class="doc" id="isPrecondition0"><pre>Matches a precondition assertion.
 
-Example matches pre(x) but not post(x) or contract_assert(x) (matcher =
-contractStmt(isPrecondition()))
-auto f = [x=3] () pre(x) post(x) { contract_assert(x); return x; };
+Example matches pre(x) but not post(x) or contract_assert(x)
+    (matcher = contractStmt(isPrecondition()))
+  int f(int x) pre(x) post(x) { contract_assert(x); return x; }
 </pre></td></tr>
 
 
@@ -4773,11 +4777,12 @@ functionDecl(hasDynamicExceptionSpec()) and
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1FunctionDecl.html">FunctionDecl</a>&gt;</td><td class="name" onclick="toggle('hasFunctionContracts0')"><a name="hasFunctionContracts0Anchor">hasFunctionContracts</a></td><td></td></tr>
-<tr><td colspan="4" class="doc" id="hasFunctionContracts0"><pre>Matches a function declaration that contains either pre or post conditions.
-It does not match functions whos body contain `contract_assert` statements.
+<tr><td colspan="4" class="doc" id="hasFunctionContracts0"><pre>Matches a function declaration which has a function-contract-specifier-seq,
+that is, preconditions or postconditions. It does not match a function
+whose body merely contains assertion statements.
 
-Example matches 'f' but not 'g' (matcher = functionDecl(hasFunctionContracts()))
-
+Example matches 'f' but not 'g'
+    (matcher = functionDecl(hasFunctionContracts()))
   void f(int x) pre(x) post(x) { }
   void g(int x) { contract_assert(x); }
 </pre></td></tr>
@@ -8483,24 +8488,27 @@ with compoundStmt()
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;</td><td class="name" onclick="toggle('forEachContract0')"><a name="forEachContract0Anchor">forEachContract</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt; InnerMatcher</td></tr>
-<tr><td colspan="4" class="doc" id="forEachContract0"><pre>Matches each method overridden by the given method. This matcher may
-produce multiple matches.
+<tr><td colspan="4" class="doc" id="forEachContract0"><pre>Matches each contract assertion of a function-contract-specifier-seq
+which matches the given matcher. This matcher may produce multiple
+matches.
 
 Given
- int f() pre(x) post(x) post(r: r) { contract_assert(x); return x; }
+  int f(int x) pre(x) post(x) post(r : r) { contract_assert(x); return x; }
 functionDecl(hasContractSpecifier(forEachContract(isPostcondition().bind("post"))))
-  matches 'post(x)' and 'post(r: r)'
-
+  matches the declaration of 'f' twice, binding 'post' to post(x) and to
+  post(r : r).
 </pre></td></tr>
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;</td><td class="name" onclick="toggle('hasAnyContract0')"><a name="hasAnyContract0Anchor">hasAnyContract</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt; InnerMatcher</td></tr>
-<tr><td colspan="4" class="doc" id="hasAnyContract0"><pre>Matches a contract that's part of a function contract specifier
+<tr><td colspan="4" class="doc" id="hasAnyContract0"><pre>Matches a function-contract-specifier-seq which contains a contract
+assertion matching the given matcher.
 
 Given
-  int foo(int x) post(r : r) { return x; }
-functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
-  matches post(r : r) </pre></td></tr>
+  int f(int x) pre(x &gt; 0) post(r : r &gt; 0) { return x; }
+functionDecl(hasContractSpecifier(hasAnyContract(isPostcondition())))
+  matches the declaration of 'f'.
+</pre></td></tr>
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition6')"><a name="hasCondition6Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
@@ -8513,12 +8521,13 @@ Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('hasResultName0')"><a name="hasResultName0Anchor">hasResultName</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ResultNameDecl.html">ResultNameDecl</a>&gt; InnerMatcher</td></tr>
-<tr><td colspan="4" class="doc" id="hasResultName0"><pre>Matches any using shadow declaration.
+<tr><td colspan="4" class="doc" id="hasResultName0"><pre>Matches a postcondition whose result name matches the given matcher.
 
 Given
-  int foo(int x) post(r : r) { return x; }
-functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
-  matches post(r : r) </pre></td></tr>
+  int f(int x) post(r : r &gt; 0) post(x &gt; 0) { return x; }
+contractStmt(hasResultName(hasName("r")))
+  matches post(r : r &gt; 0), but not post(x &gt; 0).
+</pre></td></tr>
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1CoroutineBodyStmt.html">CoroutineBodyStmt</a>&gt;</td><td class="name" onclick="toggle('hasBody5')"><a name="hasBody5Anchor">hasBody</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Stmt.html">Stmt</a>&gt; InnerMatcher</td></tr>
@@ -9291,12 +9300,14 @@ with compoundStmt()
 
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1FunctionDecl.html">FunctionDecl</a>&gt;</td><td class="name" onclick="toggle('hasContractSpecifier0')"><a name="hasContractSpecifier0Anchor">hasContractSpecifier</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt; InnerMatcher</td></tr>
-<tr><td colspan="4" class="doc" id="hasContractSpecifier0"><pre>Matches the contract specifier sequence on a function declaration.
+<tr><td colspan="4" class="doc" id="hasContractSpecifier0"><pre>Matches a function declaration whose function-contract-specifier-seq
+matches the given matcher.
 
-For example, given the code-
+Given
   void f(int x) pre(x) post(x) { contract_assert(x); }
-functionDecl(hasContractSpecifier()))
-  matches the function declaration of 'f'.
+  void g(int x) { contract_assert(x); }
+functionDecl(hasContractSpecifier(contractSpecifierDecl()))
+  matches the declaration of 'f', but not that of 'g'.
 </pre></td></tr>
 
 
