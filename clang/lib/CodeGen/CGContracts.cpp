@@ -545,7 +545,10 @@ getContractViolationEntryPoint(CodeGenModule &CGM, ContractKind Kind,
 }
 
 bool CodeGenFunction::isContractViolationInNoexceptContext() {
-  if (!getLangOpts().Exceptions)
+  // Without C++ exception handling nothing can catch what the handler throws,
+  // and noexcept functions get no terminate scope (EmitStartEHSpec), so every
+  // violation is reported from a noexcept context.
+  if (!getLangOpts().CXXExceptions)
     return true;
   for (const EHScope &Scope : EHStack) {
     switch (Scope.getKind()) {
