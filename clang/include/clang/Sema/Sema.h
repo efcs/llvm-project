@@ -8028,6 +8028,15 @@ public:
   void DiagnoseConstantEvaluatedContractViolations(
       ArrayRef<PartialDiagnosticAt> ContractNotes);
 
+  /// If the evaluation of the manifestly constant-evaluated expression \p E
+  /// failed in a SFINAE context because of a contract violation, diagnose the
+  /// violation. The program is ill-formed in that case; a contract violation
+  /// is never a substitution failure.
+  ///
+  /// \returns true if the contract violation was diagnosed.
+  bool DiagnoseContractViolationInSFINAEContext(const Expr *E,
+                                                const Expr::EvalStatus &Status);
+
   /// DiagnoseAssignmentAsCondition - Given that an expression is
   /// being used as a boolean condition, warn if it's an assignment.
   void DiagnoseAssignmentAsCondition(Expr *E);

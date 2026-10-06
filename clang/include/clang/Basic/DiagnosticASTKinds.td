@@ -273,7 +273,7 @@ def note_constexpr_contract_violation : Note<
   "%sub{constexpr_contract_violation}0,1,2,3">;
 def warn_constexpr_contract_violation : Warning<
   "%sub{constexpr_contract_violation}0,1,2,3">,
-  InGroup<ContractViolation>;
+  InGroup<ContractViolation>, NoSFINAE;
 def note_constexpr_inherited_ctor_call_here : Note<
   "in implicit initialization for inherited constructor of %0">;
 def note_constexpr_baa_insufficient_alignment : Note<

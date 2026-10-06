@@ -13182,6 +13182,8 @@ def err_contract_group_attribute_invalid_group : Error<
 
 // Contract violations in manifestly constant-evaluated contexts. The
 // violations themselves are described by notes from the constant evaluator.
+def err_constexpr_contract_violation : Error<
+  "contract violation in a constant expression">, NoSFINAE;
 def err_constant_init_contract_check_failed : Error<
   "constant initialization of %0 failed when checking its contract assertions">;
 def note_constant_init_ignores_contracts : Note<

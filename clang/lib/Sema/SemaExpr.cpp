@@ -18276,13 +18276,45 @@ Sema::VerifyICEDiagnoser::diagnoseFold(Sema &S, SourceLocation Loc) {
   return S.Diag(Loc, diag::ext_expr_not_ice) << S.LangOpts.CPlusPlus;
 }
 
+/// Emit the diagnostics for a contract violation that occurred during constant
+/// evaluation. A contract violation is diagnosed even in a SFINAE context: it
+/// doesn't make the evaluated expression non-constant, so it is not a
+/// substitution failure, and the diagnostic is required.
+static void EmitContractViolationNotes(Sema &S,
+                                       ArrayRef<PartialDiagnosticAt> Notes) {
+  bool InSFINAEContext = S.isSFINAEContext();
+  for (const PartialDiagnosticAt &Note : Notes) {
+    unsigned DiagID = Note.second.getDiagID();
+    // Notes are always suppressed in a SFINAE context; emit them directly.
+    if (InSFINAEContext && S.Diags.getDiagnosticIDs()->isNote(DiagID))
+      Note.second.Emit(S.Diags.Report(Note.first, DiagID));
+    else
+      S.Diag(Note.first, Note.second);
+  }
+}
+
 void Sema::DiagnoseConstantEvaluatedContractViolations(
     ArrayRef<PartialDiagnosticAt> ContractNotes) {
   // C++26 [intro.compliance.general]p2.3.4: A diagnostic is required for a
   // contract assertion evaluated with a checking semantic in a manifestly
   // constant-evaluated context resulting in a contract violation.
-  for (const PartialDiagnosticAt &Note : ContractNotes)
-    Diag(Note.first, Note.second);
+  EmitContractViolationNotes(*this, ContractNotes);
+}
+
+bool Sema::DiagnoseContractViolationInSFINAEContext(
+    const Expr *E, const Expr::EvalStatus &Status) {
+  if (!Status.HasContractViolation || !isSFINAEContext())
+    return false;
+
+  // C++26 [basic.contract.eval]p8:
+  //   If a contract violation occurs in a context that is manifestly
+  //   constant-evaluated, and the evaluation semantic is a terminating
+  //   semantic, the program is ill-formed.
+  Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
+      << E->getSourceRange();
+  if (Status.Diag)
+    EmitContractViolationNotes(*this, *Status.Diag);
+  return true;
 }
 
 ExprResult
@@ -18425,6 +18457,8 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
       (!getLangOpts().CPlusPlus || !EvalResult.HasUndefinedBehavior);
 
   DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  if (DiagnoseContractViolationInSFINAEContext(E, EvalResult))
+    return ExprError();
 
   if (!isa<ConstantExpr>(E))
     E = ConstantExpr::Create(Context, E, EvalResult.Val);

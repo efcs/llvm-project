@@ -6814,6 +6814,8 @@ Sema::EvaluateConvertedConstantExpression(Expr *E, QualType T, APValue &Value,
 
   bool Evaluated = E->EvaluateAsConstantExpr(Eval, Context, Kind);
   DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  if (DiagnoseContractViolationInSFINAEContext(E, Eval))
+    return ExprError();
 
   if (!Evaluated || (RequireInt && !Eval.Val.isInt())) {
     // The expression can't be folded, so we can't keep it at this position in
