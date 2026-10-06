@@ -1,8 +1,19 @@
+// A minimal <contracts> for the runnable tests, so that they do not depend on
+// the standard library's: the std::contracts interface of [support.contract],
+// with a contract_violation that wraps the chain of data blocks the
+// contract-violation runtime of the Itanium C++ Contracts ABI passes to the
+// handler (see contracts-runtime.h, which provides the runtime and the
+// definitions of the accessors).
+
 #ifndef CONTRACTS_CONTRACTS_H
 #define CONTRACTS_CONTRACTS_H
 
 #include "source-location.h"
 #include <stdio.h>
+
+namespace __cxxabiv1 {
+struct __cxa_contract_data_block;
+}
 
 namespace std::contracts {
   class contract_violation;
@@ -27,75 +38,36 @@ enum class detection_mode : unsigned char {
   predicate_false = 1,
   evaluation_exception = 2
 };
-using _DetectionMode = detection_mode;
-
-struct _ContractViolationImpl;
 
 class contract_violation {
-  friend struct _ContractViolationImpl;
 public:
   ~contract_violation() = default;
   contract_violation(const contract_violation&) = delete;
   contract_violation& operator=(const contract_violation&) = delete;
 
-   std::source_location location() const noexcept;
-   const char* comment() const noexcept;
-   const char* message() const noexcept;
-   _DetectionMode detection_mode() const noexcept;
-   assertion_kind kind() const noexcept;
-   evaluation_semantic semantic() const noexcept;
+  std::source_location location() const noexcept;
+  const char* comment() const noexcept;
+  // Not part of [support.contract]: the message of the assertion, or null if
+  // it has none.
+  const char* message() const noexcept;
+  contracts::detection_mode detection_mode() const noexcept;
+  assertion_kind kind() const noexcept;
+  evaluation_semantic semantic() const noexcept;
+  bool is_terminating() const noexcept;
 
 private:
-  explicit contract_violation(_ContractViolationImpl &__impl) : __impl_(&__impl) {}
+  friend struct __contract_violation_access;
+  explicit contract_violation(const __cxxabiv1::__cxa_contract_data_block* chain) noexcept : __chain_(chain) {}
 
-  _ContractViolationImpl *__impl_;
+  // The head of the chain, which the runtime's entry points build.
+  const __cxxabiv1::__cxa_contract_data_block* __chain_;
 };
 
-
-inline void __default_contract_violation_handler(const contract_violation& violation) noexcept {
+inline void invoke_default_contract_violation_handler(const contract_violation& violation) noexcept {
   ::fprintf(stderr, "Contract violation: %s\n", violation.comment());
   __builtin_abort();
 }
 
-
-inline void invoke_default_contract_violation_handler(const contract_violation& __violation) noexcept {
-  return __default_contract_violation_handler(__violation);
-}
-
-void __handle_contract_violation_internal(const contract_violation& __violation) {
-  if (::handle_contract_violation)
-    ::handle_contract_violation(__violation);
-  else
-    invoke_default_contract_violation_handler(__violation);
-
-  if (__violation.semantic() == evaluation_semantic::enforce)
-    __builtin_abort();
-}
-
-struct _ContractViolationImpl {
-  assertion_kind kind           = assertion_kind::assert;
-  evaluation_semantic semantic  = evaluation_semantic::enforce;
-  _DetectionMode mode           = _DetectionMode::predicate_false;
-  const char* comment           = nullptr;
-  const char* message           = nullptr;
-  std::source_location location = std::source_location::current();
-
-  contract_violation __create_violation()  {
-    return contract_violation(*this);
-  }
-};
-
-std::source_location contract_violation::location() const noexcept { return __impl_->location; }
-const char* contract_violation::comment() const noexcept { return __impl_->comment ? __impl_->comment : ""; }
-const char* contract_violation::message() const noexcept { return __impl_->message ? __impl_->message : ""; }
-_DetectionMode contract_violation::detection_mode() const noexcept { return __impl_->mode; }
-assertion_kind contract_violation::kind() const noexcept { return __impl_->kind; }
-evaluation_semantic contract_violation::semantic() const noexcept { return __impl_->semantic; }
-
-
 } // namespace std::contracts
-
-
-//
 
 #endif  // CONTRACTS_CONTRACTS_H

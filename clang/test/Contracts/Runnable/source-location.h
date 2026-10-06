@@ -19,7 +19,7 @@ class source_location {
   using __bsl_ty = decltype(__builtin_source_location());
 
 public:
-  static std::source_location __create_from_pointer(const void* __ptr) {
+  static std::source_location __create_from_pointer(const void* __ptr) noexcept {
     std::source_location __loc;
     __loc.__ptr_ = static_cast<const __impl*>(__ptr);
     return __loc;
