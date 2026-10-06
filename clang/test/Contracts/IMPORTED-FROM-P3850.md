@@ -11,6 +11,12 @@ Categories: A = tests P2900R14 behaviour (import); B = tests a C++29 extension /
 
 Counts: A=58, B=394, C=27, D=7, total=486.
 
+Re-triaged against the round-two integration branch (eric/contracts-fixes-r2): four
+OpenBugs entries (contract-unexpanded-pack, contract-dependent-predicate-temporary-ast,
+postcondition-param-lambda, constify-captured-this-member) are fixed there and moved back to
+the normal directories; six tests had their expectations updated to the round-two capture /
+constification / constant-evaluation diagnostics (see the rows below).
+
 Attribution: files that are verbatim (modulo RUN-line normalisation) are committed with
 Joshua as author; anything whose expectations or content changed is committed by Eric with
 a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
@@ -54,7 +60,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/constify-template-params.cpp` | C | ours kept: rename of our template-test2.cpp with only wording changes |
 | `Contracts/constructor-contracts.cpp` | A | imported verbatim; passes |
 | `Contracts/contract-ast-print.cpp` | A | adapted: only the P2900R14 cases kept (no P3098 captures / P4283 requires / P3099 message); passes |
-| `Contracts/contract-capture-note-location.cpp` | A | imported; expectations re-worded to our diagnostics ('implicit capture of local entity ... not allowed when used exclusively in contract assertions', no 'add to capture list' note); passes |
+| `Contracts/contract-capture-note-location.cpp` | A | imported; re-worded to our implicit-capture diagnostics; the generic-lambda case now gets the contract-capture error (outer at definition, inner at instantiation) instead of the odr-usable error; passes |
 | `Contracts/contract-complete-class-late-parse.cpp` | A | adapted: virt-specifier cases dropped (R14 forbids contracts on virtual functions), requires-clause cases kept; passes |
 | `Contracts/contract-constexpr-multi-observe.cpp` | B | skipped: P3850 umbrella + libc++ constexpr observe diagnostics |
 | `Contracts/contract-constexpr-observe-cap.cpp` | B | skipped: P3850 umbrella + libc++ constexpr observe diagnostics |
@@ -64,16 +70,16 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/contract-constexpr-repeat-call-shapes.cpp` | A | adapted: constant-evaluation half kept as -fsyntax-only; the run-time half (needs libc++) is for the Runnable tests; passes |
 | `Contracts/contract-constexpr-side-effect.cpp` | A | adapted: constant-evaluation half kept as -fsyntax-only; the run-time half (needs libc++) is for the Runnable tests; passes |
 | `Contracts/contract-declarator-positions.cpp` | A | imported; expectations re-worded to our diagnostics ('function contract specifiers are only allowed on function declarations'); passes |
-| `Contracts/contract-dependent-predicate-temporary-ast.cpp` | A | imported, fails here -> OpenBugs/contract-dependent-predicate-temporary-ast.cpp (XFAIL): predicate wrapped in `({ })` statement-expression |
+| `Contracts/contract-dependent-predicate-temporary-ast.cpp` | A | imported; failed on the round-one base (was OpenBugs, `({ })` wrapper) -- fixed in round two; passes |
 | `Contracts/contract-friend-deferred-mismatch.cpp` | B | skipped: pins the ACCEPTING behaviour of a friend-contract mismatch (contradicts R14; our Clang diagnoses it, see friend-contract-mismatch.cpp) |
 | `Contracts/contract-group-attr.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording; his uses `group:semantic`, our driver spells it `group=semantic`, and ours has more cases) |
 | `Contracts/contract-in-declarator-group.cpp` | A | imported; expectations re-worded to our diagnostics ('function contract specifiers are only allowed on function declarations'); passes |
 | `Contracts/contract-instantiate-on-use.cpp` | B | skipped: P3097 virtual-function contracts (all cases virtual) |
 | `Contracts/contract-invalid-predicate-redecl.cpp` | A | imported verbatim; passes |
-| `Contracts/contract-lambda-capture-constify.cpp` | A | imported verbatim; passes |
+| `Contracts/contract-lambda-capture-constify.cpp` | A | imported; expectations re-worded to the round-two diagnostic ('cannot assign to variable ... considered const inside of a contract'); passes |
 | `Contracts/contract-on-function-typedef.cpp` | A | imported; expectations re-worded to our diagnostics ('function contract specifiers are only allowed on function declarations'); passes |
 | `Contracts/contract-on-non-function.cpp` | A | imported; expectations re-worded to our diagnostics (same as above; -fcontracts-p3850 dropped; no secondary 'pre ignored' diagnostic for `V V() pre(1)`); passes |
-| `Contracts/contract-postcondition-constexpr.cpp` | A | imported verbatim; passes |
+| `Contracts/contract-postcondition-constexpr.cpp` | A | imported; round two reports the failed postcondition as a note under the constant-expression error ('contract violation with the enforce evaluation semantic ...'); passes |
 | `Contracts/contract-redecl-mismatch-diagnostics.cpp` | A | imported verbatim; passes |
 | `Contracts/contract-reentrancy-basic.cpp` | A | imported verbatim; passes |
 | `Contracts/contract-reentrancy-p3097.cpp` | B | skipped: P3097 virtual-function contracts (all cases virtual) |
@@ -129,11 +135,11 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/matrix-sfinae-p4283-run.cpp` | B | skipped: P4283 requires-clauses on contracts |
 | `Contracts/matrix-throwpaths-p3850-run.cpp` | B | skipped: P3850 runtime throw paths (libc++ handler API) |
 | `Contracts/nested-class-contracts.cpp` | A | imported verbatim; passes |
-| `Contracts/nested-lambda-contract-capture-depth.cpp` | A | imported; expectations re-worded to our diagnostics ('implicit capture of local entity ... not allowed when used exclusively in contract assertions', no 'add to capture list' note); passes |
+| `Contracts/nested-lambda-contract-capture-depth.cpp` | A | imported; expectations re-worded (implicit-capture wording, then round-two constification wording); passes |
 | `Contracts/OpenBugs/address-before-ctor-member.cpp` | D | kept in OpenBugs with XFAIL (core-language constexpr bug, no contracts) |
 | `Contracts/OpenBugs/address-before-ctor-vbase.cpp` | D | his tree passes it; moved to Contracts/address-before-ctor-vbase.cpp with our constexpr notes; passes (core language, no contracts) |
 | `Contracts/OpenBugs/deferred-friend-contract-mismatch.cpp` | D | our Clang already diagnoses it; moved to Contracts/friend-contract-mismatch.cpp (XFAIL removed, notes added); passes |
-| `Contracts/OpenBugs/postcondition-undeduced-result.cpp` | D | his tree passes it; moved to Contracts/postcondition-undeduced-result.cpp with our wording; passes |
+| `Contracts/OpenBugs/postcondition-undeduced-result.cpp` | D | his tree passes it; moved to Contracts/postcondition-undeduced-result.cpp with our wording; round two also emits the void-result recovery error for shape 2 (expected now); passes |
 | `Contracts/OpenBugs/retval-throwing-cleanup.cpp` | D | kept in OpenBugs with XFAIL (core-language codegen bug, no contracts; %libcxx_flags dropped) |
 | `Contracts/OpenBugs/this-in-xobj-noexcept-specifier.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
 | `Contracts/OpenBugs/this-in-xobj-trailing-return-type.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
@@ -469,16 +475,16 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/parse-contract-basics.cpp` | C | ours kept: rename of our contracts.cpp with only wording changes |
 | `Contracts/parse-contract-grammar.cpp` | C | ours kept: rename of our parsing-ambiguities.cpp with only wording changes plus P3097 relaxations (virtual/deleted/defaulted errors removed) that contradict R14 |
 | `Contracts/postcondition-param-and-capture-diagnostics.cpp` | C | ours kept: rename of our postcondition-params-and-lambda-captures.cpp with only wording changes |
-| `Contracts/postcondition-param-lambda.cpp` | A | imported, fails here -> OpenBugs/postcondition-param-lambda.cpp (XFAIL): non-generic lambda call operator not checked |
+| `Contracts/postcondition-param-lambda.cpp` | A | imported; failed on the round-one base (was OpenBugs, non-generic lambda unchecked) -- fixed in round two; passes |
 | `Contracts/postcondition-redecl-no-diagnostics.cpp` | A | imported verbatim; passes |
 | `Contracts/pure-virtual-dependent-predicate-codegen.cpp` | B | skipped: P3097 virtual-function contracts (all cases virtual) |
 | `Contracts/result-name-misplaced.cpp` | A | imported; expectations re-worded to our diagnostics ('result name cannot be used with a void return type'; `contract_assert(r: ...)` is a plain parse error here); passes |
 | `Contracts/result-name-shadows-template-param.cpp` | A | imported, fails here -> OpenBugs/result-name-shadows-template-param.cpp (XFAIL): assertion crash in ActOnResultNameDeclarator |
 | `Contracts/scope-rules.cpp` | A | imported verbatim; passes |
 | `Contracts/Sema/basic.contract.eval.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
-| `Contracts/Sema/contract-predicate-constify-in-lambda.cpp` | A | imported; the captured-*this member case moved to OpenBugs/constify-captured-this-member.cpp; rest passes |
+| `Contracts/Sema/contract-predicate-constify-in-lambda.cpp` | A | imported (captured-*this member case was an OpenBug on the round-one base, fixed in round two); by-ref-capture wording updated to round-two diagnostics; passes |
 | `Contracts/Sema/contract-predicate-constify-storage.cpp` | A | imported verbatim; passes |
-| `Contracts/Sema/contract-unexpanded-pack.cpp` | A | imported, fails here -> OpenBugs/contract-unexpanded-pack.cpp (XFAIL): assertion crash on unexpanded pack in predicate |
+| `Contracts/Sema/contract-unexpanded-pack.cpp` | A | imported; crashed on the round-one base (was OpenBugs) -- fixed in round two, now Sema/contract-unexpanded-pack.cpp; passes |
 | `Contracts/Sema/decl.contract.func.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/decl.contract.res.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/deducing-this-no-this-in-predicate.cpp` | A | imported verbatim; passes |

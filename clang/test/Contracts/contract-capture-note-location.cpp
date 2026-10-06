@@ -12,10 +12,9 @@
 // went wrong would stop matching.  Two and three levels of nesting are
 // covered because a one-level-only fix would still be wrong at three, and
 // generic lambdas are covered because the original upstream report blamed
-// them and they are in fact irrelevant to the GCC bug.  Clang reaches a
-// different diagnostic for the generic case -- the odr-usable rule, at
-// instantiation -- and that one does carry "'x' declared here" notes, which
-// is the exact note class GCC got wrong, so it is worth pinning here too.
+// them and they are in fact irrelevant to the GCC bug.  In the generic case
+// the outer lambda is diagnosed at definition time and the inner one when it
+// is instantiated, with the same notes.
 //
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -verify %s
 
@@ -59,13 +58,16 @@ void three_levels() {
 }
 
 void two_levels_generic() {
-  int x = 1;                   // expected-note {{'x' declared here}}
-  auto outer = [&](auto f) {   // expected-note {{'f' declared here}}
+  int x = 1;
+  auto outer = [&](auto f) {
+    // expected-error@-1 {{implicit capture of local entity 'x' is not allowed when used exclusively in contract assertions}}
     auto inner = [&](auto g) { contract_assert(x + f + g > 0); };
-    // expected-error@-1 {{reference to local variable 'x' declared in enclosing function 'two_levels_generic'}}
-    // expected-error@-2 {{reference to local variable 'f' declared in enclosing lambda expression}}
+    // expected-error@-1 {{implicit capture of local entity 'x' is not allowed when used exclusively in contract assertions}}
+    // expected-error@-2 {{implicit capture of local entity 'f' is not allowed when used exclusively in contract assertions}}
+    // expected-note@-3 2 {{capture of local entity 'x' is required here}}
+    // expected-note@-4 {{capture of local entity 'f' is required here}}
+    // expected-note@-5 3 {{within contract context introduced here}}
     inner(1);
-    // expected-note@-1 {{in instantiation of function template specialization}}
   };
   outer(1);
   // expected-note@-1 {{in instantiation of function template specialization}}

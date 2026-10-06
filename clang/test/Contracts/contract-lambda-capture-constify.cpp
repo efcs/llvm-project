@@ -15,12 +15,12 @@ namespace non_template {
 
 // A: implicit '[&]' capture -- mutation is an error.
 void a(int x) {
-  contract_assert([&] { return ++x > 0; }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  contract_assert([&] { return ++x > 0; }()); // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
 }
 
 // E: explicit '[&x]' capture -- mutation is an error.
 void e(int x) {
-  contract_assert([&x] { return ++x > 0; }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  contract_assert([&x] { return ++x > 0; }()); // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
 }
 
 // B: '[=] mutable' captures by copy -- the copy is mutable, so this is OK.
@@ -41,12 +41,12 @@ void d(int) {
 
 // G: nested explicit by-reference captures -- error at the innermost mutation.
 void g(int x) {
-  contract_assert([&x] { return [&x] { return ++x > 0; }(); }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  contract_assert([&x] { return [&x] { return ++x > 0; }(); }()); // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
 }
 
 // H: nested implicit by-reference captures -- error at the innermost mutation.
 void h(int x) {
-  contract_assert([&] { return [&] { return ++x > 0; }(); }()); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  contract_assert([&] { return [&] { return ++x > 0; }(); }()); // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
 }
 
 } // namespace non_template
@@ -58,7 +58,7 @@ namespace templated {
 // FA: implicit '[&]' capture in a template -- must be an error at instantiation.
 template <class T> void fa(T x) {
   contract_assert([&] { return ++x > 0; }());
-  // expected-error@-1 {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  // expected-error@-1 {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
   // expected-note@-2 {{while substituting into a lambda expression here}}
 }
 // expected-note@+1 {{in instantiation of function template specialization 'templated::fa<int>' requested here}}

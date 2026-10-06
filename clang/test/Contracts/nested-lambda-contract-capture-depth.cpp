@@ -17,15 +17,15 @@ void foo(int a) {
       contract_assert( // expected-note {{contract}}
           [&]
               (int v) {
-            ++y; // expected-error {{inside a contract}}
-            ++x; // expected-error {{inside a contract}}
-            ++a; // expected-error {{inside a contract}} expected-note {{required here}}
+            ++y; // expected-error {{considered 'const' inside of a contract}}
+            ++x; // expected-error {{considered 'const' inside of a contract}}
+            ++a; // expected-error {{considered 'const' inside of a contract}} expected-note {{required here}}
             ++v; // OK
 
             return [&](int w) {
-              ++a; // expected-error {{inside a contract}}
-              ++x; // expected-error {{inside a contract}}
-              ++y; // expected-error {{inside a contract}}
+              ++a; // expected-error {{considered 'const' inside of a contract}}
+              ++x; // expected-error {{considered 'const' inside of a contract}}
+              ++y; // expected-error {{considered 'const' inside of a contract}}
               ++v; // OK
               ++w; // OK
               return true;

@@ -12,9 +12,10 @@ static_assert (inc (4) == 5);
 constexpr int identity (int x) post (r: r >= 0) { return x; }
 static_assert (identity (7) == 7);
 
-// A false postcondition is a proper constant-evaluation violation, reported at
-// the contract (not "condition is not constant").
+// A false postcondition is a proper constant-evaluation violation
+// ([basic.contract.eval]/8): the initializer is not a constant expression, and
+// the note points at the failed assertion (not "condition is not constant").
 constexpr int bad (int x)
-  post (r: r > 100) // expected-error {{contract failed during execution of constexpr function}}
+  post (r: r > 100) // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r: r > 100' evaluated to false}}
 { return x; }
 constexpr int z = bad (5); // expected-error {{must be initialized by a constant expression}} expected-note {{in call to 'bad(5)'}}

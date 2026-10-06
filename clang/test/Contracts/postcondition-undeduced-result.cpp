@@ -39,8 +39,11 @@ class S {
 
 // Shape 2: deduction fails with no undeclared name anywhere, which is what
 // shows the trigger is "deduction never completed" rather than "the body
-// mentioned something undeclared".
+// mentioned something undeclared".  The same recovery diagnostic as in shape 1
+// follows: the result-name postcondition is checked after the body, by which
+// time the undeduced return type has fallen back to void.
 bool g();
-// expected-error@+2 {{function 'h' with deduced return type cannot be used before it is defined}}
-// expected-note@+1 {{'h' declared here}}
+// expected-error@+3 {{function 'h' with deduced return type cannot be used before it is defined}}
+// expected-note@+2 {{'h' declared here}}
+// expected-error@+1 {{result name 'r' cannot be used with a void return type}}
 auto h() post(r: g()) { return h(); }
