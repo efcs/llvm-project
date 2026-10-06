@@ -514,6 +514,10 @@ class CFGBuilder {
   ASTContext *Context;
   std::unique_ptr<CFG> cfg;
 
+  // The function contract specifiers of the function whose CFG is being
+  // built, if any.
+  const ContractSpecifierDecl *FunctionContracts = nullptr;
+
   // Current block.
   CFGBlock *Block = nullptr;
 
@@ -607,6 +611,7 @@ private:
   CFGBlock *VisitCXXThrowExpr(CXXThrowExpr *T);
   CFGBlock *VisitCXXTryStmt(CXXTryStmt *S);
   CFGBlock *VisitContractStmt(ContractStmt *S, AddStmtChoice asc);
+  bool addPostconditions();
   CFGBlock *VisitCXXTypeidExpr(CXXTypeidExpr *S, AddStmtChoice asc);
   CFGBlock *VisitDeclStmt(DeclStmt *DS);
   CFGBlock *VisitDeclSubExpr(DeclStmt *DS);
@@ -1680,6 +1685,9 @@ std::unique_ptr<CFG> CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
   assert(Succ == &cfg->getExit());
   Block = nullptr;  // the EXIT block is empty.  Create all other blocks lazily.
 
+  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D))
+    FunctionContracts = FD->getContractsInEffect();
+
   if (BuildOpts.AddLifetime && BuildOpts.AddParameterLifetimes) {
     // Add parameters to the initial scope to handle lifetime ends.
     LocalScope *paramScope = nullptr;
@@ -1697,6 +1705,19 @@ std::unique_ptr<CFG> CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
   if (BuildOpts.AddImplicitDtors)
     if (const CXXDestructorDecl *DD = dyn_cast_or_null<CXXDestructorDecl>(D))
       addImplicitDtorsForDestructor(DD);
+
+  // Postconditions are evaluated whenever the function returns normally: after
+  // each return statement (see VisitReturnStmt), and when control flows off
+  // the end of the body. They are evaluated in a block of their own which
+  // precedes the exit block, and which the body falls through into. Since the
+  // CFG is built backwards, add it now.
+  if (addPostconditions()) {
+    if (badCFG)
+      return nullptr;
+    cfg->setPostconditionsEntry(Block);
+    Succ = Block;
+    Block = nullptr;
+  }
 
   // Visit the statements and create the CFG.
   CFGBlock *B = addStmt(Statement);
@@ -1743,19 +1764,16 @@ std::unique_ptr<CFG> CFGBuilder::buildCFG(const Decl *D, Stmt *Statement) {
 
   // Preconditions are evaluated on entry to the function, before any
   // constructor initializers. Since the CFG is built backwards, add them last.
-  // (Postconditions are not modeled yet.)
-  if (const auto *FD = dyn_cast_or_null<FunctionDecl>(D)) {
-    if (const ContractSpecifierDecl *CSD = FD->getContracts()) {
-      SmallVector<ContractStmt *, 4> Pre(CSD->preconditions());
-      if (!Pre.empty()) {
-        if (B)
-          Succ = B;
-        Block = nullptr;
-        for (ContractStmt *C : llvm::reverse(Pre)) {
-          B = addStmt(C);
-          if (badCFG)
-            return nullptr;
-        }
+  if (FunctionContracts) {
+    SmallVector<ContractStmt *, 4> Pre(FunctionContracts->preconditions());
+    if (!Pre.empty()) {
+      if (B)
+        Succ = B;
+      Block = nullptr;
+      for (ContractStmt *C : llvm::reverse(Pre)) {
+        B = addStmt(C);
+        if (badCFG)
+          return nullptr;
       }
     }
   }
@@ -3439,9 +3457,14 @@ CFGBlock *CFGBuilder::VisitReturnStmt(Stmt *S) {
         R->getRetValue());
 
   // If the one of the destructors does not return, we already have the Exit
-  // block as a successor.
-  if (!Block->hasNoReturnElement())
-    addSuccessor(Block, &cfg->getExit());
+  // block as a successor. A return statement (but not a co_return statement)
+  // returns through the postconditions of the function, if it has any.
+  if (!Block->hasNoReturnElement()) {
+    CFGBlock *Target = &cfg->getExit();
+    if (isa<ReturnStmt>(S) && cfg->getPostconditionsEntry())
+      Target = cfg->getPostconditionsEntry();
+    addSuccessor(Block, Target);
+  }
 
   // Add the return statement to the block.
   appendStmt(Block, S);
@@ -4784,18 +4807,37 @@ CFGBlock *CFGBuilder::VisitDefaultStmt(DefaultStmt *Terminator) {
 }
 
 CFGBlock *CFGBuilder::VisitContractStmt(ContractStmt *S, AddStmtChoice asc) {
-  // The contract itself is always added so that clients can observe it.
+  // The contract assertion itself is always added so that clients can observe
+  // it. It is preceded by its predicate, which is an ordinary evaluated
+  // expression; the result name declaration (if any) has no runtime semantics
+  // of its own.
+  //
+  // The CFG does not depend on the evaluation semantic of the contract
+  // assertion: the predicate is part of the CFG even when the semantic is
+  // 'ignore', in which case it is not evaluated at run time but is still
+  // odr-used. That way the analysis-based warnings (and any other client)
+  // treat the predicate of every contract assertion uniformly, whatever
+  // semantic happens to be selected for this compilation. The static analyzer
+  // applies the semantic itself (see ExprEngine).
   autoCreateBlock();
   appendStmt(Block, S);
-
-  // The predicate of a contract with the 'ignore' evaluation semantic is never
-  // evaluated.
-  if (S->getSemantic(*Context) == ContractEvaluationSemantic::Ignore)
-    return Block;
-
-  // Only the predicate is evaluated; the result name declaration (if any) has
-  // no runtime semantics of its own.
   return addStmt(S->getCond());
+}
+
+/// Add the postconditions of the function (in evaluation order) in front of
+/// the current successor. Returns false if the function has none.
+bool CFGBuilder::addPostconditions() {
+  if (!FunctionContracts)
+    return false;
+  SmallVector<ContractStmt *, 4> Post(FunctionContracts->postconditions());
+  if (Post.empty())
+    return false;
+  for (ContractStmt *C : llvm::reverse(Post)) {
+    addStmt(C);
+    if (badCFG)
+      return true;
+  }
+  return true;
 }
 
 CFGBlock *CFGBuilder::VisitCXXTryStmt(CXXTryStmt *Terminator) {
@@ -6090,8 +6132,12 @@ static void print_elem(raw_ostream &OS, StmtPrinterHelper &Helper,
          << ", " << CE->getType() << ")";
     }
 
-    // Expressions need a newline.
-    if (isa<Expr>(S) && TerminateWithNewLine)
+    // Expressions (and function contract specifiers, which are printed as
+    // part of a declarator) need a newline.
+    if (TerminateWithNewLine &&
+        (isa<Expr>(S) ||
+         (isa<ContractStmt>(S) &&
+          cast<ContractStmt>(S)->getContractKind() != ContractKind::Assert)))
       OS << '\n';
 
     return;

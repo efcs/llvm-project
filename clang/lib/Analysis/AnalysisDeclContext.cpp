@@ -287,10 +287,12 @@ ParentMap &AnalysisDeclContext::getParentMap() {
         PM->addStmt(I->getInit());
       }
     }
-    // Preconditions are part of the CFG of the function (see CFGBuilder).
+    // The function contract assertions are part of the CFG of the function
+    // (see CFGBuilder).
     if (const auto *FD = dyn_cast<FunctionDecl>(getDecl()))
-      for (ContractStmt *Pre : FD->preconditions())
-        PM->addStmt(Pre);
+      if (const ContractSpecifierDecl *CSD = FD->getContractsInEffect())
+        for (ContractStmt *CS : CSD->contracts())
+          PM->addStmt(CS);
     if (builtCFG)
       addParentsForSyntheticStmts(getCFG(), *PM);
     if (builtCompleteCFG)

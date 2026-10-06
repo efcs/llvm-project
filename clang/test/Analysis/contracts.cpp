@@ -67,3 +67,90 @@ struct S {
                                 // ignore-warning {{TRUE}} ignore-warning {{FALSE}}
   }
 };
+
+// Postconditions are evaluated when the function returns, after the return
+// value is computed, and the result name refers to the returned value.
+int post_result(int x) post(r : r > 0) {
+  return x;
+}
+void call_post_result(int x) {
+  int v = post_result(x);
+  clang_analyzer_eval(v > 0); // enforce-warning {{TRUE}} \
+                              // observe-warning {{TRUE}} observe-warning {{FALSE}} \
+                              // ignore-warning {{TRUE}} ignore-warning {{FALSE}}
+  clang_analyzer_eval(v == x); // expected-warning {{TRUE}}
+}
+int post_returns_arg(const int x) post(r : r == x) {
+  return x;
+}
+void call_post_returns_arg(int y) {
+  int v = post_returns_arg(y);
+  clang_analyzer_eval(v == y); // expected-warning {{TRUE}}
+}
+void call_violating_post() {
+  post_result(0);
+  clang_analyzer_warnIfReached(); // observe-warning {{REACHABLE}} \
+                                  // ignore-warning {{REACHABLE}}
+}
+
+// ... on every return statement, and when control flows off the end.
+void post_on_global(bool b) post(g > 0) {
+  if (b)
+    return;
+  g = 2;
+}
+void call_post_on_global() {
+  g = 1;
+  post_on_global(true);
+  clang_analyzer_eval(g > 0); // enforce-warning {{TRUE}} \
+                              // observe-warning {{TRUE}} \
+                              // ignore-warning {{TRUE}}
+  g = 0;
+  post_on_global(true);
+  clang_analyzer_warnIfReached(); // observe-warning {{REACHABLE}} \
+                                  // ignore-warning {{REACHABLE}}
+}
+void call_post_on_global_falls_off() {
+  g = 0;
+  post_on_global(false);
+  clang_analyzer_eval(g == 2); // expected-warning {{TRUE}}
+}
+
+// A result name of class type refers to the returned object.
+struct P { int a; int b; };
+P make_p(int v) post(r : r.a > 0 && r.b == 0) {
+  return P{v, 0};
+}
+void call_make_p(int v) {
+  P p = make_p(v);
+  clang_analyzer_eval(p.a > 0); // enforce-warning {{TRUE}} \
+                                // observe-warning {{TRUE}} observe-warning {{FALSE}} \
+                                // ignore-warning {{TRUE}} ignore-warning {{FALSE}}
+  clang_analyzer_eval(p.b == 0); // expected-warning {{TRUE}}
+}
+
+// A result name of reference type refers to the referenced object.
+int &ref_result(int &x) post(r : r > 0) {
+  return x;
+}
+void call_ref_result(int &y) {
+  int &v = ref_result(y);
+  clang_analyzer_eval(v > 0); // enforce-warning {{TRUE}} \
+                              // observe-warning {{TRUE}} observe-warning {{FALSE}} \
+                              // ignore-warning {{TRUE}} ignore-warning {{FALSE}}
+  clang_analyzer_eval(y > 0); // enforce-warning {{TRUE}} \
+                              // observe-warning {{TRUE}} observe-warning {{FALSE}} \
+                              // ignore-warning {{TRUE}} ignore-warning {{FALSE}}
+}
+
+// The predicate of an ignored postcondition is not evaluated either.
+int ignored_post(int x) post(touch()) {
+  return x;
+}
+void call_ignored_post() {
+  g = 0;
+  ignored_post(1);
+  clang_analyzer_eval(g == 0); // enforce-warning {{FALSE}} \
+                               // observe-warning {{FALSE}} \
+                               // ignore-warning {{TRUE}}
+}
