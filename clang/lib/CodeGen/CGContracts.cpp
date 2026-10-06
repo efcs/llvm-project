@@ -10,7 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "CGContracts.h"
 #include "CGCXXABI.h"
 #include "CGDebugInfo.h"
 #include "CGObjCRuntime.h"
@@ -28,6 +27,8 @@
 #include "llvm/ADT/ScopeExit.h"
 #include "llvm/ADT/SmallSet.h"
 #include "llvm/IR/DataLayout.h"
+#include "llvm/IR/Instructions.h"
+#include "llvm/IR/MDBuilder.h"
 #include "llvm/IR/Module.h"
 #include <algorithm>
 #include <optional>
@@ -586,9 +587,9 @@ void CodeGenFunction::EmitFunctionPostconditions(SourceLocation EndLoc) {
     return;
   } else {
     auto *BI = PostBB->hasOneUse()
-                   ? dyn_cast<llvm::BranchInst>(*PostBB->user_begin())
+                   ? dyn_cast<llvm::UncondBrInst>(*PostBB->user_begin())
                    : nullptr;
-    if (BI && BI->isUnconditional() && BI->getSuccessor(0) == PostBB) {
+    if (BI && BI->getSuccessor(0) == PostBB) {
       Builder.SetInsertPoint(BI->getParent());
       BI->eraseFromParent();
       delete PostBB;
@@ -705,7 +706,8 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
 
   ContractEvaluationSemantic Semantic = S.getSemantic(getContext());
 
-  // FIXME(EricWF): I think there's a lot more to do that simply this.
+  // [basic.contract.eval]p4: The evaluation of a contract assertion using the
+  // ignore semantic has no effect.
   if (Semantic == Ignore)
     return;
 
@@ -787,7 +789,11 @@ void CodeGenFunction::EmitContractStmtAsFullStmt(const ContractStmt &S) {
         ViolationInfo, Builder.GetInsertBlock());
   }
 
-  Builder.CreateCondBr(BranchOn, End, Violation);
+  // Contract violations are unexpected: keep the violation handling out of
+  // the fast path.
+  Builder.CreateCondBr(
+      BranchOn, End, Violation,
+      llvm::MDBuilder(getLLVMContext()).createLikelyBranchWeights());
 
   // If we're creating a trap, the violation block will be created once for the
   // function. Otherwise, we need to create a call to the violation handler.
