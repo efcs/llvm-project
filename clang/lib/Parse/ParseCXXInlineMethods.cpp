@@ -566,9 +566,17 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
   }
   }
 
-  if (!LM.ContractTokens.empty())
-    ParseLexedFunctionContracts(LM.ContractTokens, LM.Method,
-                                Parser::CES_Function | Parser::CES_CXXThis);
+  if (!LM.ContractTokens.empty()) {
+    // If a postcondition names the result of a function whose return type is
+    // deduced from its body, the contracts are parsed after the body instead.
+    const FunctionDecl *FD = LM.Method->getAsFunction();
+    if (FD && FD->willHaveBody() &&
+        shouldParseFunctionContractsAfterBody(LM.Method, LM.ContractTokens))
+      ContractsToParseAfterBody[LM.Method] = std::move(LM.ContractTokens);
+    else
+      ParseLexedFunctionContracts(LM.ContractTokens, LM.Method,
+                                  Parser::CES_Function | Parser::CES_CXXThis);
+  }
 
   InFunctionTemplateScope.Scopes.Exit();
 

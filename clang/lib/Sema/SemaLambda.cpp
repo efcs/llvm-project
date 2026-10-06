@@ -1483,7 +1483,6 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
 
   CXXRecordDecl *Class = LSI->Lambda;
   CXXMethodDecl *Method = LSI->CallOperator;
-  Method->setContracts(ParamInfo.Contracts);
 
   TypeSourceInfo *MethodTyInfo = getLambdaType(
       *this, Intro, ParamInfo, getCurScope(), TypeLoc, ExplicitResultType);
@@ -2008,12 +2007,12 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
       //   auto lambda = [a]() { return a; };  // In OpenMP context.
       // This is reached during lambda capture for OpenMP mappings.
       Var = BD->getDecomposedDecl();
+    Name = Var->getIdentifier();
     // The capture refers to the entity itself; whether the lambda-expression
     // appears in the predicate of a contract assertion does not affect its
     // type ([expr.prim.id.unqual]p7 applies to id-expressions). However, a
     // result binding is only ever copied from as a const object, so that the
     // capture cannot modify the result of the function.
-    Name = Var->getIdentifier();
     Init = BuildDeclarationNameExpr(
         CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var,
         /*FoundD=*/nullptr, /*TemplateArgs=*/nullptr,
@@ -2281,6 +2280,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     bool IsImplicit = I >= LSI->NumExplicitCaptures;
     SourceLocation ImplicitCaptureLoc =
         IsImplicit ? CaptureDefaultLoc : SourceLocation();
+
     // [expr.prim.lambda.closure]p10: A contract assertion of the lambda
     // cannot be the only reason for an implicit capture.
     if (IsImplicit && !From.isVLATypeCapture() &&
@@ -2295,7 +2295,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
           << (From.isThisCapture() ? nullptr : From.getVariable());
       Diag(From.getContractLoc(), diag::note_contract_context);
     }
-
 
     // Use source ranges of explicit captures for fixits where available.
     SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];

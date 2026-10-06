@@ -4784,8 +4784,22 @@ Decl *TemplateDeclInstantiator::VisitRecordDecl(RecordDecl *D) {
 }
 
 Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
-  QualType NewType = SemaRef.SubstType(D->getType(), TemplateArgs,
-                                       D->getLocation(), D->getDeclName());
+  // The type of a result binding is the return type of its function
+  // ([dcl.contract.res]). Use the return type of the function it is being
+  // instantiated for, which has been deduced by now if it could be.
+  //
+  // The function contract specifiers are instantiated after the body of the
+  // function, so if the return type has not been deduced by now the function
+  // doesn't return a value.
+  QualType NewType;
+  if (const auto *FD = dyn_cast<FunctionDecl>(Owner)) {
+    NewType = FD->getReturnType();
+    if (NewType->isUndeducedType() && !FD->isDependentContext())
+      NewType = SemaRef.Context.VoidTy;
+  } else {
+    NewType = SemaRef.SubstType(D->getType(), TemplateArgs, D->getLocation(),
+                                D->getDeclName());
+  }
   if (NewType.isNull())
     NewType = D->getType();
 
@@ -5595,7 +5609,6 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
 
     if (it == Function->decls().end())
       continue;
-
 
     Scope.InstantiatedLocal(VD, *it);
     LSI->addCapture(cast<VarDecl>(*it), /*isBlock=*/false, /*isByref=*/false,

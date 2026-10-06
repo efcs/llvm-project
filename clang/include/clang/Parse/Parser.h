@@ -9161,7 +9161,11 @@ public:
     CES_ReenterFunction = 0x4,
     /// The contracts belong to a function definition.
     CES_Definition = 0x8,
-    LLVM_MARK_AS_BITMASK_ENUM(CES_Definition)
+    /// The contracts are parsed after the body of the function, while still
+    /// in the context of the function: introduce the function parameters into
+    /// a new scope.
+    CES_AfterBody = 0x10,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AfterBody)
   };
 
   std::optional<ContractKind> getContractKeyword(const Token &Token) const;
@@ -9183,8 +9187,6 @@ public:
 private:
   StmtResult ParseContractAssertStatement();
 
-  void ParseContractSpecifierSequence(Declarator &DeclarationInfo);
-
   StmtResult ParseFunctionContractSpecifierImpl(
       llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
 
@@ -9196,6 +9198,21 @@ private:
 
   bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
                                    ContractEnterScopeKind EnterScopeKinds);
+
+  /// Determine whether the cached function contract specifiers \p Toks of
+  /// the function definition \p FD can only be parsed once the body of the
+  /// function has been parsed: this is the case if a postcondition names the
+  /// result and the return type of the function is deduced from its body.
+  bool shouldParseFunctionContractsAfterBody(Decl *FD,
+                                             const CachedTokens &Toks) const;
+
+  /// Function contract specifiers which are to be parsed once the body of
+  /// their function has been parsed.
+  llvm::DenseMap<Decl *, CachedTokens> ContractsToParseAfterBody;
+
+  /// Parse the function contract specifiers of \p FD (if any) which were
+  /// waiting for the body of the function to be parsed.
+  void ParseFunctionContractsAfterBody(Decl *FD);
 };
 
 } // end namespace clang

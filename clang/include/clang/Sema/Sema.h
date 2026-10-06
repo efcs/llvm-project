@@ -3362,15 +3362,16 @@ public:
   bool CheckFunctionContractPlacement(FunctionDecl *FD);
   void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
 
+  /// Introduce the parameters of \p FD into the scope \p S, which is to be
+  /// used to parse the function contract specifiers of \p FD after its body,
+  /// in the context of the function.
+  void ActOnReenterFunctionParameterScope(Scope *S, FunctionDecl *FD);
+
   /// Rebuild the contract specifier against another declaration of the function
   /// (using the new functions parameters)
   ContractSpecifierDecl *
   RebuildContractSpecifierForDecl(FunctionDecl *FirstDecl,
                                   FunctionDecl *Definition);
-
-  ///
-  DeclResult
-  RebuildContractsWithPlaceholderReturnType(FunctionDecl *Definition);
 
   void InstantiateContractSpecifier(
       SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
@@ -7148,7 +7149,6 @@ public:
     /// The location of the 'pre', 'post' or 'contract_assert' keyword.
     SourceLocation KeywordLoc;
 
-  };
     /// The declaration context in which the predicate appears.
     DeclContext *Context;
 
@@ -7156,13 +7156,14 @@ public:
     /// FunctionScopes, if there is one.
     sema::FunctionScopeInfo *FunctionScope;
     unsigned FunctionScopeIndex;
+  };
 
-  SmallVector<ContractScopeRecord, 4> ContractScopeStack;
   /// The contract assertions whose predicates are currently being parsed or
   /// instantiated, innermost last. Not all of them necessarily enclose the
   /// current context: an unrelated entity may be instantiated while a
   /// predicate is being parsed. Use getEnclosingContractAssertion to find the
   /// one (if any) that does.
+  SmallVector<ContractScopeRecord, 4> ContractScopeStack;
 
   void PushContractScope(ContractKind CK, SourceLocation KeywordLoc);
   void PopContractScope();
@@ -7177,8 +7178,8 @@ public:
     ContractScopeRAII(const ContractScopeRAII &) = delete;
     ContractScopeRAII &operator=(const ContractScopeRAII &) = delete;
 
-    Sema &S;
   private:
+    Sema &S;
   };
 
   /// Return the innermost contract assertion whose predicate lexically
@@ -7524,12 +7525,12 @@ public:
                                       bool AcceptInvalidDecl = false);
 
   /// Complete semantic analysis for a reference to the given declaration.
-  ExprResult BuildDeclarationNameExpr(
   ///
   /// \p ContractConstified specifies whether the type of the expression is
   /// const because it names a result binding or appears in the predicate of
   /// a contract assertion (see isContractConstified). If not provided, this
   /// is determined from the current context.
+  ExprResult BuildDeclarationNameExpr(
       const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
       NamedDecl *FoundD = nullptr,
       const TemplateArgumentListInfo *TemplateArgs = nullptr,
@@ -8733,13 +8734,13 @@ public:
 
   /// Try to retrieve the type of the 'this' pointer.
   ///
-  /// \returns The type of 'this', if possible. Otherwise, returns a NULL type.
   /// \param ApplyContractConstification Whether to make the type a pointer to
   /// const if 'this' is being named within the predicate of a contract
   /// assertion ([expr.prim.this]p3). If false, this returns the type used to
   /// refer to the '*this' object itself in the current context, e.g. in order
   /// to capture it.
   ///
+  /// \returns The type of 'this', if possible. Otherwise, returns a NULL type.
   QualType getCurrentThisType(bool ApplyContractConstification = true);
 
   /// When non-NULL, the C++ 'this' expression is allowed despite the

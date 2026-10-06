@@ -1412,7 +1412,11 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
     // parameter list was specified.
     CurTemplateDepthTracker.addDepth(1);
 
-  if (!ContractToks.empty())
+  // If a postcondition names the result of a function whose return type is
+  // deduced from its body, the contracts are parsed after the body instead.
+  bool ParseContractsAfterBody =
+      shouldParseFunctionContractsAfterBody(Res, ContractToks);
+  if (!ContractToks.empty() && !ParseContractsAfterBody)
     ParseLexedFunctionContracts(ContractToks, Res, CES_Definition);
 
   // Late attributes are parsed in the same scope as the function body.
@@ -1422,10 +1426,15 @@ Decl *Parser::ParseFunctionDefinition(ParsingDeclarator &D,
 
   if (SkipFunctionBodies && (!Res || Actions.canSkipFunctionBody(Res)) &&
       trySkippingFunctionBody()) {
+    if (ParseContractsAfterBody)
+      ParseLexedFunctionContracts(ContractToks, Res, CES_Definition);
     BodyScope.Exit();
     Actions.ActOnSkippedFunctionBody(Res);
     return Actions.ActOnFinishFunctionBody(Res, nullptr, false);
   }
+
+  if (ParseContractsAfterBody)
+    ContractsToParseAfterBody[Res] = std::move(ContractToks);
 
   return ParseFunctionBody(Res, BodyScope);
 }

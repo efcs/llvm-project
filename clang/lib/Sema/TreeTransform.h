@@ -16671,9 +16671,11 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
       Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
       E->getCallOperator());
 
-  // Transform the function contract specifiers of the call operator.
-  if (ContractSpecifierDecl *OldCSD = E->getCallOperator()->getContracts();
-      OldCSD && !Invalid) {
+  // Transform the function contract specifiers of the call operator. If a
+  // postcondition names the result and the return type is yet to be deduced
+  // from the body, this has to wait until the body has been transformed.
+  ContractSpecifierDecl *OldCSD = E->getCallOperator()->getContracts();
+  auto TransformContracts = [&] {
     SmallVector<ContractStmt *, 4> NewContracts;
     bool ContractsInvalid = OldCSD->isInvalidDecl();
     for (ContractStmt *CS : OldCSD->contracts()) {
@@ -16686,7 +16688,12 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     NewCallOperator->setContracts(getSema().BuildContractSpecifierDecl(
         NewContracts, NewCallOperator, OldCSD->getLocation(),
         ContractsInvalid));
-  }
+  };
+  bool TransformContractsAfterBody =
+      OldCSD && OldCSD->getCanonicalResultName() &&
+      NewCallOperator->getReturnType()->isUndeducedType();
+  if (OldCSD && !Invalid && !TransformContractsAfterBody)
+    TransformContracts();
 
   StmtResult Body;
   {
@@ -16702,6 +16709,9 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     getSema().popCodeSynthesisContext();
   }
+
+  if (TransformContractsAfterBody && !Invalid && !Body.isInvalid())
+    TransformContracts();
 
   // ActOnLambda* will pop the function scope for us.
   FuncScopeCleanup.disable();

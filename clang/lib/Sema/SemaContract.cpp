@@ -111,49 +111,11 @@ template <class T> ValueRAII(T &, T const &) -> ValueRAII<T>;
 
 } // namespace
 
-namespace {
-
-/// Substitute the 'auto' specifier or deduced template specialization type
-  // Finish the full-expression while the contract assertion is still being
-  // tracked, so that any captures it requires are attributed to it.
-/// specifier within a type for a given replacement type.
-class RebuildAutoResultName : public TreeTransform<RebuildAutoResultName> {
-  QualType Replacement;
-  using inherited = TreeTransform<RebuildAutoResultName>;
-
-public:
-  RebuildAutoResultName(Sema &SemaRef, QualType Replacement)
-      : TreeTransform<RebuildAutoResultName>(SemaRef),
-        Replacement(Replacement) {}
-
-  QualType TransformAutoType(TypeLocBuilder &TLB, AutoTypeLoc TL) {
-    // If we're building the type pattern to deduce against, don't wrap the
-    // substituted type in an AutoType. Certain template deduction rules
-    // apply only when a template type parameter appears directly (and not if
-    // the parameter is found through desugaring). For instance:
-    //   auto &&lref = lvalue;
-    // must transform into "rvalue reference to T" not "rvalue reference to
-    // auto type deduced as T" in order for [temp.deduct.call]p3 to apply.
-    //
-    // FIXME: Is this still necessary?
-
-    QualType Result = SemaRef.Context.getAutoType(
-        Replacement.isNull() ? DeducedKind::DeducedAsDependent
-                             : DeducedKind::Deduced,
-        Replacement, TL.getTypePtr()->getKeyword(),
-        TL.getTypePtr()->getTypeConstraintConcept(),
-        TL.getTypePtr()->getTypeConstraintArguments());
-    auto NewTL = TLB.push<AutoTypeLoc>(Result);
-    NewTL.copy(TL);
-    return Result;
-  }
-};
-
-} // namespace
-
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
   assert(isContractAssertionContext() && "Wrong context for statement");
 
+  // Finish the full-expression while the contract assertion is still being
+  // tracked, so that any captures it requires are attributed to it.
   if (Cond->isTypeDependent())
     return ActOnFinishFullExpr(Cond, /*DiscardedValue=*/false);
 
@@ -225,12 +187,14 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
     IsInvalid = true;
   }
 
-  // If needed, invent a fake placeholder type to represent the result name.
-  // This is needed when we encounter a deduced return type on a non-template
-  // function. We'll replace this once we've completed the function definition
-  // (which must be attached to this declaration).
+  // If the return type of the function is yet to be deduced, use a dependent
+  // placeholder type for the result name. This only happens for a declaration
+  // which is not a definition (which is ill-formed unless the function is
+  // templated, see [dcl.contract.res]p2) and in the definition of a templated
+  // function: otherwise, postconditions which name the result are parsed or
+  // instantiated once the return type has been deduced.
   bool HasInventedPlaceholderTypes =
-      RetType->isUndeducedAutoType() && !RetType->isDependentType();
+      RetType->isUndeducedType() && !RetType->isDependentType();
   if (HasInventedPlaceholderTypes)
     RetType = Context.getAutoType(DeducedKind::DeducedAsDependent, QualType(),
                                   AutoTypeKeyword::Auto);
@@ -906,73 +870,6 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   return CSD;
 }
 
-DeclResult Sema::RebuildContractsWithPlaceholderReturnType(FunctionDecl *FD) {
-
-  ContractSpecifierDecl *CSD = FD->getContracts();
-  assert(CSD && CSD->hasInventedPlaceholdersTypes() &&
-         "Cannot rebuild contracts without placeholders");
-  if (FD->isInvalidDecl()) {
-    CSD->setInvalidDecl(true);
-    return DeclResult(/*IsInvalid*/ true);
-  }
-
-  RebuildFunctionContracts Rebuilder(*this, true);
-
-  QualType Replacement;
-  auto CheckFunctionReturnType = [&](SourceLocation Loc) -> bool {
-    if (!Replacement.isNull())
-      return false;
-
-    if (FD->getReturnType()->isUndeducedType()) {
-      // If we fail to deduce the return type, the failure has already been
-      // diagnosed.
-      if (DeduceReturnType(FD, Loc, /*Diagnose=*/true) ||
-          FD->getReturnType()->isUndeducedType())
-        return true;
-    }
-    Replacement = FD->getReturnType();
-    return false;
-  };
-
-  SmallVector<std::pair<ResultNameDecl *, ResultNameDecl *>> Transformed;
-
-  for (auto *RND : FD->getContracts()->result_names()) {
-    if (Replacement.isNull()) {
-      if (CheckFunctionReturnType(RND->getLocation())) {
-        FD->setInvalidDecl(true);
-        return DeclResult(/*IsInvalid*/ true);
-      }
-    }
-    assert(!Replacement.isNull());
-    auto *NewRND =
-        ActOnResultNameDeclarator(ContractKind::Post, nullptr, Replacement,
-                                  RND->getLocation(), RND->getIdentifier(), RND->getFunctionScopeDepth());
-    Transformed.emplace_back(RND, NewRND);
-  }
-
-  for (auto [K, V] : Transformed)
-    Rebuilder.transformedLocalDecl(K, {V});
-
-  SmallVector<ContractStmt *> NewContracts;
-  bool IsInvalid = false;
-  for (auto *CS : FD->contracts()) {
-    StmtResult NewStmt = Rebuilder.TransformContractStmt(CS);
-    if (NewStmt.isInvalid())
-      IsInvalid = true;
-    else
-      NewContracts.push_back(NewStmt.getAs<ContractStmt>());
-  }
-
-  auto *NewCSD = BuildContractSpecifierDecl(
-      NewContracts, FD, FD->getContracts()->getLocation(), IsInvalid);
-
-  FD->setContracts(NewCSD);
-  if (NewCSD->isInvalidDecl())
-    FD->setInvalidDecl();
-
-  return NewCSD;
-}
-
 namespace {
 /// Diagnose odr-uses of non-reference parameters in the postconditions of a
 /// coroutine.
@@ -999,11 +896,7 @@ struct CoroutineParamUseChecker
     return true;
   }
 };
-  // If a lambda-expression within the predicate captures the entity by copy,
-  // the id-expression names the member of the closure type instead.
-  if (Var->isLocalVarDeclOrParm() &&
-      isCapturedByCopyInLambda(*this, FirstNestedScope, VD))
-    return false;
+} // namespace
 
 static void diagnoseCoroutinePostconditionParams(Sema &S, FunctionDecl *FD) {
   CoroutineParamUseChecker Checker(S, FD);
@@ -1011,49 +904,19 @@ static void diagnoseCoroutinePostconditionParams(Sema &S, FunctionDecl *FD) {
     Checker.TraverseStmt(CS->getCond());
 }
 
-// ActOnContractsOnFinishFunctionBody
-//
-// This function ensures there is a usable version of the
-// function contracts attached to the definition declaration.
-//
-// This is already the case if the definition declaration was spelled with
-// contracts.
-//
-// Otherwise, we might have contracts on the first declaration.
-// If we do,
-//
-// (1) attach them to the defining declaration.
-// (2) rebind any references to parameters contained within the contracts.
-//
-// This is important because the defining definitions parameters will
-// be the ones evaluated by ExprConstant/CodeGen.
-//
-// This is probably BAD BAD NOT GOOD.
-// But it works nicely.
+void Sema::ActOnReenterFunctionParameterScope(Scope *S, FunctionDecl *FD) {
+  assert(CurContext == FD && "not in the context of the function");
+  S->setEntity(FD);
+  for (ParmVarDecl *Param : FD->parameters()) {
+    if (Param->getIdentifier()) {
+      S->AddDecl(Param);
+      IdResolver.AddDecl(Param);
+    }
+  }
+}
+
 void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   assert(Def);
-  // If we had a deduced return type on a non-template function, we can now
-  // attempt to deduce the return type and rebuild the contracts with the
-  // deduced return type.
-  if (Def->hasContracts() &&
-      Def->getContracts()->hasInventedPlaceholdersTypes()) {
-    assert((Def->isThisDeclarationADefinition() ||
-            Def->isTemplateInstantiation()) &&
-           "Wrong declaration passed?");
-
-    DeclResult Res = RebuildContractsWithPlaceholderReturnType(Def);
-    if (Res.isInvalid()) {
-      Def->setInvalidDecl(true);
-      return;
-    }
-    auto *NewCSD = Res.getAs<ContractSpecifierDecl>();
-    assert(NewCSD);
-    NewCSD->setOwningFunction(Def);
-    Def->setContracts(NewCSD);
-    if (NewCSD->isInvalidDecl())
-      Def->setInvalidDecl(true);
-  }
-
   // [dcl.fct.def.coroutine]: A coroutine behaves as if the top-level
   // cv-qualifiers were removed from its parameters, so a postcondition of a
   // coroutine may not odr-use a non-reference parameter.
@@ -1101,21 +964,6 @@ static bool isCapturedByCopyInLambda(const Sema &S, unsigned FirstScope,
   for (unsigned I = FirstScope, E = Scopes.size(); I < E; ++I) {
     auto *LSI = dyn_cast<LambdaScopeInfo>(Scopes[I]);
     if (!LSI)
-    DeclContext *ScopeDC = nullptr;
-    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI))
-      ScopeDC = LSI->CallOperator;
-    else if (auto *BSI = dyn_cast<BlockScopeInfo>(CSI))
-      ScopeDC = BSI->TheDecl;
-    else if (auto *RSI = dyn_cast<CapturedRegionScopeInfo>(CSI))
-      ScopeDC = RSI->TheCapturedDecl;
-    // While parsing the lambda-introducer or the parameter-declaration-clause
-    // of a lambda-expression, the current context is still its parent.
-    bool InLambdaIntroducer = false;
-    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI);
-        LSI && !LSI->AfterParameterList && I + 1 == FunctionScopes.size())
-      InLambdaIntroducer = true;
-    if (!ScopeDC || (ScopeDC != DC && !InLambdaIntroducer))
-      break;
       continue;
     // Within the parameter-declaration-clause of a lambda-expression, the
     // id-expression names the entity itself.
@@ -1135,7 +983,6 @@ static bool isCapturedByCopyInLambda(const Sema &S, unsigned FirstScope,
 bool Sema::isContractConstified(const ValueDecl *VD) const {
   assert(VD);
   const ContractScopeRecord *CSR = getEnclosingContractAssertion();
-}
 
   // The first function scope which is nested within the predicate of the
   // innermost enclosing contract assertion.
@@ -1189,7 +1036,11 @@ bool Sema::isContractConstified(const ValueDecl *VD) const {
                                Var->getLocation()))
     return false;
 
-} // namespace
+  // If a lambda-expression within the predicate captures the entity by copy,
+  // the id-expression names the member of the closure type instead.
+  if (Var->isLocalVarDeclOrParm() &&
+      isCapturedByCopyInLambda(*this, FirstNestedScope, VD))
+    return false;
 
   return true;
 }
@@ -1248,6 +1099,21 @@ void Sema::noteCaptureReference(ValueDecl *Var) {
     if (!CSI)
       break;
 
+    DeclContext *ScopeDC = nullptr;
+    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI))
+      ScopeDC = LSI->CallOperator;
+    else if (auto *BSI = dyn_cast<BlockScopeInfo>(CSI))
+      ScopeDC = BSI->TheDecl;
+    else if (auto *RSI = dyn_cast<CapturedRegionScopeInfo>(CSI))
+      ScopeDC = RSI->TheCapturedDecl;
+    // While parsing the lambda-introducer or the parameter-declaration-clause
+    // of a lambda-expression, the current context is still its parent.
+    bool InLambdaIntroducer = false;
+    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI);
+        LSI && !LSI->AfterParameterList && I + 1 == FunctionScopes.size())
+      InLambdaIntroducer = true;
+    if (!ScopeDC || (ScopeDC != DC && !InLambdaIntroducer))
+      break;
 
     if (ContractLoc.isInvalid())
       if (const ContractScopeRecord *CSR =
@@ -1267,6 +1133,7 @@ void Sema::noteCaptureReference(ValueDecl *Var) {
 
     DC = getLambdaAwareParentOfDeclContext(ScopeDC);
   }
+}
 
 bool Sema::isContractAssertionContext() const {
   const ContractScopeRecord *CSR = getEnclosingContractAssertion();

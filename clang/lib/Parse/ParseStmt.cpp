@@ -2593,6 +2593,7 @@ Decl *Parser::ParseFunctionStatementBody(Decl *Decl, ParseScope &BodyScope) {
   }
 
   BodyScope.Exit();
+  ParseFunctionContractsAfterBody(Decl);
   return Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
 }
 
@@ -2625,6 +2626,7 @@ Decl *Parser::ParseFunctionTryBlock(Decl *Decl, ParseScope &BodyScope) {
   }
 
   BodyScope.Exit();
+  ParseFunctionContractsAfterBody(Decl);
   return Actions.ActOnFinishFunctionBody(Decl, FnBody.get());
 }
 

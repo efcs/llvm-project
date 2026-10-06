@@ -65,7 +65,7 @@ inline int lambda_in_contract(int x) pre([](int y) { return y > 0; }(x)) {
 
 // A lambda with contracts of its own.
 inline int lambda_with_contracts(int x) {
-  auto l = [](int y) pre(y > 0) post(r : r == y) { return y; };
+  auto l = [](const int y) pre(y > 0) post(r : r == y) { return y; };
   return l(x);
 }
 

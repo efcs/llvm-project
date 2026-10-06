@@ -1492,13 +1492,21 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   ParseScope BodyScope(this, ScopeFlags);
 
   Actions.ActOnStartOfLambdaDefinition(Intro, D, DS);
+
+  // The function contract specifiers of the lambda are parsed in the context
+  // of the call operator. If a postcondition names the result and the return
+  // type is deduced from the body, they are parsed after the body instead.
+  CachedTokens ContractToks;
+  Decl *CallOperator = nullptr;
+  bool ParseContractsAfterBody = false;
   if (isFunctionContractKeyword(Tok)) {
-    ParseContractSpecifierSequence(D);
-    assert(D.Contracts);
     assert(Actions.CurContext->isFunctionOrMethod());
-    auto *CallOp = cast<FunctionDecl>(Actions.CurContext);
-    CallOp->setContracts(D.Contracts);
-    D.Contracts = nullptr;
+    CallOperator = cast<FunctionDecl>(Actions.CurContext);
+    LateParseFunctionContractSpecifierSeq(ContractToks);
+    ParseContractsAfterBody =
+        shouldParseFunctionContractsAfterBody(CallOperator, ContractToks);
+    if (!ContractToks.empty() && !ParseContractsAfterBody)
+      ParseLexedFunctionContracts(ContractToks, CallOperator, CES_Definition);
   }
 
   // Parse compound-statement.
@@ -1510,8 +1518,10 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   StmtResult Stmt(ParseCompoundStatementBody());
 
-
   BodyScope.Exit();
+  if (ParseContractsAfterBody && !Stmt.isInvalid())
+    ParseLexedFunctionContracts(ContractToks, CallOperator,
+                                CES_AfterBody | CES_Definition);
   TemplateParamScope.Exit();
   LambdaScope.Exit();
 
@@ -1522,17 +1532,6 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
     if (!Lambda.isUsable())
       return Lambda;
-
-    auto *LE = dyn_cast_or_null<LambdaExpr>(Lambda.get());
-    if (!LE) {
-      return Lambda;
-    }
-
-    assert(D.LateParsedContracts.empty() &&
-           "lambda contracts are never late-parsed");
-    assert(LE->getCallOperator() && "LambdaExpr has no call operator");
-    assert(!LE->getCallOperator()->getReturnType().isNull() && "Should not be null");
-
 
     return Lambda;
   }
