@@ -72,6 +72,15 @@ misleading and the outer expression could arguably still be constant.
 name introducer included). GCC and Chuanqi Xu's implementation report `"r > x"`.
 The text is implementation-defined. Keep or align with GCC?
 
+### 1.9 Termination under `enforce`: `std::abort()` vs `std::terminate()`
+Round one called `std::terminate()` after the handler returned under `enforce`
+(the user's terminate handler ran); the P3850 ABI entry points call
+`std::abort()` (SIGABRT, no terminate handler), and `quick_enforce` traps
+(SIGILL). Both are allowed: contract termination is implementation-defined in
+[basic.contract.eval]. The ABI spec (§2.1) mandates `abort()`. Keep `abort()`?
+Note that P2900's "the implicit handler remains active" wording only has meaning
+for the terminate path.
+
 ## 2. Itanium contracts ABI (P3850) — spec issues to raise with Joshua Berne
 
 Found while implementing the spec (`specification-proposal.rst`, branch
