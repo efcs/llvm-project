@@ -7471,6 +7471,8 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryStmt(CXXTryStmt *S) {
 ExpectedStmt ASTNodeImporter::VisitContractStmt(ContractStmt *S) {
   Error Err = Error::success();
   auto ToKeywordLoc = importChecked(Err, S->getKeywordLoc());
+  auto ToLParenLoc = importChecked(Err, S->getLParenLoc());
+  auto ToRParenLoc = importChecked(Err, S->getRParenLoc());
   auto ToResultName = importChecked(Err, S->getResultNameDeclStmt());
   auto ToCond = importChecked(Err, S->getCond());
   if (Err)
@@ -7486,7 +7488,7 @@ ExpectedStmt ASTNodeImporter::VisitContractStmt(ContractStmt *S) {
 
   return ContractStmt::Create(Importer.getToContext(), S->getContractKind(),
                               ToKeywordLoc, ToCond, ToResultName, ToAttrs,
-                              S->getPredicateText());
+                              S->getPredicateText(), ToLParenLoc, ToRParenLoc);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXForRangeStmt(CXXForRangeStmt *S) {

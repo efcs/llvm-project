@@ -3306,10 +3306,12 @@ public:
   /// \param PredicateRange the range of the tokens between the parentheses
   /// of the contract assertion: the result-name-introducer (if any) and the
   /// conditional-expression. Used to record the text of the predicate.
+  /// \param ParenRange the locations of the parentheses.
   StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                  Expr *Cond, ResultNameDecl *ResultNameDecl,
                                  ParsedAttributes &Attrs,
-                                 SourceRange PredicateRange = SourceRange());
+                                 SourceRange PredicateRange = SourceRange(),
+                                 SourceRange ParenRange = SourceRange());
 
   /// Compute the text of the predicate of a contract assertion, given the
   /// range of its tokens. See ContractStmt::getPredicateText().
@@ -3324,7 +3326,8 @@ public:
   StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                Expr *Cond, DeclStmt *ResultName,
                                ArrayRef<const Attr *> Attrs,
-                               StringRef PredicateText = {});
+                               StringRef PredicateText = {},
+                               SourceRange ParenRange = SourceRange());
 
   ContractSpecifierDecl *
   BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,

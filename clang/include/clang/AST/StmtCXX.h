@@ -1143,6 +1143,10 @@ class ContractStmt final
 
   SourceLocation KeywordLoc;
 
+  /// The locations of the parentheses which enclose the predicate (and the
+  /// result-name-introducer, if any).
+  SourceLocation LParenLoc, RParenLoc;
+
   /// The text of the predicate as it was written in the source. The storage
   /// is owned by the ASTContext.
   StringRef PredicateText;
@@ -1201,7 +1205,9 @@ public:
                               SourceLocation KeywordLoc, Expr *Condition,
                               DeclStmt *ResultNameDecl,
                               ArrayRef<const Attr *> Attrs = {},
-                              StringRef PredicateText = {});
+                              StringRef PredicateText = {},
+                              SourceLocation LParenLoc = SourceLocation(),
+                              SourceLocation RParenLoc = SourceLocation());
 
   static ContractStmt *CreateEmpty(const ASTContext &C, ContractKind Kind,
                                    bool HasResultName, unsigned NumAttrs);
@@ -1286,6 +1292,13 @@ public:
   template <class T> const T *getAttrAs() const;
 
   SourceLocation getKeywordLoc() const { return KeywordLoc; }
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+  SourceLocation getRParenLoc() const { return RParenLoc; }
+  void setParenLocs(SourceLocation LParen, SourceLocation RParen) {
+    LParenLoc = LParen;
+    RParenLoc = RParen;
+  }
+
   SourceLocation getBeginLoc() const LLVM_READONLY { return KeywordLoc; }
   SourceLocation getExpressionLoc() const LLVM_READONLY {
     return getSubStmts().back()->getBeginLoc();
@@ -1293,6 +1306,9 @@ public:
   SourceLocation getEndLoc() const LLVM_READONLY {
     assert(!KeywordLoc.isInvalid() &&
            "Trying to get end location on an invalid node");
+    // The contract assertion ends with its closing parenthesis.
+    if (RParenLoc.isValid())
+      return RParenLoc;
     return getSubStmts().back()->getEndLoc();
   }
 

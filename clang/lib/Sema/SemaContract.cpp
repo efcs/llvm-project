@@ -130,9 +130,11 @@ ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
 StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    Expr *Cond, DeclStmt *RND,
                                    ArrayRef<const Attr *> Attrs,
-                                   StringRef PredicateText) {
+                                   StringRef PredicateText,
+                                   SourceRange ParenRange) {
   return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs,
-                              PredicateText);
+                              PredicateText, ParenRange.getBegin(),
+                              ParenRange.getEnd());
 }
 
 std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
@@ -184,7 +186,8 @@ std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
 StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, ResultNameDecl *RND,
                                      ParsedAttributes &ContractAttrs,
-                                     SourceRange PredicateRange) {
+                                     SourceRange PredicateRange,
+                                     SourceRange ParenRange) {
 
   // A result name is only permitted on a postcondition. We have already
   // diagnosed it on other kinds of contracts; don't attach it.
@@ -206,7 +209,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
       BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt,
                         SemaContractHelper::buildAttributesWithDummyNode(
                             *this, ContractAttrs, KeywordLoc),
-                        getContractPredicateText(PredicateRange));
+                        getContractPredicateText(PredicateRange), ParenRange);
 
   if (Res.isInvalid())
     return StmtError();

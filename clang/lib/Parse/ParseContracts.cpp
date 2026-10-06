@@ -310,8 +310,9 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     SetInvalidOnExit.release();
   }
 
-  StmtResult Res = Actions.ActOnContractAssert(CK, KeywordLoc, Cond.get(), RND,
-                                               CXX11Attrs, PredicateRange);
+  StmtResult Res = Actions.ActOnContractAssert(
+      CK, KeywordLoc, Cond.get(), RND, CXX11Attrs, PredicateRange,
+      SourceRange(T.getOpenLocation(), T.getCloseLocation()));
   if (Res.isInvalid())
     IsInvalid = true;
   return Res;

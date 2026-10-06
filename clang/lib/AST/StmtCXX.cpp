@@ -304,7 +304,9 @@ ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
                                    SourceLocation KeywordLoc, Expr *Condition,
                                    DeclStmt *ResultNameDecl,
                                    ArrayRef<const Attr *> Attrs,
-                                   StringRef PredicateText) {
+                                   StringRef PredicateText,
+                                   SourceLocation LParenLoc,
+                                   SourceLocation RParenLoc) {
   assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
          "Only a postcondition can have a result name declaration");
   void *Mem = C.Allocate(totalSizeToAlloc<Stmt *, const Attr *>(
@@ -313,6 +315,7 @@ ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
   auto *CS = new (Mem)
       ContractStmt(Kind, KeywordLoc, Condition, ResultNameDecl, Attrs);
   CS->setPredicateText(C, PredicateText);
+  CS->setParenLocs(LParenLoc, RParenLoc);
   return CS;
 }
 
