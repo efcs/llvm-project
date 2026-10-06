@@ -20,12 +20,9 @@
 // SEM-SAME: "-fcontract-group-evaluation-semantic=a=ignore,b.c=enforce,d=quick_enforce"
 
 // RUN: %clang -### -std=c++26 -fcontracts -fno-contract-exceptions \
-// RUN:   -fno-contract-constification -fno-contract-lambda-capture-restrictions \
 // RUN:   -c %s 2>&1 | FileCheck --check-prefix=NEG %s
 // NEG: "-fcontracts"
 // NEG-SAME: "-fno-contract-exceptions"
-// NEG-SAME: "-fno-contract-constification"
-// NEG-SAME: "-fno-contract-lambda-capture-restrictions"
 
 // Contract options without -fcontracts are unused.
 // RUN: %clang -### -std=c++26 -fcontract-evaluation-semantic=observe -c %s 2>&1 \
