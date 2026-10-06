@@ -62,7 +62,7 @@ GCC rejects member use in a destructor postcondition outright.
   Test: `clang/test/Contracts/constexpr-structors-and-lambdas.cpp` (`Late`,
   `LateDerived`).
 
-### 1.6 Constant destruction of static objects with destructor contracts
+### 1.6 Constant destruction of static objects with destructor contracts — RESOLVED (round three)
 The constant-destruction *test* ignores contracts (permitted by [expr.const] fn.
 63), but the implementation then elides the destructor, so an `enforce` contract
 in `~D` of a static object is never evaluated at all ([basic.stc.static]p2 forbids
@@ -70,6 +70,18 @@ eliminating a destructor with side effects).
 - Proposal: recheck with contracts after a successful trial (like constant
   initialization), and force dynamic destructor registration when a checked
   assertion was skipped.
+- Decision (implemented in `VarDecl::evaluateDestruction`, both evaluators): the
+  trial ignores contracts; if it reached a checked assertion, a variable that is
+  not `constexpr` does *not* get constant destruction, so its destructor is
+  registered and checks the assertion at exit with the run-time semantic (no
+  compile-time diagnostic, also under `observe`: the destruction is not
+  manifestly constant-evaluated, and the members of a non-constexpr object are
+  not readable during its constant destruction anyway). A `constexpr` variable
+  and a class NTTP must have constant destruction, so their destruction is
+  rechecked with the assertions checked: `observe` warns and keeps constant
+  destruction, a terminating violation is an error. Tests:
+  `constexpr-constant-destruction.cpp`, `constexpr-destruction-codegen.cpp`,
+  `Runnable/static-destructor-contracts.cpp`.
 
 ### 1.7 Allocation escaping an observed predicate
 `pre((*pp = new int(5), true))` under `observe`: the evaluator discards the

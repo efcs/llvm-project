@@ -1470,10 +1470,21 @@ public:
   /// Evaluate the destruction of this variable to determine if it constitutes
   /// constant destruction.
   ///
+  /// Whether it does is determined with all contract assertions ignored. If
+  /// the destructor evaluates a contract assertion with a checking semantic,
+  /// the destruction is not treated as constant (so that the destructor is
+  /// called at run time, where it checks the contract assertion), unless the
+  /// variable is constexpr: then the destruction is evaluated again with the
+  /// contract assertions checked, \p ContractNotes receives the diagnostics
+  /// for observed contract violations (\see Expr::EvalStatus::ContractDiag),
+  /// and a violation with a terminating semantic makes the evaluation fail.
+  ///
   /// \pre hasConstantInitialization()
   /// \return \c true if this variable has constant destruction, \c false if
   ///         not.
-  bool evaluateDestruction(SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+  bool evaluateDestruction(
+      SmallVectorImpl<PartialDiagnosticAt> &Notes,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr) const;
 
   /// Determine whether this variable has constant initialization.
   ///

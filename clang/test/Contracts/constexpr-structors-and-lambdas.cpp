@@ -129,14 +129,14 @@ constexpr int late = g();
 // observe-note@#Late {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'Late' object have been destroyed}}
 // observe-note@#Late {{read of object outside its lifetime is not allowed in a constant expression}}
 // observe-note@#Late-var {{in call to 'l.~Late()'}}
-// observe-note@-4 {{in call to 'g()'}}
+// observe-note@-5 {{in call to 'g()'}}
 // observe-note@#Late-var {{declared here}}
-// enforce-error@-6 {{constexpr variable 'late' must be initialized by a constant expression}}
+// enforce-error@-7 {{constexpr variable 'late' must be initialized by a constant expression}}
 // enforce-note@#Late {{contract violation with the 'enforce' evaluation semantic: postcondition 'this->v == 1' is not a constant expression}}
 // enforce-note@#Late {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'Late' object have been destroyed}}
 // enforce-note@#Late {{read of object outside its lifetime is not allowed in a constant expression}}
 // enforce-note@#Late-var {{in call to 'l.~Late()'}}
-// enforce-note@-10 {{in call to 'g()'}}
+// enforce-note@-12 {{in call to 'g()'}}
 // enforce-note@#Late-var {{declared here}}
 
 // A base class is destroyed too, and a postcondition assertion that reads
@@ -177,8 +177,9 @@ constexpr int gok() {
 static_assert(gok() == 1);
 
 // Whether a variable has constant destruction does not depend on the
-// contract assertions of its destructor.
-constexpr D constant_destruction(1);
+// contract assertions of its destructor, but those of a constexpr variable
+// are checked (see constexpr-constant-destruction.cpp).
+constexpr D constant_destruction(2);
 } // namespace destructor
 
 namespace assignment {

@@ -22382,20 +22382,26 @@ bool Expr::EvaluateAsLValue(EvalResult &Result, const ASTContext &Ctx,
   return true;
 }
 
+/// Evaluate the destruction of an object.
+///
+/// \param IgnoreContracts Whether to evaluate all contract assertions with the
+///        ignore semantic, which is how it is determined whether the object
+///        has constant destruction (C++26 [expr.const]). \p EStatus's
+///        HasIgnoredContractAssertion is set if that made a difference, in
+///        which case the destruction has to be evaluated again with the
+///        contract assertions checked.
 static bool EvaluateDestruction(const ASTContext &Ctx, APValue::LValueBase Base,
                                 APValue DestroyedValue, QualType Type,
                                 SourceLocation Loc, Expr::EvalStatus &EStatus,
-                                bool IsConstantDestruction) {
+                                bool IsConstantDestruction,
+                                bool IgnoreContracts) {
   EvalInfo Info(Ctx, EStatus,
                 IsConstantDestruction ? EvaluationMode::ConstantExpression
                                       : EvaluationMode::ConstantFold);
   Info.setEvaluatingDecl(Base, DestroyedValue,
                          EvalInfo::EvaluatingDeclKind::Dtor);
   Info.InConstantContext = IsConstantDestruction;
-  // Whether an object has constant destruction depends on whether its
-  // destruction would be a core constant expression, which contract
-  // assertions never affect.
-  Info.IgnoreContracts = true;
+  Info.IgnoreContracts = IgnoreContracts;
 
   LValue LVal;
   LVal.set(Base);
@@ -22464,14 +22470,24 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
     return false;
 
   // If this is a class template argument, it's required to have constant
-  // destruction too.
-  if (Kind == ConstantExprKind::ClassTemplateArgument &&
-      (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
-                            true) ||
-       Result.HasSideEffects)) {
-    // FIXME: Prefix a note to indicate that the problem is lack of constant
-    // destruction.
-    return false;
+  // destruction too. Whether it has is determined with all contract
+  // assertions ignored; if that made a difference, the destruction is
+  // evaluated again with them checked, like for a variable.
+  if (Kind == ConstantExprKind::ClassTemplateArgument) {
+    bool IgnoreContracts = Ctx.getLangOpts().Contracts;
+    if (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
+                             /*IsConstantDestruction=*/true, IgnoreContracts) ||
+        Result.HasSideEffects) {
+      // FIXME: Prefix a note to indicate that the problem is lack of constant
+      // destruction.
+      return false;
+    }
+    if (Result.HasIgnoredContractAssertion &&
+        (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
+                              /*IsConstantDestruction=*/true,
+                              /*IgnoreContracts=*/false) ||
+         Result.HasSideEffects))
+      return false;
   }
   return true;
 }
@@ -22545,7 +22561,8 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
 }
 
 bool VarDecl::evaluateDestruction(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes,
+    SmallVectorImpl<PartialDiagnosticAt> *ContractNotes) const {
   // This function is only meaningful for records and arrays of records.
   QualType VarTy = getType();
   if (VarTy->isArrayType()) {
@@ -22558,9 +22575,6 @@ bool VarDecl::evaluateDestruction(
     ensureEvaluatedStmt()->HasConstantDestruction = true;
     return true;
   }
-
-  Expr::EvalStatus EStatus;
-  EStatus.Diag = &Notes;
 
   // Only treat the destruction as constant destruction if we formally have
   // constant initialization (or are usable in a constant expression).
@@ -22576,28 +22590,60 @@ bool VarDecl::evaluateDestruction(
   else if (!handleDefaultInitValue(VarTy, DestroyedValue))
     return false;
 
-  if (Ctx.getLangOpts().EnableNewConstInterp) {
-    interp::EvalSettings Settings(IsConstantDestruction
-                                      ? EvaluationMode::ConstantExpression
-                                      : EvaluationMode::ConstantFold,
-                                  EStatus);
-    Settings.InConstantContext = IsConstantDestruction;
-    // Whether an object has constant destruction depends on whether its
-    // destruction would be a core constant expression, which contract
-    // assertions never affect.
-    Settings.IgnoreContracts = true;
-    if (!Ctx.getInterpContext().evaluateDestruction(Settings, this,
-                                                    std::move(DestroyedValue)))
-      return false;
+  auto Evaluate = [&](Expr::EvalStatus &EStatus, bool IgnoreContracts) {
+    if (Ctx.getLangOpts().EnableNewConstInterp) {
+      interp::EvalSettings Settings(IsConstantDestruction
+                                        ? EvaluationMode::ConstantExpression
+                                        : EvaluationMode::ConstantFold,
+                                    EStatus);
+      Settings.InConstantContext = IsConstantDestruction;
+      Settings.IgnoreContracts = IgnoreContracts;
+      return Ctx.getInterpContext().evaluateDestruction(Settings, this,
+                                                        DestroyedValue);
+    }
+    return EvaluateDestruction(Ctx, this, DestroyedValue, VarTy, getLocation(),
+                               EStatus, IsConstantDestruction,
+                               IgnoreContracts) &&
+           !EStatus.HasSideEffects;
+  };
+
+  // C++26 [expr.const]: Whether an object has constant destruction is
+  // determined with all contract assertions using the ignore semantic, like
+  // whether a variable is constant-initialized ([expr.const.init]p4): a
+  // contract assertion must not silently turn constant destruction into
+  // dynamic destruction. So first evaluate the destruction with all contract
+  // assertions ignored.
+  Expr::EvalStatus EStatus;
+  EStatus.Diag = &Notes;
+  if (!Evaluate(EStatus, /*IgnoreContracts=*/Ctx.getLangOpts().Contracts))
+    return false;
+
+  if (!EStatus.HasIgnoredContractAssertion) {
     ensureEvaluatedStmt()->HasConstantDestruction = true;
     return true;
   }
 
-  if (!EvaluateDestruction(Ctx, this, std::move(DestroyedValue), VarTy,
-                           getLocation(), EStatus, IsConstantDestruction) ||
-      EStatus.HasSideEffects)
+  // The destructor evaluates a contract assertion with a checking semantic,
+  // which the destructor of an object with constant destruction would never
+  // do, since it is not called at run time ([basic.stc.static]p2 doesn't
+  // allow eliminating a destructor with side effects). So the destruction is
+  // not treated as constant: the destructor is called at run time, where it
+  // checks the contract assertion -- unless the variable is required to have
+  // constant destruction. Then the contract assertion is checked now, at
+  // compile time, where a violation with a terminating semantic makes the
+  // program ill-formed ([basic.contract.eval]p8).
+  //
+  // (The subobjects of an object that is not constexpr can't be read during
+  // its constant destruction anyway, so a predicate that reads one wouldn't
+  // be a constant expression.)
+  if (!isConstexpr())
     return false;
-
+  Notes.clear();
+  Expr::EvalStatus Checked;
+  Checked.Diag = &Notes;
+  Checked.ContractDiag = ContractNotes;
+  if (!Evaluate(Checked, /*IgnoreContracts=*/false))
+    return false;
   ensureEvaluatedStmt()->HasConstantDestruction = true;
   return true;
 }
