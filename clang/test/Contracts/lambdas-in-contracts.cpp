@@ -10,7 +10,7 @@ constexpr int f4(const int x) pre([&] { return x > 0; }()) { return x; }
 static_assert(f4(1) == 1);
 constexpr int bad4 = f4(-1); // expected-error {{constexpr variable 'bad4' must be initialized by a constant expression}}
 // expected-note@-1 {{in call to}}
-// expected-error@9 {{contract failed during execution of constexpr function}}
+// expected-note@9 {{contract violation with the 'enforce' evaluation semantic: precondition '[&] { return x > 0; }()' evaluated to false}}
 
 // Lambdas in contracts can't implicitly capture without a capture-default.
 void f5(int x) pre([] { return x > 0; }()); // expected-error {{variable 'x' cannot be implicitly captured in a lambda with no capture-default specified}} \
@@ -19,7 +19,7 @@ void f5(int x) pre([] { return x > 0; }()); // expected-error {{variable 'x' can
 
 // Contracts of lambdas within templates are instantiated with the lambda.
 template <class T> constexpr int t(T v) {
-  auto l = [](T x) pre(x > 0) { return x; }; // expected-error {{contract failed during execution of constexpr function}}
+  auto l = [](T x) pre(x > 0) { return x; }; // expected-note {{contract violation with the 'enforce' evaluation semantic: precondition 'x > 0' evaluated to false}}
   return l(v); // expected-note {{in call to}}
 }
 static_assert(t(1) == 1);

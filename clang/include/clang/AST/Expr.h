@@ -652,6 +652,27 @@ public:
     /// Location where we spot ptr to int cast or null subobject while
     /// evaluating constant expression in MS compatibility mode.
     SmallVectorImpl<PartialDiagnosticAt> *ExtendedDiag = nullptr;
+    /// Whether the evaluation failed because a contract assertion evaluated
+    /// with a terminating semantic (enforce or quick-enforce) was violated in
+    /// a manifestly constant-evaluated context. In this case the program is
+    /// ill-formed ([basic.contract.eval]p8); the expression is not merely a
+    /// non-constant expression.
+    bool HasContractViolation = false;
+
+    /// Whether the evaluation reached a contract assertion with a checking
+    /// semantic that was not checked, because the evaluation was asked to
+    /// treat all contract assertions as having the ignore semantic.
+    bool HasIgnoredContractAssertion = false;
+
+    /// ContractDiag - If this is non-null, it will be filled in with the
+    /// diagnostics for the contract violations of contract assertions that
+    /// are evaluated with the observe semantic in a manifestly
+    /// constant-evaluated context: a warning followed by its notes for each
+    /// such violation ([intro.compliance.general]p2.3.4). An observed
+    /// contract violation does not prevent the evaluation from succeeding;
+    /// the diagnostics should be emitted iff the evaluation is the one that
+    /// determines the value of the manifestly constant-evaluated expression.
+    SmallVectorImpl<PartialDiagnosticAt> *ContractDiag = nullptr;
 
     EvalStatus() = default;
 
@@ -753,9 +774,15 @@ public:
   /// initializer of the given declaration. Returns true if the initializer
   /// can be folded to a constant, and produces any relevant notes. In C++11,
   /// notes will be produced if the expression is not a constant expression.
+  ///
+  /// If \p IgnoreContracts is true, all contract assertions are evaluated
+  /// with the ignore semantic regardless of their actual evaluation semantic.
+  /// This is how C++26 [expr.const.init]p4 determines whether a variable is
+  /// constant-initializable. \p Result.HasIgnoredContractAssertion is set if
+  /// that made a difference.
   bool EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
                              EvalResult &Result, bool IsConstantInitializer,
-                             bool EvaluateContracts = true) const;
+                             bool IgnoreContracts = false) const;
 
   /// EvaluateWithSubstitution - Evaluate an expression as if from the context
   /// of a call to the given function with the given arguments, inside an

@@ -6796,9 +6796,11 @@ Sema::EvaluateConvertedConstantExpression(Expr *E, QualType T, APValue &Value,
   // Check the expression is a constant expression.
   SmallVector<PartialDiagnosticAt, 8> Notes;
   SmallVector<PartialDiagnosticAt> MSWarning;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Expr::EvalResult Eval;
   Eval.Diag = &Notes;
   Eval.ExtendedDiag = &MSWarning;
+  Eval.ContractDiag = &ContractNotes;
 
   assert(CCE != CCEKind::TempArgStrict && "unnexpected CCE Kind");
 
@@ -6810,8 +6812,10 @@ Sema::EvaluateConvertedConstantExpression(Expr *E, QualType T, APValue &Value,
   else
     Kind = ConstantExprKind::Normal;
 
-  if (!E->EvaluateAsConstantExpr(Eval, Context, Kind) ||
-      (RequireInt && !Eval.Val.isInt())) {
+  bool Evaluated = E->EvaluateAsConstantExpr(Eval, Context, Kind);
+  DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+
+  if (!Evaluated || (RequireInt && !Eval.Val.isInt())) {
     // The expression can't be folded, so we can't keep it at this position in
     // the AST.
     Result = ExprError();

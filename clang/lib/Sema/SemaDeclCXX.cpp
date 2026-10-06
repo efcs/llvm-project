@@ -18026,10 +18026,13 @@ static bool EvaluateAsStringImpl(Sema &SemaRef, Expr *Message,
 
   Expr::EvalResult Status;
   SmallVector<PartialDiagnosticAt, 8> Notes;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Status.Diag = &Notes;
-  if (!Message->EvaluateCharRangeAsString(Result, EvaluatedSize.get(),
-                                          EvaluatedData.get(), Ctx, Status) ||
-      !Notes.empty()) {
+  Status.ContractDiag = &ContractNotes;
+  bool Evaluated = Message->EvaluateCharRangeAsString(
+      Result, EvaluatedSize.get(), EvaluatedData.get(), Ctx, Status);
+  SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  if (!Evaluated || !Notes.empty()) {
     SemaRef.Diag(Message->getBeginLoc(),
                  ErrorOnInvalidMessage ? diag::err_user_defined_msg_constexpr
                                        : diag::warn_user_defined_msg_constexpr)

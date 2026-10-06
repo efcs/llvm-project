@@ -6,7 +6,7 @@ struct Foo {
   int z = 3;
 
 };
-constexpr Foo f(Foo x) post(r : r.x != 0) { // expected-error {{contract failed during execution of constexpr function}}
+constexpr Foo f(Foo x) post(r : r.x != 0) { // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r : r.x != 0' evaluated to false}}
   return x;
 }
 
@@ -19,7 +19,7 @@ constexpr int do_test() {
 constexpr int test = do_test(); // expected-error {{constexpr variable 'test' must be initialized by a constant expression}}
   // expected-note@-1 {{in call to 'do_test()'}}
 
-constexpr int f2(int x) post(r : r != 0) { // expected-error {{contract failed during execution of constexpr function}}
+constexpr int f2(int x) post(r : r != 0) { // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r : r != 0' evaluated to false}}
   return x;
 }
 constexpr int test3 = f2(1); // OK

@@ -18276,6 +18276,15 @@ Sema::VerifyICEDiagnoser::diagnoseFold(Sema &S, SourceLocation Loc) {
   return S.Diag(Loc, diag::ext_expr_not_ice) << S.LangOpts.CPlusPlus;
 }
 
+void Sema::DiagnoseConstantEvaluatedContractViolations(
+    ArrayRef<PartialDiagnosticAt> ContractNotes) {
+  // C++26 [intro.compliance.general]p2.3.4: A diagnostic is required for a
+  // contract assertion evaluated with a checking semantic in a manifestly
+  // constant-evaluated context resulting in a contract violation.
+  for (const PartialDiagnosticAt &Note : ContractNotes)
+    Diag(Note.first, Note.second);
+}
+
 ExprResult
 Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
                                       VerifyICEDiagnoser &Diagnoser,
@@ -18403,8 +18412,10 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
   Expr::EvalResult EvalResult;
   SmallVector<PartialDiagnosticAt, 8> Notes;
   SmallVector<PartialDiagnosticAt> MSWarning;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   EvalResult.Diag = &Notes;
   EvalResult.ExtendedDiag = &MSWarning;
+  EvalResult.ContractDiag = &ContractNotes;
 
   // Try to evaluate the expression, and produce diagnostics explaining why it's
   // not a constant expression as a side-effect.
@@ -18412,6 +18423,8 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
       E->EvaluateAsRValue(EvalResult, Context, /*isConstantContext*/ true) &&
       EvalResult.Val.isInt() && !EvalResult.HasSideEffects &&
       (!getLangOpts().CPlusPlus || !EvalResult.HasUndefinedBehavior);
+
+  DiagnoseConstantEvaluatedContractViolations(ContractNotes);
 
   if (!isa<ConstantExpr>(E))
     E = ConstantExpr::Create(Context, E, EvalResult.Val);
@@ -18721,10 +18734,15 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
   // immediate invocation.
   APValue Cached;
   auto CheckConstantExpressionAndKeepResult = [&]() {
+    llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
     Expr::EvalResult Eval;
+    Eval.ContractDiag = &ContractNotes;
     bool Res = E.get()->EvaluateAsConstantExpr(
         Eval, getASTContext(), ConstantExprKind::ImmediateInvocation);
     if (Res && !Eval.DiagEmitted) {
+      // The value is kept, so this is the evaluation of the immediate
+      // invocation.
+      DiagnoseConstantEvaluatedContractViolations(ContractNotes);
       Cached = std::move(Eval.Val);
       return true;
     }
@@ -18775,11 +18793,14 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
 static void EvaluateAndDiagnoseImmediateInvocation(
     Sema &SemaRef, Sema::ImmediateInvocationCandidate Candidate) {
   llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Expr::EvalResult Eval;
   Eval.Diag = &Notes;
+  Eval.ContractDiag = &ContractNotes;
   ConstantExpr *CE = Candidate.getPointer();
   bool Result = CE->EvaluateAsConstantExpr(
       Eval, SemaRef.getASTContext(), ConstantExprKind::ImmediateInvocation);
+  SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
   if (!Result || !Notes.empty()) {
     SemaRef.FailedImmediateInvocations.insert(CE);
     Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();

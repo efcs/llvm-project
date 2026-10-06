@@ -265,6 +265,15 @@ def note_constexpr_calls_suppressed : Note<
   "(skipping %0 call%s0 in backtrace; use -fconstexpr-backtrace-limit=0 to "
   "see all)">;
 def note_constexpr_call_here : Note<"in call to '%0'">;
+def constexpr_contract_violation : TextSubstitution<
+  "contract violation with the '%0' evaluation semantic: "
+  "%select{precondition|postcondition|contract assertion}1 '%2' "
+  "%select{evaluated to false|is not a constant expression}3">;
+def note_constexpr_contract_violation : Note<
+  "%sub{constexpr_contract_violation}0,1,2,3">;
+def warn_constexpr_contract_violation : Warning<
+  "%sub{constexpr_contract_violation}0,1,2,3">,
+  InGroup<ContractViolation>;
 def note_constexpr_inherited_ctor_call_here : Note<
   "in implicit initialization for inherited constructor of %0">;
 def note_constexpr_baa_insufficient_alignment : Note<

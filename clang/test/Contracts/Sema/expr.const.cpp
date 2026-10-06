@@ -1,5 +1,7 @@
 // RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=ignore -verify=expected %s
-// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=observe -verify=expected,observe %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=enforce -verify=expected,terminating %s
+// RUN: %clang_cc1 -fcontracts -std=c++26 -Wno-division-by-zero -fcontract-evaluation-semantic=quick_enforce -verify=expected,terminating %s
 
 
 consteval int id(int i) { return i; }
@@ -52,14 +54,17 @@ constexpr int k(int) { // k<int> is not an immediate function because A(42) is a
   return A(42).y;      // constant expression and thus not immediate-escalating
 }
 
-constexpr int l(int c) pre(c >= 2) { // enforce-error {{contract failed}}
+constexpr int l(int c) pre(c >= 2) { // #l
    return (c % 2 == 0) ? c / 0 : c;
 }
-const int i0 =
-    l(0); // dynamic initialization is contract violation or undefined behavior
-const int i1 = // enforce-error {{initialization of constant-initialized variable failed}}
-// enforce-note@-1 {{initializer is constant when evaluated with 'ignore' contract evaluation semantic}}
-    l(1); // enforce-note {{in call to 'l(1)'}}
-
-const int i2 = l(2); // dynamic initialization is undefined behavior
-const int i3 = l(3); //
+const int i0 = l(0); // dynamic initialization; contract violation or undefined behavior
+const int i1 = l(1); // static initialization; value of 1 or contract violation at compile time
+// observe-warning@#l {{contract violation with the 'observe' evaluation semantic: precondition 'c >= 2' evaluated to false}}
+// observe-note@-2 {{in call to 'l(1)'}}
+// terminating-error@-3 {{constant initialization of 'i1' failed when checking its contract assertions}}
+// terminating-note-re@#l {{contract violation with the '{{(quick_)?enforce}}' evaluation semantic: precondition 'c >= 2' evaluated to false}}
+// terminating-note@-5 {{in call to 'l(1)'}}
+// terminating-note@-6 {{'i1' is constant-initialized because its initializer is a constant expression when all contract assertions are ignored}}
+const int i2 = l(2); // dynamic initialization; undefined behavior
+const int i3 = l(3); // static initialization; value of 3
+static_assert(i1 == 1 && i3 == 3);

@@ -13143,9 +13143,6 @@ def select_contract_kind : TextSubstitution<
   "%select{pre|post|contract_assert}0">;
 
 let CategoryName = "Contract Issue" in {
-// FIXME: Remove this once all users have been given proper diagnostics.
-def err_ericwf_fixme : Error<"%0">;
-
 def err_contract_on_function_kind : Error<
   "%select{virtual function|deleted function|function defaulted on its first "
   "declaration}0 %1 cannot have function contract specifiers">;
@@ -13183,27 +13180,13 @@ def err_contract_group_attribute_invalid_group : Error<
     "}0">;
 
 
-
-def err_contract_violation : Error<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">;
-def warn_contract_violation : Warning<"contract %select{precondition|postcondition|assertion}0 failed%select{: %2|}1">,
-    InGroup<ContractViolation>;
-
-def err_contract_requirement_failed : Error<
-  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">;
-def warn_contract_requirement_failed : Warning<
-  "%select{precondition|postcondition|contract assertion}0 failed due to requirement '%1'%select{: %3|}2">,
-  InGroup<ContractViolation>;
-
-def err_constexpr_contract_failure : Error<
-  "contract failed during execution of constexpr function">;
-def warn_constexpr_contract_failure : Warning<
-    "contract failed during execution of constexpr function">,
-    InGroup<ContractViolation>;
-
-def err_initialization_of_constant_initialized_variable_failed : Error<
-    "initialization of constant-initialized variable failed">;
-def note_initialization_changed_contract_semantic : Note<
-    "initializer is constant when evaluated with 'ignore' contract evaluation semantic">;
+// Contract violations in manifestly constant-evaluated contexts. The
+// violations themselves are described by notes from the constant evaluator.
+def err_constant_init_contract_check_failed : Error<
+  "constant initialization of %0 failed when checking its contract assertions">;
+def note_constant_init_ignores_contracts : Note<
+  "%0 is constant-initialized because its initializer is a constant "
+  "expression when all contract assertions are ignored">;
 
 // Redeclaration of contract attributes
 def err_function_different_contract_seq : Error<

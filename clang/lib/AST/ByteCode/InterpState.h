@@ -71,7 +71,7 @@ public:
     return Current ? (Current->getDepth() + 1) : 1;
   }
   bool stepsLeft() const override { return true; }
-  bool inConstantContext() const;
+  bool inConstantContext() const override;
 
   /// Deallocates a pointer.
   void deallocate(Block *B);

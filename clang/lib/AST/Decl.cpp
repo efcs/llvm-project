@@ -2571,14 +2571,13 @@ EvaluatedStmt *VarDecl::getEvaluatedStmt() const {
 }
 
 const APValue *VarDecl::evaluateValue() const {
-  return evaluateValueImpl(/*Notes=*/nullptr, hasConstantInitialization(),
-                           /*EvaluateContracts=*/true);
+  return evaluateValueImpl(/*Notes=*/nullptr, hasConstantInitialization());
 }
 
-const APValue *
-VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
-                           bool IsConstantInitialization,
-                           bool EvaluateContracts) const {
+const APValue *VarDecl::evaluateValueImpl(
+    SmallVectorImpl<PartialDiagnosticAt> *Notes, bool IsConstantInitialization,
+    bool IgnoreContracts, SmallVectorImpl<PartialDiagnosticAt> *ContractNotes,
+    bool *HasIgnoredContracts) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
 
   const auto *Init = getInit();
@@ -2602,9 +2601,12 @@ VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
   Expr::EvalResult EStatus;
   EStatus.Diag = Notes;
   EStatus.ExtendedDiag = &MSWarning;
+  EStatus.ContractDiag = ContractNotes;
   bool Result = Init->EvaluateAsInitializer(
-      Ctx, this, EStatus, IsConstantInitialization, EvaluateContracts);
+      Ctx, this, EStatus, IsConstantInitialization, IgnoreContracts);
   Eval->Evaluated = std::move(EStatus.Val);
+  if (HasIgnoredContracts)
+    *HasIgnoredContracts = EStatus.HasIgnoredContractAssertion;
 
   // In C++, or in C23 if we're initialising a 'constexpr' variable, this isn't
   // a constant initializer if we produced notes. In that case, we can't keep
@@ -2626,10 +2628,8 @@ VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
       for (auto &Info : MSWarning)
         getASTContext().getDiagnostics().Report(Info.first,
                                                 Info.second.getDiagID());
-    if (Eval->Evaluated.needsCleanup() && !Eval->RegisteredForDestruction) {
-      Eval->RegisteredForDestruction = true;
+    if (Eval->Evaluated.needsCleanup())
       Ctx.addDestruction(&Eval->Evaluated);
-    }
   }
 
   Eval->IsEvaluating = false;
@@ -2675,12 +2675,14 @@ bool VarDecl::hasConstantInitialization() const {
 }
 
 bool VarDecl::checkForConstantInitialization(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes, bool EvaluateContracts) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes,
+    SmallVectorImpl<PartialDiagnosticAt> *ContractNotes,
+    bool *ContractCheckFailed) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
   // If we ask for the value before we know whether we have a constant
   // initializer, we can compute the wrong value (for example, due to
   // std::is_constant_evaluated()).
-  assert((!Eval->WasEvaluated) &&
+  assert(!Eval->WasEvaluated &&
          "already evaluated var value before checking for constant init");
   assert((getASTContext().getLangOpts().CPlusPlus ||
           getASTContext().getLangOpts().C23) &&
@@ -2688,43 +2690,74 @@ bool VarDecl::checkForConstantInitialization(
 
   assert(!getInit()->isValueDependent());
 
+  // C++26 [expr.const.init]p4:
+  //   A variable v is constant-initializable if the full-expression of its
+  //   initialization is a constant expression when interpreted as a
+  //   constant-expression with all contract assertions using the ignore
+  //   evaluation semantic [...]
+  //   [Note: Furthermore, if the initialization is manifestly
+  //   constant-evaluated, its evaluation during translation can still
+  //   evaluate contract assertions with other evaluation semantics, resulting
+  //   in a diagnostic or ill-formed program if a contract violation occurs.]
+  //
+  // That is, a contract assertion must not silently turn the constant
+  // initialization of a variable into dynamic initialization, so first
+  // perform a trial evaluation that ignores all contract assertions.
+  //
+  // The trial evaluation is not needed for a variable that is required to be
+  // constant-initialized: the program is ill-formed if evaluating its
+  // initializer fails, whether or not a contract assertion is the reason.
+  ASTContext &Ctx = getASTContext();
+  bool RequiresConstantInit =
+      isConstexpr() || (hasGlobalStorage() && hasAttr<ConstInitAttr>());
+  bool IgnoreContracts = Ctx.getLangOpts().Contracts && !RequiresConstantInit;
+
   // Evaluate the initializer to check whether it's a constant expression.
+  bool HasIgnoredContracts = false;
   Eval->HasConstantInitialization =
-      evaluateValueImpl(&Notes, true, /*EnableContracts=*/EvaluateContracts) &&
+      evaluateValueImpl(&Notes, true, IgnoreContracts, ContractNotes,
+                        &HasIgnoredContracts) &&
       Notes.empty();
 
   // If evaluation as a constant initializer failed, allow re-evaluation as a
   // non-constant initializer if we later find we want the value.
-  if (!Eval->HasConstantInitialization)
+  if (!Eval->HasConstantInitialization) {
     Eval->WasEvaluated = false;
+    return false;
+  }
 
-  return Eval->HasConstantInitialization;
-}
+  if (!HasIgnoredContracts)
+    return true;
 
-bool VarDecl::recheckForConstantInitialization(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes, bool EnableContracts) const {
-  EvaluatedStmt *Eval = ensureEvaluatedStmt();
+  // The variable is constant-initialized, which makes its initializer
+  // manifestly constant-evaluated. Evaluate it again, this time checking the
+  // contract assertions that the trial evaluation ignored. A contract
+  // assertion with side effects can change the value of the initializer.
+  Expr::EvalResult Status;
+  Status.Diag = &Notes;
+  Status.ContractDiag = ContractNotes;
 
-  assert((Eval->WasEvaluated && Eval->HasConstantInitialization) &&
-         "Trial initialization should have been performed first");
-
-  // If we ask for the value before we know whether we have a constant
-  // initializer, we can compute the wrong value (for example, due to
-  // std::is_constant_evaluated()).
-
-  assert((getASTContext().getLangOpts().CPlusPlus ||
-          getASTContext().getLangOpts().C23) &&
-         "only meaningful in C++/C23");
-  assert(Notes.empty() && "Reevaluating with old notes?");
-  assert(!getInit()->isValueDependent());
   Eval->WasEvaluated = false;
+  Eval->IsEvaluating = true;
+  bool Result = getInit()->EvaluateAsInitializer(
+                    Ctx, this, Status, /*IsConstantInitialization=*/true,
+                    /*IgnoreContracts=*/false) &&
+                Notes.empty();
+  Eval->IsEvaluating = false;
+  Eval->WasEvaluated = true;
 
-  // Wipe out the previously computed value.
-  // FIXME(EricWF): We should diagnose with the initializer produces a different
-  // value the second time around.
-  Eval->Evaluated = APValue();
-
-  return evaluateValueImpl(&Notes, true, EnableContracts) && Notes.empty();
+  if (Result) {
+    // The value of the trial evaluation is already registered for destruction
+    // if it needs to be.
+    bool WasRegistered = Eval->Evaluated.needsCleanup();
+    Eval->Evaluated = std::move(Status.Val);
+    if (!WasRegistered && Eval->Evaluated.needsCleanup())
+      Ctx.addDestruction(&Eval->Evaluated);
+  } else if (ContractCheckFailed) {
+    // Keep the value of the trial evaluation for error recovery.
+    *ContractCheckFailed = true;
+  }
+  return true;
 }
 
 bool VarDecl::isEscapingByref() const {

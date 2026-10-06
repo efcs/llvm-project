@@ -1,6 +1,6 @@
 // RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify=expected %s -fcontracts
 
-constexpr int f(int x) post(r : r != 0) { // expected-error {{contract failed}}
+constexpr int f(int x) post(r : r != 0) { // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r : r != 0' evaluated to false}}
   return x;
 }
 

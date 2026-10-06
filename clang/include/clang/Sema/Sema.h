@@ -8022,6 +8022,12 @@ public:
     return VerifyIntegerConstantExpression(E, nullptr, CanFold);
   }
 
+  /// Emit the diagnostics for the contract violations that were found, but
+  /// did not make the evaluation fail, while evaluating a manifestly
+  /// constant-evaluated expression. \see Expr::EvalStatus::ContractDiag.
+  void DiagnoseConstantEvaluatedContractViolations(
+      ArrayRef<PartialDiagnosticAt> ContractNotes);
+
   /// DiagnoseAssignmentAsCondition - Given that an expression is
   /// being used as a boolean condition, warn if it's an assignment.
   void DiagnoseAssignmentAsCondition(Expr *E);

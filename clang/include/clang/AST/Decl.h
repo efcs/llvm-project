@@ -931,17 +931,10 @@ struct EvaluatedStmt {
   LLVM_PREFERRED_TYPE(bool)
   unsigned CheckedForICEInit : 1;
 
-  // The APValue stored here may need re-evaluation under contracts, in which
-  // case we need to track if we've already registered this value for
-  // destruction.
-  LLVM_PREFERRED_TYPE(bool)
-  unsigned RegisteredForDestruction : 1;
-
   LLVM_PREFERRED_TYPE(bool)
   unsigned HasSideEffects : 1;
   LLVM_PREFERRED_TYPE(bool)
   unsigned CheckedForSideEffects : 1;
-
 
   LazyDeclStmtPtr Value;
   APValue Evaluated;
@@ -949,9 +942,8 @@ struct EvaluatedStmt {
   EvaluatedStmt()
       : WasEvaluated(false), IsEvaluating(false),
         HasConstantInitialization(false), HasConstantDestruction(false),
-        HasICEInit(false), CheckedForICEInit(false),
-        RegisteredForDestruction(false), HasSideEffects(false), CheckedForSideEffects(false) {}
-
+        HasICEInit(false), CheckedForICEInit(false), HasSideEffects(false),
+        CheckedForSideEffects(false) {}
 };
 
 /// Represents a variable declaration or definition.
@@ -1463,9 +1455,11 @@ public:
   const APValue *evaluateValue() const;
 
 private:
-  const APValue *evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
-                                   bool IsConstantInitialization,
-                                   bool EnableContracts) const;
+  const APValue *evaluateValueImpl(
+      SmallVectorImpl<PartialDiagnosticAt> *Notes,
+      bool IsConstantInitialization, bool IgnoreContracts = false,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr,
+      bool *HasIgnoredContracts = nullptr) const;
 
 public:
   /// Return the already-evaluated value of this variable's
@@ -1497,13 +1491,27 @@ public:
   /// Evaluate the initializer of this variable to determine whether it's a
   /// constant initializer. Should only be called once, after completing the
   /// definition of the variable.
-  bool
-  checkForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                                 bool EnableContracts = true) const;
-
-  bool
-  recheckForConstantInitialization(SmallVectorImpl<PartialDiagnosticAt> &Notes,
-                                   bool EnableContracts = true) const;
+  ///
+  /// Whether a variable is constant-initialized does not depend on the
+  /// evaluation semantics of the contract assertions that its initializer
+  /// evaluates (C++26 [expr.const.init]p4). If the variable is
+  /// constant-initialized, its initializer is manifestly constant-evaluated
+  /// and the contract assertions are checked with their evaluation semantics.
+  ///
+  /// \param Notes Why the initializer is not a constant initializer or, if
+  ///        \p ContractCheckFailed is set, why it could not be evaluated
+  ///        with its contract assertions checked.
+  /// \param ContractNotes If non-null, receives the diagnostics for the
+  ///        contract violations that don't prevent the initializer from being
+  ///        evaluated. See Expr::EvalStatus::ContractDiag.
+  /// \param ContractCheckFailed If non-null, set to true if the variable is
+  ///        constant-initialized but its initializer could not be evaluated
+  ///        with its contract assertions checked. In that case the program is
+  ///        ill-formed.
+  bool checkForConstantInitialization(
+      SmallVectorImpl<PartialDiagnosticAt> &Notes,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr,
+      bool *ContractCheckFailed = nullptr) const;
 
   void setInitStyle(InitializationStyle Style) {
     VarDeclBits.InitStyle = Style;

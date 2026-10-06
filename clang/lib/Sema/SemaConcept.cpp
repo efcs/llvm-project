@@ -918,11 +918,14 @@ ExprResult ConstraintSatisfactionChecker::EvaluateSlow(
   }
 
   SmallVector<PartialDiagnosticAt, 2> EvaluationDiags;
+  SmallVector<PartialDiagnosticAt, 0> ContractDiags;
   Expr::EvalResult EvalResult;
   EvalResult.Diag = &EvaluationDiags;
-  if (!SubstitutedAtomicExpr.get()->EvaluateAsConstantExpr(EvalResult,
-                                                           S.Context) ||
-      !EvaluationDiags.empty()) {
+  EvalResult.ContractDiag = &ContractDiags;
+  bool Evaluated =
+      SubstitutedAtomicExpr.get()->EvaluateAsConstantExpr(EvalResult, S.Context);
+  S.DiagnoseConstantEvaluatedContractViolations(ContractDiags);
+  if (!Evaluated || !EvaluationDiags.empty()) {
     // C++2a [temp.constr.atomic]p1
     //   ...E shall be a constant expression of type bool.
     S.Diag(SubstitutedAtomicExpr.get()->getBeginLoc(),

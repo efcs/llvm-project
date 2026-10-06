@@ -8,7 +8,7 @@ constexpr void f() {
   constexpr auto y = [=, yyy=z, z=z](int x)
     -> int
             pre(x == 1)
-            post(r : r == 2) // expected-error {{contract failed during execution of constexpr function}}
+            post(r : r == 2) // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r : r == 2' evaluated to false}}
             pre(z == 42 && yyy == 42)
             { ((void)z); ((void)yyy); return 1; };
   static_assert(y(1)); // expected-error {{static assertion expression is not an integral constant expression}}

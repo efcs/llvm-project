@@ -528,9 +528,10 @@ namespace {
       return {Callee, Index, ++CurTempVersion};
     }
 
-    // The slot for the result of the contract evaluation.
-    const LValue *ResultSlot = nullptr;
-    const APValue *ResultValue = nullptr;
+    /// The object or reference that the result name of a postcondition
+    /// assertion denotes while the postcondition assertions of this call are
+    /// being evaluated.
+    const LValue *ResultObject = nullptr;
 
     // FIXME: Adding this to every 'CallStackFrame' may have a nontrivial impact
     // on the overall stack usage of deeply-recursing constexpr evaluations.
@@ -1175,6 +1176,7 @@ namespace {
         : Info(&Info), OldStatus(Info.EvalStatus),
           OldSpeculativeEvaluationDepth(Info.SpeculativeEvaluationDepth) {
       Info.EvalStatus.Diag = NewDiag;
+      Info.EvalStatus.ContractDiag = nullptr;
       Info.SpeculativeEvaluationDepth = Info.CallStackDepth + 1;
     }
 
@@ -4672,21 +4674,6 @@ static CompleteObject findCompleteObject(EvalInfo &Info, const Expr *E,
     // started in the current evaluation.
     BaseVal = Info.EvaluatingDeclValue;
   } else if (const ValueDecl *D = LVal.Base.dyn_cast<const ValueDecl *>()) {
-
-    // Allow reading the result of a function call inside a post contract.
-    // FIXME(EricWF): There's more validation that needs to be done here.
-    if (auto *RND = dyn_cast<ResultNameDecl>(D); RND) {
-      assert(RND == RND->getCanonicalResultName());
-
-      APValue *Val = Frame->getTemporary(RND, LVal.Base.getVersion());
-
-      if (!Val) {
-        Info.CCEDiag(RND->getLocation(), diag::err_ericwf_fixme)
-            << "Failing to find completed object";
-        return CompleteObject();
-      }
-      return CompleteObject(LVal.Base, Val, RND->getType());
-    }
     // Allow reading from a GUID declaration.
     if (auto *GD = dyn_cast<MSGuidDecl>(D)) {
       if (isModification(AK)) {
@@ -5925,28 +5912,103 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
   return true;
 }
 
-static bool EvaluateContract(const ContractStmt *S, EvalInfo &Info) {
-  using CES = ContractEvaluationSemantic;
-  auto &Ctx = Info.Ctx;
-
-  if (!Info.EvaluateContracts)
+/// Evaluate a contract assertion (C++26 [basic.contract.eval]). Returns false
+/// if the evaluation cannot continue past the contract assertion.
+static bool EvaluateContract(EvalInfo &Info, const ContractStmt *S) {
+  if (!Info.shouldCheckContract(S))
     return true;
 
-  CES Sem = S->getSemantic(Ctx);
-  if (Sem == CES::Ignore)
-    return true;
+  const Expr *Cond = S->getCond();
+  if (Cond->isValueDependent())
+    return EvaluateDependentExpr(Cond, Info);
 
-  const Expr *E = S->getCond();
-  bool Result;
-  if (!EvaluateCond(Info,nullptr, E, Result))
-    return false;
-  if (!Result) {
-    Info.CCEDiag(E, Sem == CES::Observe ? diag::warn_constexpr_contract_failure
-                                        : diag::err_constexpr_contract_failure)
-        << E->getSourceRange();
-    return Sem == CES::Observe;
+  interp::State::ContractCheck Check(Info, S);
+  unsigned OldNumHeapAllocs = Info.NumHeapAllocs;
+  bool Value = false;
+  bool Evaluated = EvaluateCond(Info, /*CondDecl=*/nullptr, Cond, Value);
+
+  // A predicate that leaks memory is not a core constant expression. Whether
+  // it is must not affect the enclosing evaluation, so discard the heap
+  // allocations that it left behind. Heap allocations are numbered in the
+  // order in which they are created.
+  auto Leaked =
+      Info.HeapAllocs.lower_bound(DynamicAllocLValue(OldNumHeapAllocs));
+  if (Leaked != Info.HeapAllocs.end()) {
+    if (Evaluated)
+      Info.CCEDiag(Leaked->second.AllocExpr, diag::note_constexpr_memory_leak)
+          << unsigned(std::distance(Leaked, Info.HeapAllocs.end()) - 1);
+    Info.HeapAllocs.erase(Leaked, Info.HeapAllocs.end());
   }
+
+  return Check.finish(Evaluated, Value);
+}
+
+/// Evaluate the precondition assertions of the function whose call is the
+/// current frame (C++26 [dcl.contract.func]).
+static bool EvaluatePreconditions(EvalInfo &Info, const FunctionDecl *Callee) {
+  for (const ContractStmt *S : Callee->preconditions())
+    if (!EvaluateContract(Info, S))
+      return false;
   return true;
+}
+
+/// Evaluate the postcondition assertions of the function whose call is the
+/// current frame, after it has returned normally.
+///
+/// \param E The expression that called the function, if any.
+/// \param Result The returned value, if any.
+/// \param ResultSlot The result object of the call, if the function returns
+///        an object that is initialized in place.
+static bool EvaluatePostconditions(EvalInfo &Info, const FunctionDecl *Callee,
+                                   const Expr *E, APValue &Result,
+                                   const LValue *ResultSlot) {
+  auto Postconditions = Callee->postconditions();
+  if (Postconditions.begin() == Postconditions.end())
+    return true;
+
+  CallStackFrame *Frame = Info.CurrentCall;
+  assert(Frame->Callee == Callee && "evaluating contracts in the wrong frame");
+
+  // Determine what the result name denotes ([dcl.contract.res]). Contract
+  // assertions are not evaluated when checking for a potential constant
+  // expression, in which case we might not have a result.
+  BlockScopeRAII Scope(Info);
+  LValue ResultObject;
+  APValue *ResultCopy = nullptr;
+  if (Callee->getContracts()->hasCanonicalResultName() &&
+      !Info.checkingPotentialConstantExpression()) {
+    QualType RetTy = Callee->getReturnType();
+    assert(!RetTy->isVoidType() && "result name for a void function");
+    if (RetTy->isReferenceType()) {
+      // The result name is the returned glvalue.
+      ResultObject.setFrom(Info.Ctx, Result);
+    } else if (ResultSlot) {
+      // The result name denotes the result object of the call.
+      ResultObject = *ResultSlot;
+    } else {
+      // The returned value is not an object yet. Materialize it for the
+      // duration of the postcondition assertions.
+      assert(E && "no call expression for a function returning a value");
+      ResultCopy = &Frame->createTemporary(E, E->getType(), ScopeKind::Block,
+                                           ResultObject);
+      *ResultCopy = Result;
+    }
+    Frame->ResultObject = &ResultObject;
+  }
+
+  bool Success = true;
+  for (const ContractStmt *S : Postconditions) {
+    if (!EvaluateContract(Info, S)) {
+      Success = false;
+      break;
+    }
+  }
+
+  Frame->ResultObject = nullptr;
+  // A postcondition assertion can modify the result through the result name.
+  if (Success && ResultCopy)
+    Result = std::move(*ResultCopy);
+  return Success;
 }
 
 // Evaluate a statement.
@@ -6198,11 +6260,10 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
     return Scope.destroy() ? ESR_Succeeded : ESR_Failed;
   }
 
-  case Stmt::ContractStmtClass: {
-    if (EvaluateContract(cast<ContractStmt>(S), Info))
-      return ESR_Succeeded;
-    return ESR_Failed;
-  }
+  case Stmt::ContractStmtClass:
+    return EvaluateContract(Info, cast<ContractStmt>(S)) ? ESR_Succeeded
+                                                         : ESR_Failed;
+
   case Stmt::WhileStmtClass: {
     const WhileStmt *WS = cast<WhileStmt>(S);
     while (true) {
@@ -7189,69 +7250,6 @@ static bool handleTrivialCopy(EvalInfo &Info, const ParmVarDecl *Param,
       CopyObjectRepresentation);
 }
 
-static bool EvaluatePreContracts(EvalInfo &Info, const FunctionDecl *Callee,
-                                 CallStackFrame *Frame) {
-  ContractSpecifierDecl *Contracts = Callee->getContracts();
-  if (!Contracts)
-    return true;
-  for (auto *S : Contracts->preconditions()) {
-    if (!EvaluateContract(S, Frame->Info)) {
-      return false;
-    }
-  }
-  return true;
-}
-
-static bool EvaluatePostContracts(EvalInfo &Info, const FunctionDecl *Callee,
-                                  APValue &ResultValue,
-                                  const LValue *ResultSlot) {
-  if (Info.checkingPotentialConstantExpression())
-    return false;
-
-  ContractSpecifierDecl *Contracts = Callee->getContracts();
-  if (!Contracts)
-    return true;
-  BlockScopeRAII Scope(Info);
-  const ResultNameDecl *CanonicalResultName =
-      Contracts->getCanonicalResultName();
-
-  bool NeedsResultSlot =
-      (!ResultSlot || !ResultSlot->getLValueBase()) && CanonicalResultName;
-
-  APValue *LastValue = nullptr;
-  LValue LV;
-  if (NeedsResultSlot) {
-    auto *RND = CanonicalResultName;
-    assert(RND->getType().isTriviallyCopyableType(Info.Ctx));
-
-    APValue &V = Info.CurrentCall->createTemporary(
-        CanonicalResultName, CanonicalResultName->getType(), ScopeKind::Block,
-        LV);
-
-    // Perform the trivial copy of the result of the function into the
-    // temporary.
-    V = ResultValue;
-    Info.CurrentCall->ResultSlot = nullptr;
-    LastValue = &V;
-  } else {
-    Info.CurrentCall->ResultSlot = ResultSlot;
-    Info.CurrentCall->ResultValue = &ResultValue;
-  }
-  ((void)LastValue);
-
-  for (auto *S : Contracts->postconditions()) {
-    if (!EvaluateContract(S, Info))
-      return false;
-  }
-  // If we used a different result slot, the return value needs to be copied
-  // back.
-  if (NeedsResultSlot) {
-    assert(LastValue);
-    ResultValue = *LastValue;
-  }
-  return true;
-}
-
 /// Evaluate a function call.
 static bool HandleFunctionCall(SourceLocation CallLoc,
                                const FunctionDecl *Callee,
@@ -7309,19 +7307,18 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
-  if (!EvaluatePreContracts(Info, Callee, &Frame))
+  if (!EvaluatePreconditions(Info, Callee))
     return false;
 
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
+      return EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
-  if (ESR == ESR_Returned)
-    return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
-  return false;
+  return ESR == ESR_Returned &&
+         EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
 }
 
 static bool HandleConstructorCall(const Expr *E, const LValue &This,
@@ -9576,7 +9573,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E);
   bool VisitDeclRefExpr(const DeclRefExpr *E);
-  bool VisitResultNameDecl(const DeclRefExpr *DE, const ResultNameDecl *E);
+  bool VisitResultNameDecl(const Expr *E, const ResultNameDecl *RND);
   bool VisitPredefinedExpr(const PredefinedExpr *E) { return Success(E); }
   bool VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
@@ -9782,26 +9779,16 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
   return Success(*V, E);
 }
 
-bool LValueExprEvaluator::VisitResultNameDecl(const DeclRefExpr *E,
-                                              const ResultNameDecl *VD) {
-
-  auto *Frame = Info.CurrentCall;
-  // We don't always have a result value when we're doing this kind of
-  // evaluation?
-  if (Info.checkingPotentialConstantExpression())
-    return false;
-
-  assert(Frame);
-  if (Frame->ResultSlot) {
-    return Success(Frame->ResultSlot->getLValueBase());
-
-    // return Success(Frame->ResultSlot;
-  } else {
-    APValue::LValueBase Base(
-        VD->getCanonicalResultName(), Frame->Index,
-        Frame->getCurrentTemporaryVersion(VD->getCanonicalResultName()));
-    return Success(Base);
-  }
+bool LValueExprEvaluator::VisitResultNameDecl(const Expr *E,
+                                              const ResultNameDecl *RND) {
+  // A result name can only be named by the postcondition assertions of the
+  // function whose call we're evaluating. If we're not evaluating them, the
+  // predicate is being evaluated on its own and there is no result.
+  const LValue *ResultObject = Info.CurrentCall->ResultObject;
+  if (!ResultObject)
+    return Error(E);
+  Result = *ResultObject;
+  return true;
 }
 
 bool LValueExprEvaluator::VisitCallExpr(const CallExpr *E) {
@@ -22460,7 +22447,7 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
 bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
                                  Expr::EvalResult &EStatus,
                                  bool IsConstantInitialization,
-                                 bool EvaluateContracts) const {
+                                 bool IgnoreContracts) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
   assert(VD && "Need a valid VarDecl");
@@ -22481,6 +22468,7 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
   if (Ctx.getLangOpts().EnableNewConstInterp) {
     interp::EvalSettings Settings(EvalMode, EStatus);
     Settings.InConstantContext = IsConstantInitialization;
+    Settings.IgnoreContracts = IgnoreContracts;
     return Ctx.getInterpContext().evaluateAsInitializer(Settings, VD, this,
                                                         EStatus.Val);
   }
@@ -22491,7 +22479,7 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
   EvalInfo Info(Ctx, EStatus, EvalMode);
   Info.setEvaluatingDecl(VD, EStatus.Val);
   Info.InConstantContext = IsConstantInitialization;
-  Info.EvaluateContracts = EvaluateContracts;
+  Info.IgnoreContracts = IgnoreContracts;
 
   LValue LVal;
   LVal.set(VD);
