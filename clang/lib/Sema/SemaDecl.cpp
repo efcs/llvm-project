@@ -15329,7 +15329,12 @@ void Sema::CheckCompleteVariableDeclaration(VarDecl *var) {
       // initializer is manifestly constant-evaluated, and the program is
       // ill-formed if the initializer can't be evaluated with the contract
       // assertions checked; we can't fall back to dynamic initialization.
-      if (ContractCheckFailed) {
+      //
+      // An immediate invocation in the initializer is ill-formed by itself if
+      // its contract assertions are violated: diagnose it as such rather than
+      // as a failed constant initialization.
+      if (ContractCheckFailed &&
+          !DiagnoseContractViolatingImmediateInvocations(Init)) {
         Diag(var->getLocation(), diag::err_constant_init_contract_check_failed)
             << var << Init->getSourceRange();
         for (const PartialDiagnosticAt &Note : Notes)

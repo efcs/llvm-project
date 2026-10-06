@@ -18860,6 +18860,60 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
   return Res;
 }
 
+/// The immediate function called by the immediate invocation \p CE.
+static FunctionDecl *getImmediateFunction(ConstantExpr *CE) {
+  Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
+  if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
+    InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
+  FunctionDecl *FD = nullptr;
+  if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
+    FD = cast<FunctionDecl>(Call->getCalleeDecl());
+  else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
+    FD = Call->getConstructor();
+  else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
+    FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
+
+  assert(FD && FD->isImmediateFunction() &&
+         "could not find an immediate function in this expression");
+  return FD;
+}
+
+bool Sema::DiagnoseContractViolatingImmediateInvocations(Expr *Init) {
+  struct Finder : DynamicRecursiveASTVisitor {
+    SmallVector<ConstantExpr *, 2> Found;
+    bool VisitConstantExpr(ConstantExpr *E) override {
+      if (E->isImmediateInvocation())
+        Found.push_back(E);
+      return true;
+    }
+  } Finder;
+  Finder.TraverseStmt(Init);
+
+  bool Diagnosed = false;
+  for (ConstantExpr *CE : Finder.Found) {
+    llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+    llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
+    Expr::EvalResult Eval;
+    Eval.Diag = &Notes;
+    Eval.ContractDiag = &ContractNotes;
+    bool Result = CE->EvaluateAsConstantExpr(
+        Eval, getASTContext(), ConstantExprKind::ImmediateInvocation);
+    DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+    if (Result || !Eval.HasContractViolation)
+      continue;
+    FailedImmediateInvocations.insert(CE);
+    Diagnosed = true;
+    FunctionDecl *FD = getImmediateFunction(CE);
+    if (FD->isInvalidDecl())
+      continue;
+    Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)
+        << FD << FD->isConsteval();
+    for (const PartialDiagnosticAt &Note : Notes)
+      Diag(Note.first, Note.second);
+  }
+  return Diagnosed;
+}
+
 static void EvaluateAndDiagnoseImmediateInvocation(
     Sema &SemaRef, Sema::ImmediateInvocationCandidate Candidate) {
   llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
@@ -18873,19 +18927,7 @@ static void EvaluateAndDiagnoseImmediateInvocation(
   SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
   if (!Result || !Notes.empty()) {
     SemaRef.FailedImmediateInvocations.insert(CE);
-    Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
-    if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
-      InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
-    FunctionDecl *FD = nullptr;
-    if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
-      FD = cast<FunctionDecl>(Call->getCalleeDecl());
-    else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
-      FD = Call->getConstructor();
-    else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
-      FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
-
-    assert(FD && FD->isImmediateFunction() &&
-           "could not find an immediate function in this expression");
+    FunctionDecl *FD = getImmediateFunction(CE);
     if (FD->isInvalidDecl())
       return;
     SemaRef.Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)

@@ -8080,6 +8080,15 @@ public:
   bool DiagnoseContractViolationInSFINAEContext(const Expr *E,
                                                 const Expr::EvalStatus &Status);
 
+  /// Diagnose the immediate invocations in the initializer \p Init of a
+  /// constant-initialized variable whose evaluation fails because of a
+  /// contract violation. Such an immediate invocation is ill-formed whether
+  /// or not the variable is constant-initialized, so this is more precise
+  /// than diagnosing the failed constant initialization.
+  ///
+  /// \returns true if an immediate invocation was diagnosed.
+  bool DiagnoseContractViolatingImmediateInvocations(Expr *Init);
+
   /// DiagnoseAssignmentAsCondition - Given that an expression is
   /// being used as a boolean condition, warn if it's an assignment.
   void DiagnoseAssignmentAsCondition(Expr *E);
