@@ -345,9 +345,11 @@ Retry:
   case tok::kw__Defer: // C defer TS: defer-statement
     return ParseDeferStatement(TrailingElseLoc);
 
-  case tok::kw_contract_assert: // C++20 contract-assert-statement
-    ProhibitAttributes(CXX11Attrs);
-    ProhibitAttributes(GNUAttrs); // The attributes go after the keyword
+  case tok::kw_contract_assert: // C++26 assertion-statement
+    // [stmt.pre]: attribute-specifier-seq[opt] assertion-statement. These
+    // attributes appertain to the statement; those which appertain to the
+    // contract assertion follow the keyword.
+    ProhibitAttributes(GNUAttrs);
     Res = ParseContractAssertStatement();
     SemiError = "contract_assert";
     break;

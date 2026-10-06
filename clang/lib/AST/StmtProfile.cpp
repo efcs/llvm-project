@@ -2952,11 +2952,6 @@ void StmtProfiler::VisitContractStmt(const ContractStmt *S) {
     } else if (const auto *M = dyn_cast<ContractMessageAttr>(A)) {
       ID.AddString(M->getMessage());
       ID.AddBoolean(M->getIncludeSourceText());
-    } else if (const auto *Sem = dyn_cast<ContractSemanticAttr>(A)) {
-      ID.AddInteger(llvm::to_underlying(Sem->getSemantic()));
-      ID.AddBoolean(Sem->getOverride());
-    } else if (const auto *E = dyn_cast<ContractEmissionAttr>(A)) {
-      ID.AddInteger(llvm::to_underlying(E->getEmission()));
     }
   }
 }

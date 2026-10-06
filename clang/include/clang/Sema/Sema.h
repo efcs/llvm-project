@@ -11695,6 +11695,14 @@ public:
   void ProcessStmtAttributes(Stmt *Stmt, const ParsedAttributes &InAttrs,
                              SmallVectorImpl<const Attr *> &OutAttrs);
 
+  /// Process the attribute-specifier-seq of a contract assertion; that is, the
+  /// attributes which follow the 'pre', 'post' or 'contract_assert' keyword
+  /// and appertain to the contract assertion. Only attributes which are
+  /// meaningful for a contract assertion are accepted; any other attribute is
+  /// diagnosed. Returns the semantic attributes that have been processed.
+  void ProcessContractAttributes(const ParsedAttributes &InAttrs,
+                                 SmallVectorImpl<const Attr *> &OutAttrs);
+
   ExprResult ActOnCXXAssumeAttr(Stmt *St, const ParsedAttr &A,
                                 SourceRange Range);
   ExprResult BuildCXXAssumeExpr(Expr *Assumption,

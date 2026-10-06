@@ -771,6 +771,8 @@ public:
   }
 
   void VisitContractStmt(const ContractStmt *S) {
+    for (const Attr *A : S->getAttrs())
+      Visit(A);
     if (S->hasResultName())
       Visit(S->getResultName());
     Visit(S->getCond());

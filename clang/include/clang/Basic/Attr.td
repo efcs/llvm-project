@@ -3862,42 +3862,16 @@ def Unavailable : InheritableAttr {
 def ContractGroup : StmtAttr {
   let Spellings = [CXX11<"clang", "contract_group">];
   let Args = [ StringArgument<"Group"> ];
-  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract assertions">;
   let Documentation = [ContractGroupDocs];
 }
 
-def ContractSemantic : StmtAttr {
-  let Spellings = [CXX11<"clang", "contract_semantic">];
-  let Args = [
-    EnumArgument<"Semantic", "ContractEvaluationSemantic", /*is_string=*/true,
-        ["ignore", "observe", "enforce", "quick_enforce"],
-        ["Ignore", "Observe", "Enforce", "QuickEnforce"],
-        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>,
-    DefaultBoolArgument<"Override", 0, /*fake*/ 0>
-  ];
-  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-  let Documentation = [ContractSemanticDocs];
-}
-
-
-def ContractEmission : StmtAttr {
-  let Spellings = [CXX11<"clang", "contract_emission">];
-  let Args = [
-    EnumArgument<"Emission", "ContractEmissionStyle", /*is_string=*/true,
-        ["in_caller", "in_definition"],
-        ["InCaller", "InDefinition"],
-        /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>
-  ];
-  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-  let Documentation = [ContractEmissionDocs];
-}
-
-
 def ContractMessage : StmtAttr {
-    let Spellings = [CXX11<"clang", "contract_message">];
-    let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
-    let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-    let Documentation = [ContractMessageDocs];
+  let Spellings = [CXX11<"clang", "contract_message">];
+  let Args = [StringArgument<"Message">,
+              DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0>];
+  let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract assertions">;
+  let Documentation = [ContractMessageDocs];
 }
 
 def DiagnoseIf : InheritableAttr {

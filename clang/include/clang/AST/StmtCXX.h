@@ -1104,30 +1104,26 @@ public:
     return T->getStmtClass() == CXXExpansionStmtInstantiationClass;
   }
 };
-class SemaContractHelper;
 
 class ContractStmt final
     : public Stmt,
       private llvm::TrailingObjects<ContractStmt, Stmt *, const Attr *> {
 
-  // A Note on attributes:
-  // Contracts allow attribute to apppear in two places:
-  //   [[#1]] pre [[#2]] ( ... )
+  // A note on attributes:
   //
-  // Unlike most statements, contracts will have meaning ful attributes. For
-  // example, one which overrides the message in diagnostics.
+  // The attribute-specifier-seq which follows the 'pre', 'post' or
+  // 'contract_assert' keyword appertains to the contract assertion:
+  //   pre [[attr]] ( ... )
   //
-  // Because these attributes apply directly to the contract and it's semantics
-  // we store them directly in the contract statement. This is different from
-  // other statements, which use AttributedStmt to wrap the statement.
-  // However, the wrapping behavior makes it non-trivial for a contract to
-  // access its attributes.
-  //
-  // NOTE: We should consider only storing attributes of the form [[#2]] here.
+  // These attributes affect the semantics of the contract assertion (e.g.
+  // [[clang::contract_group]] selects its evaluation semantic), so they are
+  // stored directly in the ContractStmt instead of in an AttributedStmt
+  // wrapping it, as is done for the attributes of other statements. Only
+  // attributes which are meaningful for a contract assertion are accepted
+  // there (see Sema::ProcessContractAttributes).
 
   friend class ASTStmtReader;
   friend TrailingObjects;
-  friend class SemaContractHelper;
 
   unsigned numTrailingObjects(OverloadToken<Stmt *>) const {
     return ContractAssertBits.HasResultName + 1;
@@ -1229,7 +1225,6 @@ public:
 public:
   // Convert the contract semantic to a string for use in diagnostics.
   static StringRef SemanticAsString(ContractEvaluationSemantic Semantic);
-  static ContractEvaluationSemantic *StringAsSemantic(StringRef Str);
 
   // Convert the contract kind (pre, post, or contract_assert) to a string
   static StringRef ContractKindAsString(ContractKind Kind);

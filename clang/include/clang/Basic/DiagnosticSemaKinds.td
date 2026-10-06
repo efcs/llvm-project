@@ -11641,9 +11641,6 @@ def err_duplicate_attribute
 def err_disallowed_duplicate_attribute : Error<
   "attribute %0 cannot appear more than once on a %select{declaration|contract specifier}1">;
 
-def err_disallow_incompatible_attribute : Error<
-    "attribute %1 cannot appear on a %select{declaration|contract specifier}0 with attribute %2">;
-
 def warn_sync_fetch_and_nand_semantics_change : Warning<
   "the semantics of this intrinsic changed with GCC "
   "version 4.4 - the newer semantics are provided here">,
@@ -13211,6 +13208,12 @@ def note_previous_contracts : Note<
   "|as '%sub{select_contract_kind}1'"
   "|%select{without|with}2 result name"
   "|with a non-equivalent condition}0">;
+
+def err_attribute_invalid_on_contract : Error<
+  "%0%select{ attribute|}1 cannot be applied to a contract assertion">;
+def err_contract_attribute_before_keyword : Error<
+  "%0 attribute cannot appear here; it appertains to a contract assertion "
+  "and must follow the 'contract_assert' keyword">;
 
 def err_contract_attr_bool_arg_not_constant : Error<
   "argument to %0 attribute must be a boolean constant expression">;

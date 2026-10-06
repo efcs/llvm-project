@@ -58,24 +58,6 @@ using namespace sema;
 using llvm::DenseMap;
 using llvm::DenseSet;
 
-class clang::SemaContractHelper {
-public:
-  static SmallVector<const Attr *>
-  buildAttributesWithDummyNode(Sema &S, ParsedAttributes &Attrs,
-                               SourceLocation Loc) {
-    // We shouldn't end up actually emitting any diagnostics pointing an the
-    // dummy node, but we need to have a valid source location for any
-    // diagnostics. (Pray they don't call getEndLoc()), which will attempt to
-    // read past the end of the buffer.
-
-    ContractStmt Dummy(Stmt::EmptyShell(), ContractKind::Pre, false, 0);
-    Dummy.KeywordLoc = Loc;
-    SmallVector<const Attr *> Result;
-    S.ProcessStmtAttributes(&Dummy, Attrs, Result);
-    return Result;
-  }
-};
-
 namespace {
 template <class T> struct ValueRAII {
   ValueRAII(T &XDest, T const &Value, bool Enter = true) : Dest(&XDest) {
@@ -205,10 +187,11 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
     RNDStmt = NewDeclStmt.getAs<DeclStmt>();
   }
 
+  SmallVector<const Attr *, 2> Attrs;
+  ProcessContractAttributes(ContractAttrs, Attrs);
+
   StmtResult Res =
-      BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt,
-                        SemaContractHelper::buildAttributesWithDummyNode(
-                            *this, ContractAttrs, KeywordLoc),
+      BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt, Attrs,
                         getContractPredicateText(PredicateRange), ParenRange);
 
   if (Res.isInvalid())

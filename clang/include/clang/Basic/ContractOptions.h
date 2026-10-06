@@ -86,16 +86,6 @@ enum class ContractDetectionMode {
   ExceptionRaised = 2
 };
 
-/// The code generation style for the contract. Inline
-enum class ContractEmissionStyle {
-  /// Emit the contract at every call site, in the caller.
-  InCaller,
-
-  /// Emit the contract with the function definition.
-  InDefinition,
-};
-
-
 /// Represents the contract evaluation semantics selected on the command line.
 ///
 /// The default semantic is set with '-fcontract-evaluation-semantic=<sem>'.
@@ -141,8 +131,6 @@ public:
 
   /// The semantics for each contract group, if specified.
   llvm::StringMap<ContractEvaluationSemantic> SemanticsByGroup;
-
-  ContractEmissionStyle DefaultEmission = ContractEmissionStyle::InDefinition;
 };
 
 } // namespace clang
