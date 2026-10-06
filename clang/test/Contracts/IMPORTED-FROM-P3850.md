@@ -137,7 +137,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/nested-class-contracts.cpp` | A | imported verbatim; passes |
 | `Contracts/nested-lambda-contract-capture-depth.cpp` | A | imported; expectations re-worded (implicit-capture wording, then round-two constification wording); passes |
 | `Contracts/OpenBugs/address-before-ctor-member.cpp` | D | kept in OpenBugs with XFAIL (core-language constexpr bug, no contracts) |
-| `Contracts/OpenBugs/address-before-ctor-vbase.cpp` | D | his tree passes it; moved to Contracts/address-before-ctor-vbase.cpp with our constexpr notes; passes (core language, no contracts) |
+| `Contracts/OpenBugs/address-before-ctor-vbase.cpp` | D | kept in OpenBugs with XFAIL: with C++26 constexpr virtual bases, Clang accepts it like GCC (core-language constexpr bug, no contracts) |
 | `Contracts/OpenBugs/deferred-friend-contract-mismatch.cpp` | D | our Clang already diagnoses it; moved to Contracts/friend-contract-mismatch.cpp (XFAIL removed, notes added); passes |
 | `Contracts/OpenBugs/postcondition-undeduced-result.cpp` | D | his tree passes it; moved to Contracts/postcondition-undeduced-result.cpp with our wording; round two also emits the void-result recovery error for shape 2 (expected now); passes |
 | `Contracts/OpenBugs/retval-throwing-cleanup.cpp` | D | kept in OpenBugs with XFAIL (core-language codegen bug, no contracts; %libcxx_flags dropped) |

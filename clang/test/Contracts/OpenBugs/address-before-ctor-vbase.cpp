@@ -1,13 +1,20 @@
 // RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify %s
+// XFAIL: *
+//
+// OPEN BUG area: constant evaluation (core language, no contracts).
 
+// OPEN BUG.  GCC has it too.
+//
 // Forming the address of a subobject before its construction has begun is not
 // a core constant expression: [class.cdtor]/1 makes referring to a member or
 // base of an object with a non-trivial constructor, before that constructor
 // begins, undefined.
 //
-// Clang gets THIS shape right, and this test pins that it keeps doing so.
-// (The notes name the implicit constructor of X, which this Clang does not
-// treat as constexpr; newer Clang reports the out-of-lifetime access itself.)
+// Clang used to get THIS shape right by accident: the implicit constructor of
+// a class with a virtual base was not constexpr, so the notes below were
+// produced. Since virtual base classes became usable in constant expressions
+// (C++26), that constructor is constexpr and Clang accepts the program
+// without diagnosing the out-of-lifetime access, like GCC.
 // Its mirror in the gnu_gcc fork --
 // gcc/testsuite/g++.dg/contracts/cpp26/open-bug-address-before-ctor.C -- is
 // xfailed for the same shape, because GCC accepts it.  Same content,
