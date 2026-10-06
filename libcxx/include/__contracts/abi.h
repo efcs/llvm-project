@@ -17,8 +17,10 @@
 // chain that describes a violation, the descriptor tables that make the blocks
 // self-describing, the enumerations encoded in them, and the entry points the
 // compiler calls when a violation is detected. The entry points are provided
-// by libc++abi; libc++'s std::contracts::contract_violation is a wrapper
-// around the chain pointer that reads the data through __cxa_find_field.
+// by the contract-violation runtime (libc++abi's, or libc++'s own when it is
+// not built on libc++abi); libc++'s std::contracts::contract_violation is a
+// wrapper around the chain pointer that reads the data through
+// __cxa_find_field.
 //
 // Every type, enumerator value and symbol name here is ABI: it must stay
 // byte-compatible with the specification
@@ -33,6 +35,22 @@
 #endif
 
 #if _LIBCPP_STD_VER >= 26 || defined(_LIBCPP_BUILDING_LIBRARY)
+
+// The symbols of the contract-violation runtime are provided by the library
+// that hosts it: libc++abi, or libc++ itself when it is built on another ABI
+// library (see libcxx/src/contracts.cpp). The host declares them with its
+// export annotation, so that its definitions are exported; everywhere else
+// they have default visibility and no dllimport annotation, since the host is
+// not known (on Windows, calls go through the import library's thunks).
+#  if defined(_LIBCXXABI_BUILDING_LIBRARY)
+#    define _LIBCPP_CONTRACTS_RUNTIME_VIS _LIBCXXABI_FUNC_VIS
+#  elif defined(_LIBCPP_BUILDING_LIBRARY) && !defined(LIBCXX_BUILDING_LIBCXXABI)
+#    define _LIBCPP_CONTRACTS_RUNTIME_VIS _LIBCPP_EXPORTED_FROM_ABI
+#  elif defined(_LIBCPP_OBJECT_FORMAT_COFF)
+#    define _LIBCPP_CONTRACTS_RUNTIME_VIS
+#  else
+#    define _LIBCPP_CONTRACTS_RUNTIME_VIS _LIBCPP_VISIBILITY("default")
+#  endif
 
 namespace __cxxabiv1 {
 
@@ -163,13 +181,13 @@ extern "C" {
 
 // Walk the chain head-to-tail and return a pointer to the value of the first
 // field found whose ID is one of the __num_ids IDs in __ids, or nullptr.
-_LIBCPP_OVERRIDABLE_FUNC_VIS const void*
+_LIBCPP_CONTRACTS_RUNTIME_VIS const void*
 __cxa_find_field(const __cxa_contract_data_block* __chain, const __UINT8_TYPE__* __ids, __UINT8_TYPE__ __num_ids);
 
 // The default contract-violation handler, callable regardless of whether the
 // program replaced ::handle_contract_violation. The argument is the address
 // of a std::contracts::contract_violation.
-_LIBCPP_OVERRIDABLE_FUNC_VIS void __contract_invoke_default_handler(const void* __violation);
+_LIBCPP_CONTRACTS_RUNTIME_VIS void __contract_invoke_default_handler(const void* __violation);
 
 } // extern "C"
 
@@ -209,19 +227,19 @@ __cxa_find_field_ptr(const __cxa_contract_data_block* __chain, __UINT8_TYPE__ __
 // (std::terminate()) if the handler exits via an exception.
 extern "C" {
 
-_LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation(void* __data);
-_LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_noexcept(void* __data) noexcept;
+_LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation(void* __data);
+_LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_noexcept(void* __data) noexcept;
 
 #  define _LIBCPP_CONTRACT_VIOLATION_ENTRY_POINTS(_Kind)                                                                 \
-    _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_observe_pf(void* __data);                          \
-    _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_observe_pf_noexcept(void* __data) noexcept;        \
-    _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_observe_ex(void* __data);                          \
-    _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_observe_ex_noexcept(void* __data) noexcept;        \
-    [[noreturn]] _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_enforce_pf(void* __data);             \
-    [[noreturn]] _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_enforce_pf_noexcept(                  \
+    _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_observe_pf(void* __data);                          \
+    _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_observe_pf_noexcept(void* __data) noexcept;        \
+    _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_observe_ex(void* __data);                          \
+    _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_observe_ex_noexcept(void* __data) noexcept;        \
+    [[noreturn]] _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_enforce_pf(void* __data);             \
+    [[noreturn]] _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_enforce_pf_noexcept(                  \
         void* __data) noexcept;                                                                                        \
-    [[noreturn]] _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_enforce_ex(void* __data);             \
-    [[noreturn]] _LIBCPP_OVERRIDABLE_FUNC_VIS void __cxa_contract_violation_##_Kind##_enforce_ex_noexcept(                  \
+    [[noreturn]] _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_enforce_ex(void* __data);             \
+    [[noreturn]] _LIBCPP_CONTRACTS_RUNTIME_VIS void __cxa_contract_violation_##_Kind##_enforce_ex_noexcept(                  \
         void* __data) noexcept;
 
 _LIBCPP_CONTRACT_VIOLATION_ENTRY_POINTS(pre)

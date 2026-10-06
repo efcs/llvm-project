@@ -42,6 +42,7 @@ set(LIBCXX_SOURCES
   ryu/f2s.cpp
   stdexcept.cpp
   string.cpp
+  support/contracts_runtime.ipp
   support/runtime/exception_fallback.ipp
   support/runtime/exception_glibcxx.ipp
   support/runtime/exception_libcxxabi.ipp

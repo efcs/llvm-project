@@ -181,7 +181,19 @@ Found while implementing the spec (`specification-proposal.rst`, branch
 - **Runtime hosting when libc++ is not built on libc++abi** (Windows/vcruntime,
   libcxxrt, libsupc++): the contracts runtime is currently compiled out entirely.
   Host the entry points in libc++ as a fallback, or declare the configuration
-  unsupported with a diagnostic?
+  unsupported with a diagnostic? **Resolved: libc++ hosts it.** The runtime is
+  one source (`libcxx/src/support/contracts_runtime.ipp`) compiled into
+  libc++abi when libc++ is built on it, and into libc++ otherwise, with the
+  host's export annotations (`_LIBCPP_CONTRACTS_RUNTIME_VIS` in
+  `<__contracts/abi.h>`); the accessors are unconditional. The exception a
+  predicate exited with is recorded in the chain only where the ABI library
+  has libc++abi's exception reference counting (libc++abi, libcxxrt);
+  elsewhere the runtime holds a `std::exception_ptr` and
+  `evaluation_exception()` is `std::current_exception()`. Verified by building
+  libc++ on libsupc++ (GCC 16) and exercising replacement, default and throwing
+  handlers. Still unsupported: handler replacement with vcruntime (no weak
+  symbols across DLLs; the default handler is always used), as documented in
+  `VendorDocumentation.md`.
 - **Compile-time cost of trial-with-ignore.** Constant-initialized non-constexpr
   globals with checked contracts are evaluated twice (≈2× on a synthetic case).
   Acceptable, or cache the trial evaluation?

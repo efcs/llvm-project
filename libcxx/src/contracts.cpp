@@ -11,20 +11,17 @@
 #include <exception>
 #include <source_location>
 
-// The contract-violation runtime of the Itanium C++ Contracts ABI (the entry
-// points called by the compiler, the dispatch to the handler and the default
-// handler) is provided by libc++abi. This file provides the C++ interface to it
-// from [support.contract]: the accessors of std::contracts::contract_violation,
-// which read the chain of data blocks the runtime passes to the handler, and
+// This file provides the C++ interface of [support.contract] to the
+// contract-violation runtime of the Itanium C++ Contracts ABI: the accessors
+// of std::contracts::contract_violation, which read the chain of data blocks
+// the runtime passes to the handler, and
 // std::contracts::invoke_default_contract_violation_handler.
 //
-// FIXME: When libc++ is built on top of another ABI library, nothing provides
-// the runtime: the entry points would need to be hosted by libc++ itself (as
-// is done for operator new), and the handler replacement mechanism of the ABI
-// depends on weak symbols, which Windows does not support across DLLs.
-#if defined(LIBCXX_BUILDING_LIBCXXABI)
+// The runtime itself (the entry points called by the compiler, the dispatch to
+// the handler and the default handler) is provided by libc++abi when libc++ is
+// built on it, and by libc++ otherwise (see the end of this file).
 
-#  include <__contracts/abi.h>
+#include <__contracts/abi.h>
 
 using namespace __cxxabiv1;
 
@@ -86,14 +83,14 @@ source_location contract_violation::location() const noexcept {
 exception_ptr contract_violation::evaluation_exception() const noexcept {
   if (detection_mode() != detection_mode::evaluation_exception)
     return exception_ptr();
-#  if !defined(_LIBCPP_ABI_MICROSOFT)
+#if !defined(_LIBCPP_ABI_MICROSOFT)
   // The runtime records the exception the predicate exited with (the exception
   // object, as std::exception_ptr refers to it) when it dispatches the
   // violation, so that the result does not depend on which exception is
   // currently being handled when this is called.
   if (void* __exception = __cxa_find_field_value<void*>(__chain_, CXA_FIELD_EXCEPTION_PTR, nullptr))
     return exception_ptr::__from_native_exception_pointer(__exception);
-#  endif
+#endif
   // The handler is invoked from within an active handler for the exception.
   return current_exception();
 }
@@ -118,14 +115,26 @@ _LIBCPP_END_UNVERSIONED_NAMESPACE_STD
 //
 // Declaring the C-linkage symbol here keeps the compiler from emitting it as an
 // alias of this default definition.
-extern "C" void __handle_contract_violation(const std::contracts::contract_violation&);
+extern "C" void __handle_contract_violation(const void*);
 
-#  if !defined(_LIBCPP_OBJECT_FORMAT_COFF)
+#if !defined(_LIBCPP_OBJECT_FORMAT_COFF)
 _LIBCPP_OVERRIDABLE_FUNC_VIS void handle_contract_violation(const std::contracts::contract_violation&);
 
 [[gnu::weak]] void handle_contract_violation(const std::contracts::contract_violation& __violation) {
   std::contracts::invoke_default_contract_violation_handler(__violation);
 }
-#  endif
+#endif
 
-#endif // LIBCXX_BUILDING_LIBCXXABI
+// When libc++ is not built on libc++abi, nothing else provides the runtime, so
+// libc++ hosts it, the same way it hosts operator new; the entry points are
+// exported from libc++ instead of libc++abi. Among the ABI libraries libc++
+// can be built on, only libcxxrt has libc++abi's exception reference counting
+// API, which the runtime uses to record the exception a predicate exited with;
+// with the others, contract_violation::evaluation_exception() is the current
+// exception (see the fallback in the runtime).
+#if !defined(LIBCXX_BUILDING_LIBCXXABI)
+#  if defined(LIBCXXRT)
+#    include <cxxabi.h>
+#  endif
+#  include "support/contracts_runtime.ipp"
+#endif
