@@ -18267,28 +18267,84 @@ static void EmitContractViolationNotes(Sema &S,
   }
 }
 
+/// Hash the diagnostics for a contract violation (the diagnostic itself, if
+/// \p Loc is valid, followed by its notes), to recognize a violation that has
+/// been diagnosed identically already. The same expression can be evaluated
+/// more than once: once per substitution into the declaration of a function
+/// template for a call, once per candidate for the template arguments of a
+/// call to an overloaded function template, for the definition and for the
+/// instantiations of a template, ...
+static llvm::hash_code
+hashContractViolationDiagnostics(Sema &S, SourceLocation Loc,
+                                 ArrayRef<PartialDiagnosticAt> Notes) {
+  llvm::hash_code Hash = llvm::hash_combine(Loc.getRawEncoding(), Notes.size());
+  for (const PartialDiagnosticAt &Note : Notes) {
+    SmallString<256> Message;
+    Note.second.EmitToString(S.Diags, Message);
+    Hash = llvm::hash_combine(Hash, Note.first.getRawEncoding(),
+                              Note.second.getDiagID(), StringRef(Message));
+  }
+  return Hash;
+}
+
 void Sema::DiagnoseConstantEvaluatedContractViolations(
     ArrayRef<PartialDiagnosticAt> ContractNotes) {
   // C++26 [intro.compliance.general]p2.3.4: A diagnostic is required for a
   // contract assertion evaluated with a checking semantic in a manifestly
   // constant-evaluated context resulting in a contract violation.
-  EmitContractViolationNotes(*this, ContractNotes);
+  //
+  // The notes consist of groups: a warning followed by the notes describing
+  // the violation. Skip the groups that an earlier evaluation has produced
+  // already. Within this evaluation, every violation is diagnosed, even if a
+  // contract assertion was violated several times with the same diagnostics
+  // (e.g. in a loop).
+  SmallVector<std::pair<ArrayRef<PartialDiagnosticAt>, llvm::hash_code>, 4>
+      Groups;
+  for (size_t I = 0, N = ContractNotes.size(); I != N;) {
+    size_t End = I + 1;
+    while (End != N && Diags.getDiagnosticIDs()->isNote(
+                           ContractNotes[End].second.getDiagID()))
+      ++End;
+    ArrayRef<PartialDiagnosticAt> Group = ContractNotes.slice(I, End - I);
+    I = End;
+    Groups.emplace_back(
+        Group, hashContractViolationDiagnostics(*this, SourceLocation(), Group));
+  }
+  for (const auto &[Group, Hash] : Groups)
+    if (!DiagnosedContractViolations.contains(Hash))
+      EmitContractViolationNotes(*this, Group);
+  for (const auto &[Group, Hash] : Groups)
+    DiagnosedContractViolations.insert(Hash);
 }
 
-bool Sema::DiagnoseContractViolationInSFINAEContext(
-    const Expr *E, const Expr::EvalStatus &Status) {
-  if (!Status.HasContractViolation || !isSFINAEContext())
+bool Sema::DiagnoseContractViolation(const Expr *E,
+                                     const Expr::EvalStatus &Status) {
+  if (!Status.HasContractViolation)
     return false;
 
   // C++26 [basic.contract.eval]p8:
   //   If a contract violation occurs in a context that is manifestly
   //   constant-evaluated, and the evaluation semantic is a terminating
   //   semantic, the program is ill-formed.
-  Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
-      << E->getSourceRange();
+  ArrayRef<PartialDiagnosticAt> Notes;
   if (Status.Diag)
-    EmitContractViolationNotes(*this, *Status.Diag);
+    Notes = *Status.Diag;
+  if (DiagnosedContractViolations
+          .insert(hashContractViolationDiagnostics(*this, E->getBeginLoc(),
+                                                   Notes))
+          .second) {
+    Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
+        << E->getSourceRange();
+    EmitContractViolationNotes(*this, Notes);
+  }
   return true;
+}
+
+bool Sema::DiagnoseContractViolationInSFINAEContext(
+    const Expr *E, const Expr::EvalStatus &Status) {
+  if (!isSFINAEContext())
+    return false;
+  return DiagnoseContractViolation(E, Status);
 }
 
 ExprResult
@@ -18431,7 +18487,10 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
       (!getLangOpts().CPlusPlus || !EvalResult.HasUndefinedBehavior);
 
   DiagnoseConstantEvaluatedContractViolations(ContractNotes);
-  if (DiagnoseContractViolationInSFINAEContext(E, EvalResult))
+  // A contract violation makes the program ill-formed; the expression must
+  // not be folded or treated as a non-constant expression (e.g. as the bound
+  // of a variable length array) instead.
+  if (DiagnoseContractViolation(E, EvalResult))
     return ExprError();
 
   if (!isa<ConstantExpr>(E))

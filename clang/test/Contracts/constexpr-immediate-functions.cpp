@@ -43,14 +43,15 @@ namespace escalation {
 // non-constant, so it must not make the enclosing function an immediate
 // function.
 template <class T> constexpr int not_escalating(T) { return cv(0); } // #not-escalating
-// observe-warning@#cv 2 {{precondition 'x > 0' evaluated to false}}
-// observe-note@-2 2 {{in call to 'cv(0)'}}
-// enforce-error@-3 2 {{call to consteval function 'cv' is not a constant expression}}
+// The immediate invocation is evaluated for the template and again for its
+// instantiation; the identical violation is diagnosed once.
+// observe-warning@#cv {{precondition 'x > 0' evaluated to false}}
+// observe-note@#not-escalating {{in call to 'cv(0)'}}
+// enforce-error@#not-escalating 2 {{call to consteval function 'cv' is not a constant expression}}
 // enforce-note@#cv 2 {{precondition 'x > 0' evaluated to false}}
-// enforce-note@-5 2 {{in call to 'cv(0)'}}
+// enforce-note@#not-escalating 2 {{in call to 'cv(0)'}}
 int (*pointer)(int) = &not_escalating<int>;
-// observe-note@-1 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
-// enforce-note@-2 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
+// enforce-note@-1 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
 
 // The argument is not a constant expression here, so this function is an
 // immediate function, and the contract assertions are checked when it is

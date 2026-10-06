@@ -102,7 +102,7 @@ constexpr int f(int x) pre(x > 0) { return x + 1; } // #ctx
 static_assert(f(0) == 1);
 // observe-warning@#ctx {{precondition 'x > 0' evaluated to false}}
 // observe-note@-2 {{in call to 'f(0)'}}
-// terminating-error@-3 {{static assertion expression is not an integral constant expression}}
+// terminating-error@-3 {{contract violation in a constant expression}}
 // terminating-note@#ctx {{precondition 'x > 0' evaluated to false}}
 // terminating-note@-5 {{in call to 'f(0)'}}
 
@@ -118,7 +118,7 @@ enum E {
   e1 = f(0)
   // observe-warning@#ctx {{precondition 'x > 0' evaluated to false}}
   // observe-note@-2 {{in call to 'f(0)'}}
-  // terminating-error@-3 {{expression is not an integral constant expression}}
+  // terminating-error@-3 {{contract violation in a constant expression}}
   // terminating-note@#ctx {{precondition 'x > 0' evaluated to false}}
   // terminating-note@-5 {{in call to 'f(0)'}}
 };
@@ -127,7 +127,7 @@ struct BitField {
   int b : f(0);
   // observe-warning@#ctx {{precondition 'x > 0' evaluated to false}}
   // observe-note@-2 {{in call to 'f(0)'}}
-  // terminating-error@-3 {{expression is not an integral constant expression}}
+  // terminating-error@-3 {{contract violation in a constant expression}}
   // terminating-note@#ctx {{precondition 'x > 0' evaluated to false}}
   // terminating-note@-5 {{in call to 'f(0)'}}
 };
@@ -164,7 +164,7 @@ struct Explicit {
 alignas(f(0) * 8) int aligned;
 // observe-warning@#ctx {{precondition 'x > 0' evaluated to false}}
 // observe-note@-2 {{in call to 'f(0)'}}
-// terminating-error@-3 {{'aligned' attribute requires integer constant}}
+// terminating-error@-3 {{contract violation in a constant expression}}
 // terminating-note@#ctx {{precondition 'x > 0' evaluated to false}}
 // terminating-note@-5 {{in call to 'f(0)'}}
 
@@ -172,7 +172,7 @@ void constexpr_if() {
   if constexpr (f(0) == 1) {
     // observe-warning@#ctx {{precondition 'x > 0' evaluated to false}}
     // observe-note@-2 {{in call to 'f(0)'}}
-    // terminating-error@-3 {{constexpr if condition is not a constant expression}}
+    // terminating-error@-3 {{contract violation in a constant expression}}
     // terminating-note@#ctx {{precondition 'x > 0' evaluated to false}}
     // terminating-note@-5 {{in call to 'f(0)'}}
   }
