@@ -300,11 +300,17 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
     New->setInvalidDecl(true);
   }
 
-  // Add the parameter declaration into this scope.
-  if (S)
+  // Add the result name into the contract-assertion scope so that it is
+  // visible to name lookup while the predicate is parsed. Popping that scope
+  // removes it from the IdResolver again. When there is no scope, the result
+  // name is being rebuilt (instantiation, redeclarations) and references to it
+  // are rebound via TreeTransform instead of name lookup; registering it with
+  // the IdResolver would leave a stray declaration that hides later
+  // block-scope declarations with the same name.
+  if (S) {
     S->AddDecl(New);
-
-  IdResolver.AddDecl(New);
+    IdResolver.AddDecl(New);
+  }
 
   return New;
 }
