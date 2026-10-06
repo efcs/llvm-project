@@ -118,6 +118,7 @@ void State::addExtendedDiag(SourceLocation Loc, diag::kind DiagId) {
 OptionalDiagnostic State::diag(SourceLocation Loc, diag::kind DiagId,
                                unsigned ExtraNotes, bool IsFFDiag) {
   if (EvalStatus.Diag) {
+  EvalStatus.DiagEmitted = true;
     if (hasPriorDiagnostic()) {
       return OptionalDiagnostic();
     }
@@ -232,7 +233,14 @@ State::ContractCheck::ContractCheck(State &S, const ContractStmt *CS)
       OldHasFoldFailureDiagnostic(S.HasFoldFailureDiagnostic),
       OldHasSideEffects(S.EvalStatus.HasSideEffects),
       OldHasUndefinedBehavior(S.EvalStatus.HasUndefinedBehavior) {
-  S.EvalStatus.Diag = &Notes;
+  // The notes explaining why the predicate is not a core constant expression
+  // are only needed if the enclosing evaluation collects diagnostics: its own
+  // or those of observed contract violations. Collecting them is expensive
+  // (each one describes the whole call stack), and would happen for every
+  // failing predicate of every expression that Sema merely tries to fold.
+  // Whether the predicate produced a diagnostic is tracked regardless.
+  S.EvalStatus.Diag = (OldDiag || S.EvalStatus.ContractDiag) ? &Notes : nullptr;
+  S.EvalStatus.DiagEmitted = false;
   S.HasActiveDiagnostic = false;
   S.HasFoldFailureDiagnostic = false;
 }
@@ -241,6 +249,7 @@ void State::ContractCheck::restoreDiagnostics() {
   if (Restored)
     return;
   S.EvalStatus.Diag = OldDiag;
+  PredicateDiagEmitted = S.EvalStatus.DiagEmitted;
   // The diagnostics of the predicate have been collected separately; they
   // don't count as emitted for the enclosing evaluation.
   S.EvalStatus.DiagEmitted = OldDiagEmitted;
@@ -263,8 +272,8 @@ bool State::ContractCheck::finish(bool Evaluated, bool Value) {
   // An exception cannot escape from a predicate that is a core constant
   // expression. Outside of a manifestly constant-evaluated context we only
   // care whether the predicate could be folded.
-  bool IsConstant =
-      Evaluated && (Notes.empty() || !S.checkingContractsAtCompileTime());
+  bool IsConstant = Evaluated && (!PredicateDiagEmitted ||
+                                  !S.checkingContractsAtCompileTime());
   if (IsConstant && Value)
     return true;
 

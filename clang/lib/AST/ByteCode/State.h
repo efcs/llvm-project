@@ -223,6 +223,10 @@ public:
     bool OldHasFoldFailureDiagnostic;
     bool OldHasSideEffects;
     bool OldHasUndefinedBehavior;
+    /// Whether evaluating the predicate produced a diagnostic, i.e. whether
+    /// it is not a core constant expression. Valid once restoreDiagnostics()
+    /// has been called.
+    bool PredicateDiagEmitted = false;
     bool Restored = false;
   };
 
