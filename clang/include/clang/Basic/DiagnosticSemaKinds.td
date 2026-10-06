@@ -13211,6 +13211,10 @@ def note_previous_contracts : Note<
 
 def err_attribute_invalid_on_contract : Error<
   "%0%select{ attribute|}1 cannot be applied to a contract assertion">;
+def err_attribute_invalid_on_result_name : Error<
+  "%0%select{ attribute|}1 cannot be applied to a result name">;
+def warn_unused_result_name : Warning<"unused result name %0">,
+  InGroup<UnusedVariable>, DefaultIgnore;
 def err_contract_attribute_before_keyword : Error<
   "%0 attribute cannot appear here; it appertains to a contract assertion "
   "and must follow the 'contract_assert' keyword">;

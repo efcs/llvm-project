@@ -197,6 +197,13 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   if (Res.isInvalid())
     return StmtError();
 
+  // -Wunused-variable: a result binding which the predicate does not refer to
+  // is almost certainly a mistake (e.g. a stray result-name-introducer).
+  if (RND && !RND->isInvalidDecl() && !RND->isReferenced() &&
+      !RND->hasAttr<UnusedAttr>() && !Cond->containsErrors() &&
+      !inTemplateInstantiation())
+    Diag(RND->getLocation(), diag::warn_unused_result_name) << RND;
+
   if (RND && RND->getType()->isUndeducedAutoType()) {
     return Res;
   }
@@ -206,11 +213,9 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
 
 /// Declare the result binding introduced by the result-name-introducer of a
 /// postcondition-specifier ([dcl.contract.res]).
-ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
-                                                QualType RetType,
-                                                SourceLocation IDLoc,
-                                                IdentifierInfo *II,
-                                                unsigned FunctionScopeDepth) {
+ResultNameDecl *Sema::ActOnResultNameDeclarator(
+    ContractKind CK, Scope *S, QualType RetType, SourceLocation IDLoc,
+    IdentifierInfo *II, unsigned FunctionScopeDepth, ParsedAttributes *Attrs) {
   assert(II && "ResultName requires an identifier");
 
   bool IsInvalid = false;
@@ -259,7 +264,32 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
         Diag(IDLoc, diag::err_result_name_shadows_param) << II;
         Diag(PVD->getLocation(), diag::note_previous_declaration);
         New->setInvalidDecl(true);
+      } else if (PrevDecl && isa<VarDecl, FieldDecl, BindingDecl>(PrevDecl) &&
+                 !Diags.isIgnored(diag::warn_decl_shadow, IDLoc)) {
+        // -Wshadow: a result binding hides variables and fields like a local
+        // variable does.
+        CheckShadow(New, PrevDecl, R);
       }
+    }
+  }
+
+  // The attributes of the attributed-identifier appertain to the result
+  // binding; only [[maybe_unused]] is meaningful for it.
+  if (Attrs) {
+    for (const ParsedAttr &AL : *Attrs) {
+      if (AL.isInvalid() || AL.getKind() == ParsedAttr::IgnoredAttribute)
+        continue;
+      if (AL.getKind() == ParsedAttr::UnknownAttribute) {
+        DiagnoseUnknownAttribute(AL);
+        continue;
+      }
+      if (AL.getKind() == ParsedAttr::AT_Unused) {
+        if (AL.checkExactlyNumArgs(*this, 0))
+          New->addAttr(UnusedAttr::Create(Context, AL));
+        continue;
+      }
+      Diag(AL.getLoc(), diag::err_attribute_invalid_on_result_name)
+          << AL << AL.isRegularKeywordAttribute() << AL.getRange();
     }
   }
 

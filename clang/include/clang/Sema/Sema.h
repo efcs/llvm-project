@@ -3317,9 +3317,13 @@ public:
   /// range of its tokens. See ContractStmt::getPredicateText().
   std::string getContractPredicateText(SourceRange PredicateRange) const;
 
+  /// \param Attrs the attributes of the attributed-identifier which
+  /// declares the result binding, if any.
   ResultNameDecl *ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                             QualType T, SourceLocation IDLoc,
-                                            IdentifierInfo *II, unsigned FunctionScopeDepth);
+                                            IdentifierInfo *II,
+                                            unsigned FunctionScopeDepth,
+                                            ParsedAttributes *Attrs = nullptr);
 
   ExprResult ActOnContractAssertCondition(Expr *Cond);
 

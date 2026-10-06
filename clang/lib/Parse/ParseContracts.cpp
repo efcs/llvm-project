@@ -257,12 +257,33 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   ResultNameDecl *RND = nullptr;
   // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
   // can diagnose it but we don't do the same for contract assert... Should we?
-  if ((CK != ContractKind::Assert) && Tok.is(tok::identifier) &&
-      NextToken().is(tok::colon)) {
+  //
+  //   result-name-introducer:
+  //     attributed-identifier :
+  //   attributed-identifier:
+  //     identifier attribute-specifier-seq[opt]
+  bool IsResultNameIntroducer = false;
+  if (CK != ContractKind::Assert && Tok.is(tok::identifier)) {
+    if (NextToken().is(tok::colon)) {
+      IsResultNameIntroducer = true;
+    } else if (NextToken().is(tok::l_square)) {
+      // '[[' can only start an attribute-specifier here.
+      TentativeParsingAction TPA(*this);
+      ConsumeToken();
+      SkipCXX11Attributes();
+      IsResultNameIntroducer = Tok.is(tok::colon);
+      TPA.Revert();
+    }
+  }
+  if (IsResultNameIntroducer) {
     // Let this parse for non-post contracts. We'll diagnose it later.
 
     IdentifierInfo *Id = Tok.getIdentifierInfo();
     SourceLocation IdLoc = ConsumeToken();
+
+    // The attributes appertain to the result binding.
+    ParsedAttributes ResultNameAttrs(AttrFactory);
+    MaybeParseCXX11Attributes(ResultNameAttrs);
 
     ExprLoc = ConsumeToken();
     QualType ReturnType;
@@ -278,7 +299,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       FunctionScopeDepth = FD->getParamDecl(0)->getFunctionScopeDepth();
 
     RND = Actions.ActOnResultNameDeclarator(CK, getCurScope(), ReturnType,
-                                            IdLoc, Id, FunctionScopeDepth);
+                                            IdLoc, Id, FunctionScopeDepth,
+                                            &ResultNameAttrs);
 
     if (!RND)
       return StmtError();
