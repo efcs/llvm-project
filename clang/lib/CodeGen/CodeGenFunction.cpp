@@ -1418,8 +1418,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 }
 
 void CodeGenFunction::EmitFunctionBody(const Stmt *Body) {
-  incrementProfileCounter(Body);
-  maybeCreateMCDCCondBitmap();
+  incrementFunctionBodyProfileCounter(Body);
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);
   else
@@ -1608,6 +1607,10 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
+  // Assign the profile counters of the function. This includes the counters
+  // for the predicates of its function contract assertions.
+  PGO->assignRegionCounters(GD, CurFn);
+
   // Emit the precondition assertions before anything else in the body (in
   // particular, before any member or base initializers of a constructor), but
   // only in the function that actually runs the user-written body. The
@@ -1615,8 +1618,12 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   if (shouldEmitFunctionContracts(GD)) {
     ContractsFD = FD;
     // The preconditions of a destructor are emitted by EmitDestructorBody.
-    if (!isa<CXXDestructorDecl>(FD))
+    if (!isa<CXXDestructorDecl>(FD)) {
+      // Count the function as entered before evaluating its preconditions.
+      if (Body && hasCheckedPreconditions(FD))
+        incrementFunctionBodyProfileCounter(Body);
       EmitPreconditions(FD);
+    }
     BeginFunctionPostconditions();
   }
 
@@ -1632,7 +1639,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     CurFn->addFnAttr(llvm::Attribute::MustProgress);
 
   // Generate the body of the function.
-  PGO->assignRegionCounters(GD, CurFn);
   if (isa<CXXDestructorDecl>(FD))
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))

@@ -458,6 +458,10 @@ public:
   /// ReturnBlock is redirected to a block in which FinishFunction evaluates
   /// the postconditions, and this holds the original return block.
   JumpDest PostconditionsSavedReturnBlock;
+  /// Whether the profile counter of the function body has been incremented.
+  /// For a function with precondition assertions that is done before they are
+  /// evaluated, so that the counts of the predicates are consistent with it.
+  bool IncrementedFunctionBodyProfileCounter = false;
   /// The cleanup depth enclosing the cleanups of the function body, i.e.
   /// everything but the cleanups of the parameters, when the function has
   /// postcondition assertions.
@@ -1770,6 +1774,11 @@ public:
   void incrementProfileCounter(const Stmt *S, llvm::Value *StepV = nullptr) {
     incrementProfileCounter(UseExecPath, S, false, StepV);
   }
+
+  /// Increment the profiler's counter for the body \p Body of the current
+  /// function and set up the MC/DC state, unless that has already been done
+  /// before evaluating the precondition assertions of the function.
+  void incrementFunctionBodyProfileCounter(const Stmt *Body);
 
   /// Emit increment of Counter.
   /// \param ExecSkip Use `Skipped` Counter if UseSkipPath is specified.

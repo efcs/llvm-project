@@ -17,6 +17,7 @@
 #include "CGOpenCLRuntime.h"
 #include "CodeGenFunction.h"
 #include "CodeGenModule.h"
+#include "CodeGenPGO.h"
 #include "ConstantEmitter.h"
 #include "TargetInfo.h"
 #include "clang/AST/ASTLambda.h"
@@ -533,6 +534,11 @@ bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
 void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {
   for (const ContractStmt *S : FD->preconditions())
     EmitStmt(S);
+
+  // The execution counts of the conditions in the predicates do not apply to
+  // the function body which follows.
+  if (const Stmt *Body = FD->getBody())
+    PGO->setCurrentStmt(Body);
 }
 
 void CodeGenFunction::BeginFunctionPostconditions() {
