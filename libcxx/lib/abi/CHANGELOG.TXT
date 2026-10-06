@@ -28,8 +28,18 @@ Version 24.0
 
   std::contracts is no longer declared in libc++'s versioning namespace, as the
   ABI fixes the symbol names of contract_violation's member functions, so the
-  symbols below were renamed. On Apple platforms libc++ re-exports the new
-  libc++abi symbols.
+  symbols below were renamed.
+
+  libc++ references the runtime's chain reader (__cxa_find_field) and default
+  handler (__contract_invoke_default_handler). On Apple platforms it re-exports
+  the runtime's symbols from libc++abi (libcxxabi/lib/contracts.exp), and on
+  Android, where libc++abi is merged into libc++, it defines them, including
+  the weak reference through which the runtime calls the program's handler
+  (__handle_contract_violation). The ABI list tooling now tracks the two
+  runtime symbols that are not named __cxa_* (libcxx/utils/libcxx/sym_check).
+  When libc++ is built on an ABI library other than libc++abi, it hosts the
+  runtime itself and defines these symbols; there is no ABI list for such
+  configurations.
 
   All platforms
   -------------
@@ -51,6 +61,33 @@ Version 24.0
   Symbol added: _ZNKSt9contracts18contract_violation8locationEv
   Symbol added: _ZNKSt9contracts18contract_violation8semanticEv
   Symbol added: _ZNSt9contracts41invoke_default_contract_violation_handlerERKNS_18contract_violationE
+
+  x86_64-unknown-linux-gnu, x86_64-unknown-freebsd, powerpc-ibm-aix, powerpc64-ibm-aix
+  -----------------------------------------------------------------------------------
+  Symbol added (undefined): __cxa_find_field
+  Symbol added (undefined): __contract_invoke_default_handler
+
+  <arch>-apple-darwin
+  -------------------
+  Symbol added (undefined): ___cxa_find_field
+  Symbol added (undefined): ___contract_invoke_default_handler
+  Symbol added (re-exported from libc++abi): ___cxa_find_field
+  Symbol added (re-exported from libc++abi): ___contract_invoke_default_handler
+  Symbol added (re-exported from libc++abi): ___handle_contract_violation
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_noexcept
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}_noexcept
+
+  <arch>-linux-android23
+  ----------------------
+  Symbol added: __cxa_find_field
+  Symbol added: __contract_invoke_default_handler
+  Symbol added: __cxa_contract_violation
+  Symbol added: __cxa_contract_violation_noexcept
+  Symbol added: __cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}
+  Symbol added: __cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}_noexcept
+  Symbol added (undefined, weak): __handle_contract_violation
 
 * [libc++][Contracts] Add the C++26 contracts runtime (P2900R14)
 
