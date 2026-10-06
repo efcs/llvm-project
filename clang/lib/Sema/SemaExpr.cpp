@@ -18780,7 +18780,10 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
       Cached = std::move(Eval.Val);
       return true;
     }
-    return false;
+    // A contract violation doesn't make an expression non-constant, so it
+    // doesn't make the immediate invocation immediate-escalating either.
+    // The violation is diagnosed when the immediate invocation is evaluated.
+    return Eval.HasContractViolation;
   };
 
   if (!E.get()->isValueDependent() &&
