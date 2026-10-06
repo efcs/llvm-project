@@ -166,8 +166,10 @@ int emit(const int x)
 // IR-DAG: c"foo.h\00"
 // IR-NOT: x   >   2
 
-// The predicate text is omitted from the contract data of an assertion whose
-// message replaces it.
+// An assertion without a message has a null message pointer in its contract
+// data, and the predicate text is omitted (an empty comment) from the contract
+// data of an assertion whose message replaces it.
+// ONLY: @__contract_data = {{.*}}, ptr @.str.contract.{{[0-9]+}}, ptr null }
 // ONLY: @.str.contract.[[EMPTY:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer
 // ONLY-NOT: c"x > 3\00"
 // ONLY: @.str.contract.[[ONLY:[0-9]+]] = private unnamed_addr constant [5 x i8] c"only\00"

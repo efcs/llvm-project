@@ -79,7 +79,8 @@ void check_data_block(const DataBlock* block) {
   assert(location_equals(loc, expected_loc, expected_line_offset));
   assert(strcmp(block->comment, "check_evaluated(false)") == 0 ||
          strcmp(block->comment, "check_evaluated(x)") == 0);
-  assert(strcmp(block->message, "") == 0);
+  // The assertions have no message, which is a null pointer (not "").
+  assert(block->message == nullptr);
 }
 
 void violation(void* data, assertion_kind kind, evaluation_semantic sem, detection_mode mode) {

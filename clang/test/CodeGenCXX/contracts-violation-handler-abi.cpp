@@ -55,13 +55,13 @@
 
 // The data block of f's precondition: the descriptor, no next block, the
 // source location (file, function as __PRETTY_FUNCTION__ names it, line and
-// column of the contract keyword), the comment and the (empty) message.
+// column of the contract keyword), the comment, and a null message since the
+// assertion has none (an empty message would be an empty string).
 // CHECK: @.str.contract = private unnamed_addr constant [{{[0-9]+}} x i8] c"{{.*}}contracts-violation-handler-abi.cpp\00"
 // CHECK: @.str.contract.1 = private unnamed_addr constant [12 x i8] c"void f(int)\00"
 // CHECK: @.str.contract.2 = private unnamed_addr constant [5 x i8] c"p(x)\00"
-// CHECK: @.str.contract.3 = private unnamed_addr constant [1 x i8] zeroinitializer
-// X64: @__contract_data = private unnamed_addr constant { ptr, ptr, { ptr, ptr, i32, i32 }, ptr, ptr } { ptr @__contract_descriptor_table, ptr null, { ptr, ptr, i32, i32 } { ptr @.str.contract, ptr @.str.contract.1, i32 [[@LINE+18]], i32 15 }, ptr @.str.contract.2, ptr @.str.contract.3 }, align 8
-// X86: @__contract_data = private unnamed_addr constant { ptr, ptr, { ptr, ptr, i32, i32 }, ptr, ptr } { ptr @__contract_descriptor_table, ptr null, { ptr, ptr, i32, i32 } { ptr @.str.contract, ptr @.str.contract.1, i32 [[@LINE+17]], i32 15 }, ptr @.str.contract.2, ptr @.str.contract.3 }, align 4
+// X64: @__contract_data = private unnamed_addr constant { ptr, ptr, { ptr, ptr, i32, i32 }, ptr, ptr } { ptr @__contract_descriptor_table, ptr null, { ptr, ptr, i32, i32 } { ptr @.str.contract, ptr @.str.contract.1, i32 [[@LINE+18]], i32 15 }, ptr @.str.contract.2, ptr null }, align 8
+// X86: @__contract_data = private unnamed_addr constant { ptr, ptr, { ptr, ptr, i32, i32 }, ptr, ptr } { ptr @__contract_descriptor_table, ptr null, { ptr, ptr, i32, i32 } { ptr @.str.contract, ptr @.str.contract.1, i32 [[@LINE+17]], i32 15 }, ptr @.str.contract.2, ptr null }, align 4
 //
 // The data blocks of g (below): the enclosing function is named in each, and
 // the assertion in the body comes before the postcondition.

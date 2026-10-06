@@ -330,8 +330,10 @@ llvm::Constant *CodeGenModule::GetAddrOfContractDataBlock(const ContractStmt *S,
   // independent fields of the ABI (the message is the computed message of
   // P3099), so a message does not replace the predicate text; instead, a
   // contract_message attribute with include_source_text=false omits the text.
+  // An assertion without a message has a null message, which the runtime
+  // distinguishes from an empty one; the comment is never null.
   std::string Comment;
-  StringRef Message;
+  std::optional<StringRef> Message;
   if (const auto *MessageAttr = S->getAttrAs<ContractMessageAttr>()) {
     Message = MessageAttr->getMessage();
     if (MessageAttr->getIncludeSourceText())
@@ -351,7 +353,7 @@ llvm::Constant *CodeGenModule::GetAddrOfContractDataBlock(const ContractStmt *S,
   //   const __cxa_contract_data_block* next;    // null
   //   __cxa_source_location location;  // { file, function, line, column }
   //   const char* comment;
-  //   const char* message;
+  //   const char* message;                      // null if absent
   ContractDataBlockLayout Layout = ContractDataBlockLayout::get(*this);
   llvm::GlobalVariable *Descriptor =
       getContractDescriptorTable(*this, Layout, ContractDescriptorTable);
@@ -371,7 +373,10 @@ llvm::Constant *CodeGenModule::GetAddrOfContractDataBlock(const ContractStmt *S,
     Location.finishAndAddTo(Block);
   }
   Block.add(GetString(Comment));
-  Block.add(GetString(Message));
+  if (Message)
+    Block.add(GetString(*Message));
+  else
+    Block.addNullPointer(DefaultPtrTy);
 
   llvm::GlobalVariable *GV = Block.finishAndCreateGlobal(
       "__contract_data", Layout.Align, /*constant=*/true,

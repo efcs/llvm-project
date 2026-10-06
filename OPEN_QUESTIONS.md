@@ -133,7 +133,9 @@ Found while implementing the spec (`specification-proposal.rst`, branch
     [select `_noexcept` from the EH context]
 12. Message field: clang emits `""` when there is no message; GCC emits a null
     pointer and libstdc++'s `message()` distinguishes "absent" from "empty".
-    [emit null for absent if P3099 lands]
+    [resolved: clang emits null for an absent message and `""` for an empty one
+    (`[[clang::contract_message("")]]`); the default handler treats both as
+    absent, and `comment()` is never null]
 13. P3400 local-handler blocks (`CXA_FIELD_LOCAL_HANDLER`/`CXA_FIELD_LABEL_PTR`)
     emitted by GCC-compiled TUs are ignored by our runtime (spec §6.1 step 2).
     Support the extension in libc++abi, or document that it is not supported?
