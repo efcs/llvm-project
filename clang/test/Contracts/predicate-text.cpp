@@ -7,6 +7,7 @@
 //
 // RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-linux-gnu -ast-dump %s | FileCheck %s --check-prefix=DUMP
 // RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-linux-gnu -emit-llvm -o - %s | FileCheck %s --check-prefix=IR
+// RUN: %clang_cc1 -std=c++26 -fcontracts -triple x86_64-linux-gnu -emit-llvm -o - %s | FileCheck %s --check-prefix=ONLY
 
 #define GT(a, b) ((a) > (b))
 #define ZERO 0
@@ -158,8 +159,16 @@ int emit(const int x)
 }
 // IR-DAG: c"GT(x, 0)\00"
 // IR-DAG: c"r : r > ZERO\00"
-// IR-DAG: c"x > 2: \22custom\22\00"
-// IR-DAG: c"\22only\22\00"
+// IR-DAG: c"x > 2\00"
+// IR-DAG: c"custom\00"
+// IR-DAG: c"only\00"
 // IR-DAG: c"MY_ASSERT_NOT_ZERO(x)\00"
 // IR-DAG: c"foo.h\00"
 // IR-NOT: x   >   2
+
+// The predicate text is omitted from the contract data of an assertion whose
+// message replaces it.
+// ONLY: @.str.contract.[[EMPTY:[0-9]+]] = private unnamed_addr constant [1 x i8] zeroinitializer
+// ONLY-NOT: c"x > 3\00"
+// ONLY: @.str.contract.[[ONLY:[0-9]+]] = private unnamed_addr constant [5 x i8] c"only\00"
+// ONLY-NEXT: @__contract_data.{{[0-9]+}} = {{.*}}, ptr @.str.contract.[[EMPTY]], ptr @.str.contract.[[ONLY]] }

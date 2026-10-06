@@ -59,27 +59,27 @@ import M;
 int use(int v) { return f(v) + t(v) + grouped(v); }
 
 // CHECK-LABEL: define {{.*}} @_ZW1M1fi(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
 // ENFORCE-NEXT: unreachable
-// OBSERVE: call void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 1,
+// OBSERVE: call void @__cxa_contract_violation_pre_observe_pf_noexcept(ptr @__contract_data
 // OBSERVE-NEXT: br label %contract.end
 // QUICK: contract.violation.trap.handler:
 // QUICK-NEXT: call void @llvm.trap()
-// GROUP: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
+// GROUP: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
 // IGNORE-NOT: contract
 // IGNORE: ret i32
 
 // CHECK-LABEL: define {{.*}} @_ZW1M1tIiET_S1_(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
-// OBSERVE: call void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
+// OBSERVE: call void @__cxa_contract_violation_pre_observe_pf_noexcept(ptr @__contract_data
 // QUICK: call void @llvm.trap()
-// GROUP: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
+// GROUP: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
 // IGNORE-NOT: contract
 // IGNORE: ret i32
 
 // CHECK-LABEL: define {{.*}} @_ZW1M7groupedi(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
-// OBSERVE: call void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
+// OBSERVE: call void @__cxa_contract_violation_pre_observe_pf_noexcept(ptr @__contract_data
 // QUICK: call void @llvm.trap()
 // GROUP-NOT: contract
 // GROUP: ret i32

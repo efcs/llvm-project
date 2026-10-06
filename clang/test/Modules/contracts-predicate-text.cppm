@@ -50,8 +50,8 @@ int main() { return f(1) + t(2) + decl_only(3) + message(4); }
 // CHECK-DAG: c"r : r > 1\00"
 // CHECK-DAG: c"x != 3\00"
 // CHECK-DAG: c"x > T{}\00"
-// CHECK-DAG: c"x > 0: \22custom\22\00"
-// CHECK-DAG: c"\22only\22\00"
+// CHECK-DAG: c"custom\00"
+// CHECK-DAG: c"only\00"
 // CHECK-NOT: y < 9
 // CHECK-NOT: LT(y
 // CHECK-NOT: s < 8

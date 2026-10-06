@@ -65,7 +65,7 @@ int test_nested() {
 
 int test_lambda() {
   auto l = [](const int x) post(r : r == x) { return x; };
-  auto d = [](int x) -> auto post(r : r == x) { return x; };
+  auto d = [](const int x) -> auto post(r : r == x) { return x; };
   int r = l(1) + d(2);
   r += 1;
   return r;

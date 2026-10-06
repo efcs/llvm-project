@@ -39,21 +39,21 @@ inline int grouped(int x) pre [[clang::contract_group("grp")]] (x > 0) {
 int use(int v) { return f(v) + t(v) + grouped(v); }
 
 // CHECK-LABEL: define {{.*}} @_Z1fi(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
 // ENFORCE-NEXT: unreachable
-// OBSERVE: call void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 1,
+// OBSERVE: call void @__cxa_contract_violation_pre_observe_pf_noexcept(ptr @__contract_data
 // OBSERVE-NEXT: br label %contract.end
 // IGNORE-NOT: contract
 // IGNORE: ret i32
 
 // CHECK-LABEL: define {{.*}} @_Z1tIiET_S0_(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
-// OBSERVE: call void @__handle_contract_violation_v3(i8 noundef zeroext 2, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
+// OBSERVE: call void @__cxa_contract_violation_pre_observe_pf_noexcept(ptr @__contract_data
 // IGNORE-NOT: contract
 // IGNORE: ret i32
 
 // CHECK-LABEL: define {{.*}} @_Z7groupedi(
-// ENFORCE: call void @__handle_contract_violation_v3(i8 noundef zeroext 1, i8 noundef zeroext 1,
+// ENFORCE: call void @__cxa_contract_violation_pre_enforce_pf_noexcept(ptr @__contract_data
 // OBSERVE-NOT: contract
 // OBSERVE: ret i32
 // IGNORE-NOT: contract
