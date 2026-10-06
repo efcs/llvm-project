@@ -139,6 +139,10 @@ Found while implementing the spec (`specification-proposal.rst`, branch
 13. P3400 local-handler blocks (`CXA_FIELD_LOCAL_HANDLER`/`CXA_FIELD_LABEL_PTR`)
     emitted by GCC-compiled TUs are ignored by our runtime (spec §6.1 step 2).
     Support the extension in libc++abi, or document that it is not supported?
+    [resolved: the runtime's dispatch calls the local handler with the label
+    and the `contract_violation` first, and skips the global handler when it
+    reports the violation handled (§6.1 step 2); the post-handler termination
+    is unchanged. Clang does not emit such blocks]
 
 ## 3. Implementation decisions pending
 

@@ -197,11 +197,21 @@ void call_handler(const contract_violation& violation) {
 // Dispatch a violation to the handler, and terminate the program when the
 // handler returns from a violation with a terminating semantic.
 //
-// This is where a P3400 local handler, if the chain had one, would be called
-// before the global handler.
+// An assertion with a P3400 assertion-control object has a local handler in
+// its data block (a trampoline the compiler emits, with the address of the
+// control object as its label), which is called before the global handler and
+// may report that it handled the violation, in which case the global handler
+// is not called (specification section 6.1, step 2).
 void dispatch(const __cxa_contract_data_block* chain, uint8_t semantic) {
   contract_violation violation = {chain};
-  call_handler(violation);
+  bool handled                 = false;
+  if (__cxa_local_handler_fn_t local_handler =
+          __cxa_find_field_value<__cxa_local_handler_fn_t>(chain, CXA_FIELD_LOCAL_HANDLER, nullptr)) {
+    const void* label = __cxa_find_field_value<const void*>(chain, CXA_FIELD_LABEL_PTR, nullptr);
+    handled           = local_handler(label, &violation) != 0;
+  }
+  if (!handled)
+    call_handler(violation);
   if (semantic == CXA_ES_ENFORCE || semantic == CXA_ES_QUICK_ENFORCE)
     std::abort();
 }
