@@ -165,6 +165,13 @@ public:
     if (InfiniteSteps)
       return true;
 
+    // Once the limit has been reached, every further step fails as well:
+    // evaluation can continue after a failure (e.g. after the predicate of
+    // a contract assertion with the observe semantic could not be
+    // evaluated), and must not get an unlimited number of steps then.
+    if (LLVM_UNLIKELY(StepsLeft == 0))
+      return diagnoseStepLimitExceeded(OpPC);
+
     --StepsLeft;
     if (LLVM_LIKELY(StepsLeft != 0))
       return true;
