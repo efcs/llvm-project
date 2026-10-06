@@ -17,6 +17,8 @@ _LIBCPP_BEGIN_NAMESPACE_STD
 
 namespace contracts {
 
+_LIBCPP_BEGIN_EXPLICIT_ABI_ANNOTATIONS
+
 struct __contract_violation_impl {
   assertion_kind __kind_;
   evaluation_semantic __semantic_;
@@ -25,7 +27,7 @@ struct __contract_violation_impl {
   source_location __location_;
   exception_ptr __exception_;
 
-  contract_violation __make_violation() const noexcept { return contract_violation(this); }
+  _LIBCPP_HIDE_FROM_ABI contract_violation __make_violation() const noexcept { return contract_violation(this); }
 };
 
 const char* contract_violation::comment() const noexcept { return __impl_->__comment_; }
@@ -95,6 +97,8 @@ void invoke_default_contract_violation_handler(const contract_violation& __viola
       __semantic_to_string(__violation.semantic()));
   std::fflush(stderr);
 }
+
+_LIBCPP_END_EXPLICIT_ABI_ANNOTATIONS
 
 } // namespace contracts
 
