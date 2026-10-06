@@ -1287,17 +1287,6 @@ public:
   }
 };
 
-// This enum is silly, but avoids creating overload sets where many adjacent
-// arguments are all convertible to/from bool or int.
-enum class ContractConstification {
-  CC_None,
-  CC_ApplyConst,
-};
-
-constexpr ContractConstification CC_None = ContractConstification::CC_None;
-constexpr ContractConstification CC_ApplyConst =
-    ContractConstification::CC_ApplyConst;
-
 /// A reference to a declared variable, function, enum, etc.
 /// [C99 6.5.1p2]
 ///
@@ -1321,9 +1310,10 @@ constexpr ContractConstification CC_ApplyConst =
 ///   DeclRefExprBits.RefersToEnclosingVariableOrCapture
 ///       Specifies when this declaration reference expression (validly)
 ///       refers to an enclosed local or a captured variable.
-///   DeclRefExprBits.IsInConstificationContext
-///     Specifies when this declaration reference expression is in a context
-///     where constification is applied.
+///   DeclRefExprBits.IsContractConstified
+///       Specifies when the type of this declaration reference expression is
+///       const because it names a result binding or because it appears in the
+///       predicate of a contract assertion ([expr.prim.id.unqual]).
 class DeclRefExpr final
     : public Expr,
       private llvm::TrailingObjects<DeclRefExpr, NestedNameSpecifierLoc,
@@ -1554,14 +1544,15 @@ public:
     setDependence(computeDependence(this, Context));
   }
 
-  void setIsConstified(bool Value) { DeclRefExprBits.IsConstified = Value; }
-  bool isConstified() const { return DeclRefExprBits.IsConstified; }
-
-  void setIsInContractContext(bool Value) {
-    DeclRefExprBits.IsInContractContext = Value;
+  /// Whether the type of this expression is const because it names a result
+  /// binding ([expr.prim.id.unqual]p6) or because it appears in the predicate
+  /// of a contract assertion and names a variable or structured binding
+  /// declared outside of it ([expr.prim.id.unqual]p7, [expr.prim.id.qual]p7).
+  bool isContractConstified() const {
+    return DeclRefExprBits.IsContractConstified;
   }
-  bool isInContractContext() const {
-    return DeclRefExprBits.IsInContractContext;
+  void setIsContractConstified(bool Value) {
+    DeclRefExprBits.IsContractConstified = Value;
   }
 
   static bool classof(const Stmt *T) {

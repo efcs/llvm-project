@@ -16485,21 +16485,11 @@ LambdaScopeInfo *Sema::RebuildLambdaScopeInfo(CXXMethodDecl *CallOperator) {
       if (VD->isInitCapture())
         CurrentInstantiationScope->InstantiatedLocal(VD, VD);
       const bool ByRef = C.getCaptureKind() == LCK_ByRef;
-      QualType IT = I->getType();
-      if (C.isCapturedAcrossContract()) {
-        if (ByRef) {
-          IT = IT.getNonReferenceType().withConst();
-          IT = Context.getLValueReferenceType(IT);
-
-        }
-      }
-      LSI->addCapture(VD, /*IsBlock*/ false, ByRef,
-                      /*RefersToEnclosingVariableOrCapture*/ true,
-                      C.getLocation(),
-                      /*EllipsisLoc*/ C.isPackExpansion() ? C.getEllipsisLoc()
-                                                          : SourceLocation(),
-            IT, /*IsAcrossContract*/ C.isCapturedAcrossContract(),
-                      C.getContractLoc(), /*Invalid*/ false);
+      LSI->addCapture(VD, /*IsBlock*/false, ByRef,
+          /*RefersToEnclosingVariableOrCapture*/true, C.getLocation(),
+          /*EllipsisLoc*/C.isPackExpansion()
+                         ? C.getEllipsisLoc() : SourceLocation(),
+          I->getType(), /*Invalid*/false);
 
     } else if (C.capturesThis()) {
       LSI->addThisCapture(/*Nested*/ false, C.getLocation(), I->getType(),

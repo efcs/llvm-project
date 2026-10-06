@@ -26,9 +26,9 @@ static_assert(t(1) == 1);
 constexpr int badt = t(-1); // expected-error {{constexpr variable 'badt' must be initialized by a constant expression}}
 // expected-note@-1 {{in call to}}
 
-// FIXME: Capturing the result binding is not supported yet.
-int r1() post(r: [r] { return r > 0; }()) { return 1; } // expected-error 2 {{capturing result name 'r' in a lambda expression or block is not supported yet}}
-int r2() post(r: [&] { return r > 0; }()) { return 1; } // expected-error {{capturing result name 'r' in a lambda expression or block is not supported yet}}
+// The result binding can be captured; see result-name-capture.cpp.
+int r1() post(r: [r] { return r > 0; }()) { return 1; }
+int r2() post(r: [&] { return r > 0; }()) { return 1; }
 int r3() post(r: [] { return sizeof(decltype((r))) > 0; }()) { return 1; } // OK, not odr-used.
 
 // [expr.prim.lambda.closure]: An entity implicitly captured only because of

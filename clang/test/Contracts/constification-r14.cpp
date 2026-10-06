@@ -33,10 +33,10 @@ void pointers(int *p, C *pc, C &rc, C c) {
 struct Agg { int a, b; };
 void bindings(Agg x) {
   auto [a, b] = x;
-  contract_assert(++a); // expected-error {{cannot assign to variable 'a' because it is considered 'const' inside of a contract}}
+  contract_assert(++a); // expected-error {{cannot assign to structured binding 'a' because it is considered 'const' inside of a contract}}
   int arr[2] = {};
   auto &[c, d] = arr;
-  contract_assert(++c); // expected-error {{cannot assign to variable 'c' because it is considered 'const' inside of a contract}}
+  contract_assert(++c); // expected-error {{cannot assign to structured binding 'c' because it is considered 'const' inside of a contract}}
   static_assert(__is_same(decltype((a)), int &));
   contract_assert(__is_same(decltype((a)), const int &));
 }
@@ -48,7 +48,7 @@ void inside(int x) {
   contract_assert([x]() mutable { ++x; return x; }() > 0);
   contract_assert([=]() mutable { ++x; return x; }() > 0);
   contract_assert([y = x]() mutable { ++y; return y; }() > 0);
-  contract_assert([&x] { ++x; return x; }() > 0); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+  contract_assert([&x] { ++x; return x; }() > 0); // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
 }
 
 // A lambda defined outside of the contract assertion is unaffected.

@@ -136,7 +136,7 @@ StmtResult Parser::ParseContractAssertStatement() {
   assert((Tok.is(tok::kw_contract_assert)) &&
          "Not a contract asssert statement");
   bool IsInvalidTmp = false;
-  return ParseFunctionContractSpecifierImpl({}, CSO_FunctionContext, IsInvalidTmp);
+  return ParseFunctionContractSpecifierImpl({}, IsInvalidTmp);
 }
 
 /// ParseFunctionContractSpecifierSeq - Parse a series of pre/post contracts on
@@ -175,8 +175,8 @@ void Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo) {
   SmallVector<ContractStmt *, 4> Contracts;
   while (isFunctionContractKeyword(Tok)) {
     bool IsInvalidTmp = false;
-    StmtResult Contract = ParseFunctionContractSpecifierImpl(
-        ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
+    StmtResult Contract =
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, IsInvalidTmp);
     IsInvalid |= IsInvalidTmp;
     if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
@@ -190,13 +190,11 @@ void Parser::ParseContractSpecifierSequence(Declarator &DeclarationInfo) {
 }
 
 StmtResult Parser::ParseFunctionContractSpecifierImpl(
-    llvm::function_ref<QualType()> ReturnTypeResolver, ContractScopeOffset ScopeOffset, bool &IsInvalid) {
+    llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid) {
   assert(isAnyContractKeyword(Tok) && "Not a contract keyword?");
   ContractKind CK = getContractKeyword(Tok).value();
   assert((CK == ContractKind::Assert || ReturnTypeResolver) &&
          "Missing return type resolver for function contract sequence");
-  assert((ScopeOffset == CSO_FunctionContext || CK != ContractKind::Assert) &&
-         "Incorrect scope offset for contract assert");
   llvm::scope_exit SetInvalidOnExit([&]() { IsInvalid = true; });
 
   const char *CKStr = getContractKeywordStr(CK);
@@ -264,7 +262,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   }
 
   ExprResult Cond = [&]() {
-    Sema::ContractScopeRAII ContractScope(Actions, CK, ScopeOffset, KeywordLoc);
+    Sema::ContractScopeRAII ContractScope(Actions, CK, KeywordLoc);
     ExprResult CondResult = ParseConditionalExpression();
     if (CondResult.isInvalid())
       return CondResult;
@@ -374,8 +372,8 @@ bool Parser::ParseLexedFunctionContracts(
   while (isFunctionContractKeyword(Tok)) {
     assert(Actions.CurContext == FunctionToPush);
     bool IsInvalidTmp = false;
-    StmtResult Contract = ParseFunctionContractSpecifierImpl(
-        ReturnTypeResolver, CSO_FunctionContext, IsInvalidTmp);
+    StmtResult Contract =
+        ParseFunctionContractSpecifierImpl(ReturnTypeResolver, IsInvalidTmp);
     if (Contract.isUsable())
       Contracts.push_back(Contract.getAs<ContractStmt>());
     IsInvalid |= IsInvalidTmp;

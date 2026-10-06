@@ -853,7 +853,6 @@ QualType Sema::buildLambdaInitCaptureInitialization(
   TypeLocBuilder TLB;
   AutoTypeLoc TL = TLB.push<AutoTypeLoc>(DeductType);
   TL.setNameLoc(Loc);
-
   if (ByRef) {
     DeductType = BuildReferenceType(DeductType, true, Loc, Id);
     assert(!DeductType.isNull() && "can't build reference to auto");
@@ -938,8 +937,7 @@ void Sema::addInitCapture(LambdaScopeInfo *LSI, VarDecl *Var, bool ByRef) {
   assert(Var->isInitCapture() && "init capture flag should be set");
   LSI->addCapture(Var, /*isBlock=*/false, ByRef,
                   /*isNested=*/false, Var->getLocation(), SourceLocation(),
-                  Var->getType(), /*AcrossContract=*/false,
-                  /*ContractLoc=*/SourceLocation(), /*Invalid=*/false);
+                  Var->getType(), /*Invalid=*/false);
 }
 
 // Unlike getCurLambda, getCurrentLambdaScopeUnsafe doesn't
@@ -1315,12 +1313,10 @@ void Sema::ActOnLambdaExpressionAfterIntroducer(LambdaIntroducer &Intro,
 
       if (auto *BD = R.getAsSingle<BindingDecl>())
         Var = BD;
-      else if (auto *RND = R.getAsSingle<ResultNameDecl>()) {
-        // FIXME: A result binding ([dcl.contract.res]) is a local entity
-        // that can be captured, but capturing it is not yet supported.
-        Diag(C->Loc, diag::err_result_name_capture_unsupported) << RND;
-        continue;
-      } else if (R.getAsSingle<FieldDecl>()) {
+      else if (auto *RND = R.getAsSingle<ResultNameDecl>())
+        // A result binding ([dcl.contract.res]) is a local entity.
+        Var = RND;
+      else if (R.getAsSingle<FieldDecl>()) {
         Diag(C->Loc, diag::err_capture_class_member_does_not_name_variable)
             << C->Id;
         continue;
@@ -1367,7 +1363,7 @@ void Sema::ActOnLambdaExpressionAfterIntroducer(LambdaIntroducer &Intro,
 
     VarDecl *Underlying = Var->getPotentiallyDecomposedVarDecl();
 
-    if (!Underlying->hasLocalStorage()) {
+    if (!isa<ResultNameDecl>(Var) && !Underlying->hasLocalStorage()) {
       Diag(C->Loc, diag::err_capture_non_automatic_variable) << C->Id;
       Diag(Var->getLocation(), diag::note_previous_decl) << C->Id;
       continue;
@@ -1465,6 +1461,7 @@ void Sema::ActOnLambdaClosureParameters(
 void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
                                         Declarator &ParamInfo,
                                         const DeclSpec &DS) {
+
   LambdaScopeInfo *LSI = getCurrentLambdaScopeUnsafe(*this);
   LSI->CallOperator->setConstexprKind(DS.getConstexprSpecifier());
   LSI->BeforeCompoundStatement = false;
@@ -1962,11 +1959,9 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     return ExprResult();
 
   // An init-capture is initialized directly from its stored initializer.
-  if (Cap.isInitCapture()) {
-    auto Init = cast<VarDecl>(Cap.getVariable())->getInit();
-    assert(Init);
-    return Init;
-  }
+  if (Cap.isInitCapture())
+    return cast<VarDecl>(Cap.getVariable())->getInit();
+
   // For anything else, build an initialization expression. For an implicit
   // capture, the capture notionally happens at the capture-default, so use
   // that location here.
@@ -1988,7 +1983,11 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
   ExprResult Init;
   IdentifierInfo *Name = nullptr;
   if (Cap.isThisCapture()) {
-    QualType ThisTy = getCurrentThisType();
+    // The capture refers to the '*this' object itself; whether the
+    // lambda-expression appears in the predicate of a contract assertion does
+    // not affect its type.
+    QualType ThisTy =
+        getCurrentThisType(/*ApplyContractConstification=*/false);
     Expr *This = BuildCXXThisExpr(Loc, ThisTy, ImplicitCaptureLoc.isValid());
     if (Cap.isCopyCapture())
       Init = CreateBuiltinUnaryOp(Loc, UO_Deref, This);
@@ -2009,13 +2008,18 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
       //   auto lambda = [a]() { return a; };  // In OpenMP context.
       // This is reached during lambda capture for OpenMP mappings.
       Var = BD->getDecomposedDecl();
+    // The capture refers to the entity itself; whether the lambda-expression
+    // appears in the predicate of a contract assertion does not affect its
+    // type ([expr.prim.id.unqual]p7 applies to id-expressions). However, a
+    // result binding is only ever copied from as a const object, so that the
+    // capture cannot modify the result of the function.
     Name = Var->getIdentifier();
     Init = BuildDeclarationNameExpr(
-        CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var);
-    if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(Init.get())) {
-      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture())
-        DRE->setIsInContractContext(true);
-    }
+        CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var,
+        /*FoundD=*/nullptr, /*TemplateArgs=*/nullptr,
+        /*AcceptInvalidDecl=*/false,
+        /*ContractConstified=*/isa<ResultNameDecl>(Var) &&
+            Cap.isCopyCapture());
   }
 
   // In OpenMP, the capture kind doesn't actually describe how to capture:
@@ -2028,25 +2032,8 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     return ExprError();
 
   Expr *InitExpr = Init.get();
-
-  bool NeedsConst = [&]() {
-    if (!InitExpr)
-      return false;
-
-    auto *DRE = dyn_cast<DeclRefExpr>(InitExpr);
-    if (!DRE)
-      return false;
-
-    return DRE->isInContractContext();
-  }();
-
-  QualType CapT = Cap.getCaptureType();
-  if (CapT->isReferenceType() && NeedsConst) {
-    CapT = Context.getLValueReferenceType(CapT->getPointeeType().withConst());
-  }
-
-  InitializedEntity Entity =
-      InitializedEntity::InitializeLambdaCapture(Name, CapT, Loc);
+  InitializedEntity Entity = InitializedEntity::InitializeLambdaCapture(
+      Name, Cap.getCaptureType(), Loc);
   InitializationKind InitKind =
       InitializationKind::CreateDirect(Loc, Loc, Loc);
   InitializationSequence InitSeq(*this, Entity, InitKind, InitExpr);
@@ -2142,14 +2129,6 @@ FieldDecl *Sema::BuildCaptureField(RecordDecl *RD, const sema::Capture &Capture,
                                    bool IsOpenMP) {
   SourceLocation Loc = Capture.getLocation();
   QualType FieldType = Capture.getCaptureType();
-  if (Capture.isCapturedAcrossContract() && Capture.isVariableCapture()) {
-    if (FieldType->isReferenceType()) {
-      assert(!FieldType->isRValueReferenceType());
-      QualType TmpT = FieldType.getNonReferenceType();
-      TmpT.addConst();
-      FieldType = Context.getLValueReferenceType(TmpT);
-    }
-  }
 
   TypeSourceInfo *TSI = nullptr;
   if (Capture.isVariableCapture()) {
@@ -2209,9 +2188,6 @@ FieldDecl *Sema::BuildCaptureField(RecordDecl *RD, const sema::Capture &Capture,
 
   if (Capture.isVLATypeCapture())
     Field->setCapturedVLAType(Capture.getCapturedVLAType());
-
-  if (Capture.isCapturedAcrossContract())
-    Field->setIsConstifiedCapture(true);
 
   return Field;
 }
@@ -2301,11 +2277,25 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     if (From.isInvalid())
       return ExprError();
 
-
     assert(!From.isBlockCapture() && "Cannot capture __block variables");
     bool IsImplicit = I >= LSI->NumExplicitCaptures;
     SourceLocation ImplicitCaptureLoc =
         IsImplicit ? CaptureDefaultLoc : SourceLocation();
+    // [expr.prim.lambda.closure]p10: A contract assertion of the lambda
+    // cannot be the only reason for an implicit capture.
+    if (IsImplicit && !From.isVLATypeCapture() &&
+        From.isOnlyReferencedInContracts()) {
+      Diag(CaptureDefaultLoc,
+           diag::err_lambda_implicit_capture_in_contracts_only)
+          << From.isThisCapture()
+          << (From.isThisCapture() ? nullptr : From.getVariable());
+      Diag(From.getLocation(),
+           diag::note_lambda_implicit_capture_in_contract_usage)
+          << From.isThisCapture()
+          << (From.isThisCapture() ? nullptr : From.getVariable());
+      Diag(From.getContractLoc(), diag::note_contract_context);
+    }
+
 
     // Use source ranges of explicit captures for fixits where available.
     SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];
@@ -2324,7 +2314,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
         IsCaptureUsed =
             !DiagnoseUnusedLambdaCapture(CaptureRange, FixItRange, From);
       }
-
     }
 
     if (CaptureRange.isValid()) {
@@ -2353,15 +2342,8 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
         assert(From.isVariableCapture() && "unknown kind of capture");
         ValueDecl *Var = From.getVariable();
         LambdaCaptureKind Kind = From.isCopyCapture() ? LCK_ByCopy : LCK_ByRef;
-
-
-        LambdaCapture Cap(From.getLocation(), IsImplicit, Kind, Var,
+        return LambdaCapture(From.getLocation(), IsImplicit, Kind, Var,
                              From.getEllipsisLoc());
-        if (From.isCapturedAcrossContract() && !From.isCopyCapture())
-          Cap.setCapturedAcrossContract(true, From.getContractLoc());
-
-        return Cap;
-
       }
     }();
 
@@ -2462,10 +2444,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     }
     maybeAddDeclWithEffects(LSI->CallOperator);
   }
-  // Diagnose lambda captures that occur exclusively within contract statements
-  // within the lambda.
-  CheckLambdaCapturesForContracts(Lambda);
-
   return MaybeBindToTemporary(Lambda);
 }
 

@@ -40,7 +40,7 @@ void foo(int x) {
   contract_assert([&](int y) {
     ((void)x);
     ++y;
-    ++x; // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+    ++x; // expected-error {{cannot assign to variable 'x' because it is considered 'const' inside of a contract}}
     return true;
   }(42));
 }
@@ -108,7 +108,7 @@ void f(int p) {
 namespace Other {
 void f(int x) {
   int a; contract_assert([&] {
-    ++a; // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+    ++a; // expected-error {{cannot assign to variable 'a' because it is considered 'const' inside of a contract}}
     using T = decltype((a));
     AssertConstRef<T>{};
     return true;
@@ -173,15 +173,15 @@ namespace DoubleDeep {
         contract_assert( // expected-note {{contract}}
           [&]
           (int v) {
-            ++y; // expected-error {{inside a contract}}
-            ++x; // expected-error {{inside a contract}}
-            ++a; // expected-error {{inside a contract}} expected-note {{required here}}
+            ++y; // expected-error {{inside of a contract}}
+            ++x; // expected-error {{inside of a contract}}
+            ++a; // expected-error {{inside of a contract}} expected-note {{required here}}
             ++v; // OK
 
           return [&](int w) {
-            ++a; // expected-error {{inside a contract}}
-            ++x; // expected-error {{inside a contract}}
-            ++y; // expected-error {{inside a contract}}
+            ++a; // expected-error {{inside of a contract}}
+            ++x; // expected-error {{inside of a contract}}
+            ++y; // expected-error {{inside of a contract}}
             ++v; // OK
             ++w; // OK
             return true;
@@ -213,11 +213,11 @@ namespace CaptureThisByRef {
   struct A {
     int x;
     void f() {
-      [&] {
+      [&] { // expected-error {{implicit capture of 'this' is not allowed when used exclusively in contract assertions}}
         AssertSame<decltype(this), A*>{};
-        contract_assert([&]() {
+        contract_assert([&]() { // expected-note {{within contract context introduced here}}
           AssertSame<decltype((this)), const A*>{};
-          ++x; // expected-error {{inside of a contract}}
+          ++x; // expected-error {{inside of a contract}} expected-note {{capture of 'this' is required here}}
 
           struct U {
             int z = 42;

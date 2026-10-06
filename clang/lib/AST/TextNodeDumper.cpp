@@ -1692,8 +1692,8 @@ void TextNodeDumper::VisitDeclRefExpr(const DeclRefExpr *Node) {
   if (Node->isImmediateEscalating())
     OS << " immediate-escalating";
 
-  if (Node->isInContractContext())
-    OS << " in-contract";
+  if (Node->isContractConstified())
+    OS << " contract_constified";
 }
 
 void clang::TextNodeDumper::VisitDependentScopeDeclRefExpr(

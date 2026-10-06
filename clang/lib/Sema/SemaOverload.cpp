@@ -6390,15 +6390,19 @@ ExprResult Sema::PerformImplicitObjectArgumentInitialization(
         Diag(Method->getLocation(), diag::note_previous_decl)
           << Method->getDeclName();
 
-        // FIXME(EricWF): We might be here because we've made the 'this' type
-        // const because we're  in a contract statement. But I don't know how do
-        // reliably check that here.
-        if (getCurrentContractEntry() &&
-            getCurrentContractEntry()->AddedConstToCXXThis) {
-          // If we're in a contract assertion context, we can't modify the
-          // 'this' type. So we'll just return an error here.
-          Diag(getCurrentContractKeywordLoc(),
-               diag::note_cxx_this_const_in_contract_introduced_here);
+
+        // If the object expression is 'this' and it is only const because it
+        // appears in the predicate of a contract assertion, say so.
+        if (const auto *This =
+                dyn_cast<CXXThisExpr>(From->IgnoreParenImpCasts());
+            This && (CVR & Qualifiers::Const)) {
+          QualType ThisTy =
+              getCurrentThisType(/*ApplyContractConstification=*/false);
+          if (!ThisTy.isNull() && !ThisTy->getPointeeType().isConstQualified())
+            if (const ContractScopeRecord *CSR =
+                    getEnclosingContractAssertion())
+              Diag(CSR->KeywordLoc,
+                   diag::note_cxx_this_const_in_contract_introduced_here);
         }
         return ExprError();
       }

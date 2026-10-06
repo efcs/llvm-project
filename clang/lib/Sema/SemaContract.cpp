@@ -114,6 +114,8 @@ template <class T> ValueRAII(T &, T const &) -> ValueRAII<T>;
 namespace {
 
 /// Substitute the 'auto' specifier or deduced template specialization type
+  // Finish the full-expression while the contract assertion is still being
+  // tracked, so that any captures it requires are attributed to it.
 /// specifier within a type for a given replacement type.
 class RebuildAutoResultName : public TreeTransform<RebuildAutoResultName> {
   QualType Replacement;
@@ -150,11 +152,10 @@ public:
 } // namespace
 
 ExprResult Sema::ActOnContractAssertCondition(Expr *Cond)  {
-  assert(currentEvaluationContext().isContractAssertionContext() &&
-         "Wrong context for statement");
+  assert(isContractAssertionContext() && "Wrong context for statement");
 
   if (Cond->isTypeDependent())
-    return Cond;
+    return ActOnFinishFullExpr(Cond, /*DiscardedValue=*/false);
 
   ConditionResult Res = ActOnCondition(getCurScope(), Cond->getExprLoc(), Cond, Sema::ConditionKind::Boolean, /*MissingOK=*/false);
   if (Res.isInvalid())
@@ -185,8 +186,6 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   if (RND) {
     StmtResult NewDeclStmt = ActOnDeclStmt(
         ConvertDeclToDeclGroup(RND), RND->getLocation(), RND->getLocation());
-
-    // FIXME(EricWF): Can this happen?
     if (NewDeclStmt.isInvalid())
       return StmtError();
     RNDStmt = NewDeclStmt.getAs<DeclStmt>();
@@ -207,8 +206,8 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   return ActOnFinishFullStmt(Res.get());
 }
 
-/// ActOnResultNameDeclarator - Called from Parser::ParseFunctionDeclarator()
-/// to introduce parameters into function prototype scope.
+/// Declare the result binding introduced by the result-name-introducer of a
+/// postcondition-specifier ([dcl.contract.res]).
 ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
                                                 QualType RetType,
                                                 SourceLocation IDLoc,
@@ -241,24 +240,23 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(ContractKind CK, Scope *S,
   if (IsInvalid)
     New->setInvalidDecl();
 
-  // Check for redeclaration of parameters, e.g. int foo(int x, int x);
-  if (II) {
+  // [basic.scope.contract]p2: The result-name-introducer shall not
+  // potentially conflict with a declaration in the function parameter scope
+  // of the function.
+  // FIXME: This should also apply to the lambda scope of the lambda-expression
+  // the postcondition is associated with, if any (its init-captures).
+  if (S) {
     LookupResult R(*this, II, IDLoc, LookupOrdinaryName,
-                   RedeclarationKind::ForVisibleRedeclaration); // FIXME(EricWF)
+                   RedeclarationKind::ForVisibleRedeclaration);
     LookupName(R, S);
     if (!R.empty()) {
       NamedDecl *PrevDecl = *R.begin();
       if (R.isSingleResult() && PrevDecl->isTemplateParameter()) {
-        // Maybe we will complain about the shadowed template parameter.
-        // DiagnoseTemplateParameterShadow(D.getIdentifierLoc(), PrevDecl);
         // Just pretend that we didn't see the previous declaration.
         PrevDecl = nullptr;
       }
-      // FIXME(EricWF): Diagnose lookup conflicts with lambda captures and
-      // parameter declarations.
-      if (auto *PVD = dyn_cast<ParmVarDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_result_name_shadows_param)
-            << II; // FIXME(EricWF): Change the diagnostic here.
+      if (auto *PVD = dyn_cast_if_present<ParmVarDecl>(PrevDecl)) {
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II;
         Diag(PVD->getLocation(), diag::note_previous_declaration);
         New->setInvalidDecl(true);
       }
@@ -560,10 +558,8 @@ static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
 
   // Check for post-conditions that reference non-const parameters.
   ParamReferenceChecker Checker(S, FD);
-  for (auto *CS : CSD->postconditions()) {
+  for (auto *CS : CSD->postconditions())
     Checker.TraverseContractStmt(CS);
-    // FIXME(EricWF): DIagnose non-const function param types.
-  }
 }
 
 /// Diagnose parameters of the redeclaration \p Redecl which are not const, but
@@ -646,17 +642,11 @@ void Sema::InstantiateContractSpecifier(
   ContractSpecifierDecl *PatternCSD = ContractPattern->getContracts();
   bool IsInvalid = PatternCSD->isInvalidDecl();
 
-  auto *Method = dyn_cast<CXXMethodDecl>(Instantiation);
-  if (Method && !Method->isImplicitObjectMemberFunction())
-    Method = nullptr;
-
-  Sema::ContextRAII SavedContext(*this, Instantiation);
-  // Lambdas within the contracts need an enclosing function scope.
-  FunctionScopeRAII PopFunctionScope(*this);
-  PushFunctionScope();
-  Sema::CXXThisScopeRAII ThisScope(
-      *this, Method ? Method->getParent() : nullptr,
-      Method ? Method->getMethodQualifiers() : Qualifiers{}, Method != nullptr);
+  // The contracts are instantiated along with the definition of the function,
+  // in its context and function scope (so that lambda-expressions within the
+  // contracts can capture the parameters).
+  assert(CurContext == Instantiation && getCurFunction() &&
+         "contracts are instantiated with the definition of the function");
 
   LocalInstantiationScope Scope(*this, /*CombineWithOuterScope=*/true);
 
@@ -881,12 +871,8 @@ Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
   std::optional<Sema::CXXThisScopeRAII> ThisScope;
   if (auto *CXXMethod = dyn_cast<CXXMethodDecl>(Def);
       CXXMethod && CXXMethod->isImplicitObjectMemberFunction()) {
-    Qualifiers MethodQuals = CXXMethod->getMethodQualifiers();
-    if (LangOpts.ContractConstification)
-      MethodQuals.addConst();
     ThisScope.emplace(*this, CXXMethod->getParent(),
-                      MethodQuals,
-                      /*IsLambda*/ false);
+                      CXXMethod->getMethodQualifiers(), /*Enabled=*/true);
   }
   RebuildFunctionContracts Rebuilder(*this, true);
   for (unsigned I = 0; I < First->getNumParams(); ++I) {
@@ -1013,7 +999,11 @@ struct CoroutineParamUseChecker
     return true;
   }
 };
-} // namespace
+  // If a lambda-expression within the predicate captures the entity by copy,
+  // the id-expression names the member of the closure type instead.
+  if (Var->isLocalVarDeclOrParm() &&
+      isCapturedByCopyInLambda(*this, FirstNestedScope, VD))
+    return false;
 
 static void diagnoseCoroutinePostconditionParams(Sema &S, FunctionDecl *FD) {
   CoroutineParamUseChecker Checker(S, FD);
@@ -1072,51 +1062,67 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
     diagnoseCoroutinePostconditionParams(*this, Def);
 }
 
-/// Return true if \p Var is declared within the predicate of the contract
-/// assertion \p CSR (e.g. within a lambda-expression or statement-expression
-/// contained in the predicate).
+/// Return true if the entity declared in \p EntityDC at \p EntityLoc is
+/// declared within the predicate of the contract assertion \p CSR, given that
+/// it can be named from within that predicate.
 static bool isDeclaredWithinContract(const Sema &S,
                                      const Sema::ContractScopeRecord &CSR,
-                                     const VarDecl *Var) {
-  const DeclContext *VarDC = Var->getDeclContext();
-  const DeclContext *ContractDC = CSR.ContextAtPush;
-  if (!ContractDC->Encloses(VarDC))
+                                     const DeclContext *EntityDC,
+                                     SourceLocation EntityLoc) {
+  const DeclContext *ContractDC = CSR.Context;
+  if (!ContractDC->Encloses(EntityDC))
     return false;
 
-  // Declared in a lambda, block, or local class within the predicate.
-  if (VarDC->getPrimaryContext() != ContractDC->getPrimaryContext())
+  // An entity declared in a lambda-expression, block, requires-expression or
+  // local class nested within the context of the contract assertion can only
+  // be named from within the predicate if that construct is part of the
+  // predicate.
+  if (!ContractDC->Equals(EntityDC))
     return true;
 
-  // Declared in the same context as the contract assertion. It is declared
-  // within the predicate only if it appears after the contract keyword (e.g.
-  // in a statement-expression).
-  if (isa<ParmVarDecl>(Var) || !Var->isLocalVarDecl())
-    return false;
-  return S.getSourceManager().isBeforeInTranslationUnit(CSR.KeywordLoc,
-                                                        Var->getLocation());
+  // The entity is declared in the same context as the contract assertion. It
+  // is declared within the predicate if it is declared after the contract
+  // keyword (e.g. in a statement-expression): declarations following the
+  // predicate cannot be named from within it.
+  return EntityLoc.isValid() && CSR.KeywordLoc.isValid() &&
+         S.getSourceManager().isBeforeInTranslationUnit(CSR.KeywordLoc,
+                                                        EntityLoc);
 }
 
-/// Return true if a lambda-expression within the predicate of the contract
-/// assertion \p CSR captures (or would implicitly capture) the local entity
-/// \p VD by copy, in which case the id-expression names the corresponding
-/// member of the closure type rather than the entity itself.
-static bool isCapturedByCopyWithinContract(const Sema &S,
-                                           const Sema::ContractScopeRecord &CSR,
-                                           const ValueDecl *VD) {
-  if (!CSR.FunctionScopeAtPush)
-    return false;
+/// Return true if a lambda-expression whose function scope is at or above
+/// index \p FirstScope captures (or would implicitly capture) the local
+/// entity \p VD by copy, in which case an id-expression naming the entity in
+/// the current context names the corresponding member of the closure type
+/// rather than the entity itself ([expr.prim.id.unqual]p4).
+static bool isCapturedByCopyInLambda(const Sema &S, unsigned FirstScope,
+                                     const ValueDecl *VD) {
   ArrayRef<FunctionScopeInfo *> Scopes = S.FunctionScopes;
-  unsigned Start = CSR.FunctionIndex;
-  if (Start >= Scopes.size() || Scopes[Start] != CSR.FunctionScopeAtPush)
-    return false;
-
-  for (unsigned I = Start + 1, E = Scopes.size(); I != E; ++I) {
+  auto *Entity = const_cast<ValueDecl *>(VD);
+  for (unsigned I = FirstScope, E = Scopes.size(); I < E; ++I) {
     auto *LSI = dyn_cast<LambdaScopeInfo>(Scopes[I]);
     if (!LSI)
+    DeclContext *ScopeDC = nullptr;
+    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI))
+      ScopeDC = LSI->CallOperator;
+    else if (auto *BSI = dyn_cast<BlockScopeInfo>(CSI))
+      ScopeDC = BSI->TheDecl;
+    else if (auto *RSI = dyn_cast<CapturedRegionScopeInfo>(CSI))
+      ScopeDC = RSI->TheCapturedDecl;
+    // While parsing the lambda-introducer or the parameter-declaration-clause
+    // of a lambda-expression, the current context is still its parent.
+    bool InLambdaIntroducer = false;
+    if (auto *LSI = dyn_cast<LambdaScopeInfo>(CSI);
+        LSI && !LSI->AfterParameterList && I + 1 == FunctionScopes.size())
+      InLambdaIntroducer = true;
+    if (!ScopeDC || (ScopeDC != DC && !InLambdaIntroducer))
+      break;
       continue;
-    auto *Captured = const_cast<ValueDecl *>(VD);
-    if (LSI->isCaptured(Captured)) {
-      if (LSI->getCapture(Captured).isCopyCapture())
+    // Within the parameter-declaration-clause of a lambda-expression, the
+    // id-expression names the entity itself.
+    if (I + 1 == E && !LSI->AfterParameterList)
+      continue;
+    if (LSI->isCaptured(Entity)) {
+      if (LSI->getCapture(Entity).isCopyCapture())
         return true;
       continue;
     }
@@ -1126,432 +1132,177 @@ static bool isCapturedByCopyWithinContract(const Sema &S,
   return false;
 }
 
-/// [expr.prim.id.unqual], [expr.prim.id.qual]
-///   If the [id-expression] appears in the predicate of a contract assertion C
-///   and the entity is
-///    - a variable declared outside of C of object type T,
-///    - a variable declared outside of C of type "reference to T", or
-///    - a structured binding of type T whose corresponding variable is
-///      declared outside of C,
-///   then the type of the expression is const T.
-///
-/// The same applies to a result binding ([dcl.contract.res]).
-ContractConstification Sema::getContractConstification(const ValueDecl *VD) {
-  if (!LangOpts.ContractConstification)
-    return CC_None;
-
+bool Sema::isContractConstified(const ValueDecl *VD) const {
   assert(VD);
-  const ContractScopeRecord *CSR = getActiveContractScope();
-  if (!CSR)
-    return CC_None;
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+}
 
-  bool IsLocalEntity = false;
-  if (isa<ResultNameDecl>(VD)) {
-    IsLocalEntity = true;
-  } else {
-    // Find the variable that determines where the entity was declared.
-    const VarDecl *Var = nullptr;
-    if (const auto *Binding = dyn_cast<BindingDecl>(VD))
-      Var = dyn_cast_or_null<VarDecl>(Binding->getDecomposedDecl());
-    else
-      Var = dyn_cast<VarDecl>(VD);
-    if (!Var)
-      return CC_None;
-
-    if (isDeclaredWithinContract(*this, *CSR, Var))
-      return CC_None;
-    IsLocalEntity = Var->isLocalVarDeclOrParm();
+  // The first function scope which is nested within the predicate of the
+  // innermost enclosing contract assertion.
+  unsigned FirstNestedScope = FunctionScopesStart;
+  if (CSR) {
+    // If the function scopes don't describe the contexts nested within the
+    // contract assertion (which happens when instantiating the call operator
+    // of a generic lambda), we can't tell which lambda-expressions capture
+    // the entity. The id-expressions for which that matters are rebuilt from
+    // ones which already know whether they are const.
+    if (CSR->FunctionScope &&
+        (CSR->FunctionScopeIndex >= FunctionScopes.size() ||
+         FunctionScopes[CSR->FunctionScopeIndex] != CSR->FunctionScope))
+      FirstNestedScope = FunctionScopes.size();
+    else if (CSR->FunctionScope)
+      FirstNestedScope = CSR->FunctionScopeIndex + 1;
   }
 
-  // If a lambda within the predicate captures the entity by copy, the
-  // id-expression names the member of the closure type instead.
-  if (IsLocalEntity && isCapturedByCopyWithinContract(*this, *CSR, VD))
-    return CC_None;
-
+  // [expr.prim.id.unqual]p6: An id-expression naming a result binding is
+  // const, unless it names the member of a closure type declared for a
+  // capture by copy of the result binding instead.
   if (isa<ResultNameDecl>(VD))
-    return CC_ApplyConst;
+    return !isCapturedByCopyInLambda(*this, FirstNestedScope, VD);
 
-  QualType T = VD->getType();
-  if (T.isNull())
-    return CC_None;
-  if (T->isObjectType() ||
-      (T->isReferenceType() && T.getNonReferenceType()->isObjectType()))
-    return CC_ApplyConst;
-
-  return CC_None;
-}
-
-static const DeclContext* walkUpDeclContextToFunction(const DeclContext *DC, bool AllowLambda = false) {
-  while (true) {
-    assert(DC);
-    if (isa<BlockDecl>(DC) || isa<EnumDecl>(DC) || isa<CapturedDecl>(DC) ||
-        isa<RequiresExprBodyDecl>(DC) || isa<LinkageSpecDecl>(DC) ||
-        (isa<CXXRecordDecl>(DC) && cast<CXXRecordDecl>(DC)->isLambda())) {
-      DC = DC->getParent();
-    } else if (!AllowLambda && isa<CXXMethodDecl>(DC) &&
-               cast<CXXMethodDecl>(DC)->getOverloadedOperator() == OO_Call &&
-               cast<CXXRecordDecl>(DC->getParent())->isLambda()) {
-      DC = DC->getParent()->getParent();
-    } else
-      break;
-  }
-  if (DC && !DC->isFunctionOrMethod())
-    return nullptr;
-  return DC;
-}
-
-QualType Sema::adjustCXXThisTypeForContracts(QualType QT) {
-  if (!LangOpts.ContractConstification)
-    return QT;
-  const ContractScopeRecord *CSR = getActiveContractScope();
   if (!CSR)
-    return QT;
+    return false;
 
-  // 'this' is constified any time the `this` object that is captured by a lambda which exists fully
-  // within a contract.
-  //
-  // We need to ensure that we haven't entered a nested member function context, because in that case we
-  // don't want to constify the `this` object.
-  // For example:
-  // ```
-  // struct A {
-  //   void f() {
-  //     [&]() {
-  //        contract_assert([&] {
-  //           struct B { int x; void f() { ++x; } };
-  //            return true;
-  //          }());
-  //      }();
-  //   }};
-  // ```
-  const DeclContext *ContractContext =
-      walkUpDeclContextToFunction(CSR->ContextAtPush);
-  if (!ContractContext)
-    return QT;
-  const DeclContext *QTContext = walkUpDeclContextToFunction(CurContext );
-  if (!QTContext)
-    return QT;
-  if (!ContractContext->Equals(QTContext))
-    return QT;
+  // [expr.prim.id.unqual]p7, [expr.prim.id.qual]p7:
+  //   If the [id-expression] appears in the predicate of a contract assertion
+  //   C and the entity is
+  //    - a variable declared outside of C of object type T,
+  //    - a variable or template parameter declared outside of C of type
+  //      "reference to T", or
+  //    - a structured binding of type T whose corresponding variable is
+  //      declared outside of C,
+  //   then the type of the expression is const T.
+  if (const auto *NTTP = dyn_cast<NonTypeTemplateParmDecl>(VD))
+    return NTTP->getType()->isReferenceType() &&
+           !isDeclaredWithinContract(*this, *CSR, NTTP->getDeclContext(),
+                                     NTTP->getLocation());
 
-  return Context.getPointerType(QT->getPointeeType().withConst());
-}
+  const VarDecl *Var = nullptr;
+  if (const auto *Binding = dyn_cast<BindingDecl>(VD))
+    Var = dyn_cast_or_null<VarDecl>(Binding->getDecomposedDecl());
+  else
+    Var = dyn_cast<VarDecl>(VD);
+  if (!Var)
+    return false;
 
-namespace {
-
-struct CaptureUsage {
-  clang::LambdaCapture Capture;
-  const ContractStmt *UsedInContract = nullptr;
-  const Expr *UsageExpr = nullptr;
-  SourceLocation UsageLoc = SourceLocation();
-
-  CaptureUsage(clang::LambdaCapture Capture) : Capture(Capture) {}
-};
-
-/// TODO(EricWF): Remove this and do it inline instead. We currently
-/// do this as a RecursiveASTVisitor because the changes to do it during
-/// the initial parsing pass are too invasive to do dur
-struct LambdaCaptureChecker : RecursiveASTVisitor<LambdaCaptureChecker> {
-  typedef RecursiveASTVisitor<LambdaCaptureChecker> super;
-
-  Sema &Actions;
-  const LambdaExpr *const CurLambda = nullptr;
-  const ContractStmt *CurContract = nullptr;
-
-
-  // Note: The value `nullptr` is used to denote a capture of CXXThis.
-  DenseMap<const ValueDecl *, CaptureUsage> Captures;
-
-
-  void observeUsage(const ValueDecl *VD, const Expr *E, SourceLocation Loc) {
-    if (auto Pos = Captures.find(VD); Pos != Captures.end()) {
-      if (!CurContract)
-        Captures.erase(VD);
-      else {
-        auto& Usage = Pos->second;
-        if (Usage.UsageExpr == nullptr || (isa<LambdaExpr>(Usage.UsageExpr) && !isa<LambdaExpr>(E))) {
-          Usage.UsedInContract = CurContract;
-          Usage.UsageExpr = E;
-          Usage.UsageLoc = Loc;
-        }
-      }
-    }
-  }
-
-private:
-  LambdaCaptureChecker(Sema &S, LambdaExpr *LE) : Actions(S), CurLambda(LE) { Init(); }
-
-
-  void Run() {
-    // Traverse the lambdas function-level contracts and body to find the bad captures.
-    FunctionDecl *FD = CurLambda->getCallOperator();
-    assert(FD->getBody());
-    if (FD->hasContracts())
-      TraverseDecl(FD->getContracts());
-    TraverseStmt(CurLambda->getBody());
-
-    // Finally, diagnose any captures that still remain, since they do not have any non-contrac
-    // usages.
-    for (auto& [Var, Bad] : Captures) {
-      // We likely didn't see the usage because there was a intervening lambda that captured by copy.
-      if (Bad.UsedInContract == nullptr)
-        continue;
-      Actions.Diag(CurLambda->getCaptureDefaultLoc(),
-                   diag::err_lambda_implicit_capture_in_contracts_only)
-          << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
-      SourceLocation UsageLoc = Bad.UsageLoc;
-      Actions.Diag(UsageLoc, diag::note_lambda_implicit_capture_in_contract_usage)
-            << (int)Bad.Capture.capturesThis() << cast_or_null<NamedDecl>(Var);
-      if (Bad.UsedInContract)
-        Actions.Diag(Bad.UsedInContract->getBeginLoc(),
-                    diag::note_contract_context);
-
-    }
-  }
-
-  void Init() {
-    // Collect all of the implicit captures of the lambda.
-    // If the lambda capture hasn't been removed after traversing the tree then
-    // that lambda capture is bad, and must be diagnosed as only being used inside
-    // of a contract.
-    for (auto C : CurLambda->captures()) {
-      if (C.capturesThis() && C.isImplicit())
-        Captures.insert({nullptr, {C}});
-      if (!C.capturesVariable())
-        continue;
-      if (C.isExplicit())
-        continue;
-      Captures.insert({C.getCapturedVar(), {C}});
-    }
-  }
-
-public:
-  bool shouldVisitLambdaBody() const { return false; }
-
-  bool TraverseContractStmt(ContractStmt *CS) {
-    assert(CS->getCond());
-    const ContractStmt *Prev = CurContract;
-    CurContract = CS;
-    TraverseStmt(CS->getCond());
-    CurContract = Prev;
-    return true;
-  }
-
-  bool TraverseLambdaCapture(LambdaExpr *LE, const LambdaCapture *C,
-                             Expr *Init) {
-    return true;
-  }
-
-  bool TraverseLambdaExpr(LambdaExpr *LE) {
-    assert(LE != CurLambda && "Revisiting the root lambda?");
-    // Iterate over the captures of the nested lambda, and mark any of our captures as having been seen
-    // outside of a contract. This assumes that the inner lambda has a valid usage of the capture.
-    // If it doesn't, we'll diagnose that separately.
-    for (auto C : LE->captures()) {
-      // FIXME(EricWF): Figure out how to deal with VLA captures here
-      if (C.capturesVLAType())
-        continue;
-
-      assert(C.capturesThis() || C.capturesVariable());
-      observeUsage(C.capturesThis() ? nullptr : C.getCapturedVar(), LE, C.getLocation());
-    }
-    return true;
-  }
-
-  bool VisitDeclRefExpr(DeclRefExpr *E) {
-    if (auto *VD = dyn_cast<ValueDecl>(E->getDecl()); VD && E->isNonOdrUse() != NOUR_Unevaluated)
-      observeUsage(VD, E, E->getExprLoc());
-    return true;
-  }
-
-  bool VisitMemberExpr(MemberExpr *E) {
-    if (E->isNonOdrUse() != NOUR_Unevaluated)
-      observeUsage(nullptr, E, E->getExprLoc());
-    return true;
-  }
-
-  bool VisitCXXThisExpr(CXXThisExpr *E) {
-    observeUsage(nullptr, E, E->getExprLoc());
-    return true;
-  }
-
-public:
-  static void Check(Sema &Actions, LambdaExpr *LE) {
-    if (!Actions.LangOpts.ContractLambdaCaptureRestrictions)
-      return;
-    LambdaCaptureChecker Checker(Actions, LE);
-    Checker.Run();
-  }
-};
+  if (isDeclaredWithinContract(*this, *CSR, Var->getDeclContext(),
+                               Var->getLocation()))
+    return false;
 
 } // namespace
 
-void Sema::CheckLambdaCapturesForContracts(LambdaExpr *LE) {
-  // Check the contracts on the function declaration.
-  LambdaCaptureChecker::Check(*this, LE);
+  return true;
 }
 
-bool Sema::isContractAssertionContext() const {
-  auto *CR = getCurrentContractEntry();
-  if (!CR)
+bool Sema::isCXXThisContractConstified(
+    const CXXRecordDecl *CopyCapturingClosure) const {
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  if (!CSR)
     return false;
 
-  return CR->ContextAtPush->Equals(CurContext);
+  // [expr.prim.this]p3:
+  //   If the expression this appears within the predicate of a contract
+  //   assertion (including as the result of an implicit transformation and
+  //   including in the bodies of nested lambda-expressions) and the current
+  //   class encloses the contract assertion, const is combined with the
+  //   cv-qualifier-seq used to generate the resulting type.
+  //
+  // The current class does not enclose the contract assertion if there is a
+  // class (other than a closure type) between the current context and the
+  // contract assertion.
+  for (const DeclContext *DC = CurContext; DC && !CSR->Context->Equals(DC);
+       DC = DC->getParent())
+    if (const auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && !RD->isLambda())
+      return false;
 
-#if 0
-  return getCurrentContractEntry() && (getCurrentContractEntry()->FunctionScopeAtPush == getCurFunction() ||
-      (getCurrentContractEntry()));
-  if (FunctionScopes.empty()) {
-    auto *CR = getCurrentContractEntry();
-    return CR != nullptr;
-    return ExprEvalContexts.back().isContractAssertionContext() ||
-           (getCurrentContractEntry() &&
-            getCurrentContractEntry()->HadNoFunctionScope);
+  // If '*this' is captured by copy by a lambda-expression within the
+  // predicate, 'this' refers to the copy.
+  if (CopyCapturingClosure &&
+      CSR->Context->Encloses(CopyCapturingClosure->getDeclContext()))
+    return false;
 
-  }
-  return FunctionScopes.back()->InContract;
-#endif
+  return true;
 }
 
-ArrayRef<Sema::ContractScopeRecord> Sema::getAllContractScopes() const {
-  return llvm::ArrayRef(ContractScopeStack.begin(), ContractScopeStack.end());
-}
-ArrayRef<Sema::ContractScopeRecord> Sema::getContractScopes() const {
-  return getAllContractScopes();
-#if 0
-  unsigned Offset = 0;
-  for (auto Pos = ContractScopeStack.begin(); Pos != ContractScopeStack.end();
-       ++Pos) {
-    if (Pos->FunctionScopeStartAtPush == FunctionScopesStart)
+void Sema::noteCaptureReference(ValueDecl *Var) {
+  if (!getLangOpts().Contracts)
+    return;
+
+  // [expr.prim.lambda.closure]p10:
+  //   If all potential references to a local entity implicitly captured by a
+  //   lambda-expression L occur within the function contract assertions of
+  //   the call operator or operator template of L or within
+  //   assertion-statements within the body of L, the program is ill-formed.
+  //
+  // Walk the enclosing capturing scopes from the innermost one, keeping track
+  // of the first contract assertion found on the way: the reference is within
+  // that contract assertion for all of the lambda-expressions visited from
+  // there on. The function scopes are only trusted as long as they match the
+  // declaration contexts: the function scopes of entities which are not
+  // lexically enclosing may be present further down the stack.
+  SourceLocation ContractLoc;
+  DeclContext *DC = CurContext;
+  for (unsigned I = FunctionScopes.size(); I-- > 0;) {
+    FunctionScopeInfo *FSI = FunctionScopes[I];
+    auto *CSI = dyn_cast<CapturingScopeInfo>(FSI);
+    if (!CSI)
       break;
-    ++Offset;
-  }
-  return llvm::ArrayRef(ContractScopeStack.begin() + Offset,
-                        ContractScopeStack.end());
-#endif
-}
-
-const DeclContext *
-Sema::ContractScopeRecord::getFunctionContext(bool AllowLambda) const {
-  if (!ContextAtPush->isFunctionOrMethod() ||
-      (isLambdaCallOperator(ContextAtPush) && !AllowLambda))
-    return walkUpDeclContextToFunction(ContextAtPush, AllowLambda);
-  return ContextAtPush;
-}
-
-const Sema::ContractScopeRecord *Sema::getCurrentContractEntry() const {
-  auto EntryList = getContractScopes();
-  if (EntryList.empty())
-    return nullptr;
-  return &EntryList.back();
-}
-
-Sema::ContractScopeRAII::ContractScopeRAII(Sema &S, ContractKind CK, ContractScopeOffset ScopeOffset, SourceLocation Loc)
-    : S(S) {
-  S.PushContractScope(CK, ScopeOffset, Loc);
-}
-
-Sema::ContractScopeRAII::~ContractScopeRAII() {
-  S.PopContractScope();
-}
 
 
-void Sema::PushContractScope(ContractKind Kind, ContractScopeOffset ScopeOffset, SourceLocation Loc) {
-//  assert(!FunctionScopes.empty());
+    if (ContractLoc.isInvalid())
+      if (const ContractScopeRecord *CSR =
+              getContractAssertionInFunctionScope(FSI))
+        ContractLoc = CSR->KeywordLoc;
 
-  ContractScopeRecord Record{
-         .Index = static_cast<unsigned>(ContractScopeStack.size()),
-         .Kind = Kind,
-         .ScopeOffset = ScopeOffset,
-         .KeywordLoc = Loc,
-         .ContextAtPush = CurContext,
-         .PreviousCXXThisType = CXXThisTypeOverride,
-         .FunctionIndex = static_cast<unsigned>(
-             FunctionScopes.empty() ? 0ul : FunctionScopes.size() - 1),
-         .StartFunctionIndex = FunctionScopesStart,
-         .FunctionScopeAtPush = getCurFunction(),
-         .AddedConstToCXXThis = false,
-         .WasInContractContext = ExprEvalContexts.back().InContractAssertion,
-         .HadNoFunctionScope = FunctionScopes.empty(),
-         .FunctionScopeStartAtPush = FunctionScopesStart};
-
-    // Setup the constification context when building declref expressions.
-    ExprEvalContexts.back().InContractAssertion = true;
-  assert(CurContext);
-
-    // P2900R8 [expr.prim.this]p2
-    //   If the expression 'this' appears ... in a contract assertion
-    //     (including as the result of the implicit transformation in the body of
-    //     a non-static member function and including in the bodies of nested
-    //     lambda-expressions),
-    // ...
-    //  const is combined with the cv-qualifier-seq used to generate the resulting
-    //  type (see below
-    if (!CXXThisTypeOverride.isNull()) {
-      assert(CXXThisTypeOverride->isPointerType());
-      QualType ClassType = CXXThisTypeOverride->getPointeeType();
-      if ((not ClassType.isConstQualified()) && LangOpts.ContractConstification) {
-        // If the 'this' object is const-qualified, we need to remove the
-        // const-qualification for the contract check.
-        ClassType.addConst();
-        Record.AddedConstToCXXThis = true;
-        CXXThisTypeOverride = Context.getPointerType(ClassType);
-      }
+    // A lambda-expression may not have captured the entity (yet) if it is
+    // nested within a generic lambda; it will when that is instantiated.
+    if (Var) {
+      if (CSI->isCaptured(Var))
+        CSI->getCapture(Var).noteReference(ContractLoc);
+      else if (ScopeDC->Equals(Var->getDeclContext()))
+        break;
+    } else if (CSI->isCXXThisCaptured()) {
+      CSI->getCXXThisCapture().noteReference(ContractLoc);
     }
 
-    //assert(!S.FunctionScopes.empty());
-
-
-  // Contract assertions may be nested within the same function scope (e.g. a
-  // contract_assert inside a statement-expression in a predicate), so
-  // remember the enclosing one so it can be restored.
-  if (Record.FunctionScopeAtPush) {
-    Record.PreviousFunctionScopeContractIndex =
-        Record.FunctionScopeAtPush->ContractScopeIndex;
-    Record.FunctionScopeAtPush->ContractScopeIndex = Record.Index;
+    DC = getLambdaAwareParentOfDeclContext(ScopeDC);
   }
 
-    ContractScopeStack.push_back(Record);
+bool Sema::isContractAssertionContext() const {
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  return CSR && CSR->Context->Equals(CurContext);
 }
 
-ContractScopeRecord Sema::PopContractScope() {
-  assert(!ContractScopeStack.empty());
+void Sema::PushContractScope(ContractKind Kind, SourceLocation KeywordLoc) {
+  assert(CurContext && "contract assertion outside of any context?");
+  ContractScopeStack.push_back(
+      {Kind, KeywordLoc, CurContext, getCurFunction(),
+       static_cast<unsigned>(FunctionScopes.empty()
+                                 ? 0
+                                 : FunctionScopes.size() - 1)});
+}
 
-  auto Record = ContractScopeStack.back();
+void Sema::PopContractScope() {
+  assert(!ContractScopeStack.empty() && "no contract scope to pop");
   ContractScopeStack.pop_back();
-
-
-
-  assert(ExprEvalContexts.back().InContractAssertion == true);
-  ExprEvalContexts.back().InContractAssertion = Record.WasInContractContext;
-  CXXThisTypeOverride = Record.PreviousCXXThisType;
-
-
-  if (Record.FunctionScopeAtPush && !FunctionScopes.empty() &&
-      FunctionScopes.back() == Record.FunctionScopeAtPush) {
-    assert(FunctionScopes.back()->ContractScopeIndex == Record.Index);
-    FunctionScopes.back()->ContractScopeIndex =
-        Record.PreviousFunctionScopeContractIndex;
-  }
-
-  return Record;
 }
 
-const ContractScopeRecord *Sema::getActiveContractScope() const {
-  // A contract assertion is active if the current context is (lexically)
-  // within its predicate: either the context in which the contract was
-  // pushed, or a lambda, block, or local class nested within it which is
-  // defined within the predicate. The latter excludes, for example, a generic
+const Sema::ContractScopeRecord *Sema::getEnclosingContractAssertion() const {
+  // The current context is within the predicate of a contract assertion if it
+  // is the context in which the predicate appears, or if it is a
+  // lambda-expression, block, or local class nested within that context which
+  // is part of the predicate. The latter excludes, for example, a generic
   // lambda defined before the contract assertion whose call operator is
   // instantiated while parsing the predicate.
   for (const ContractScopeRecord &CSR : llvm::reverse(ContractScopeStack)) {
-    const DeclContext *ContractDC = CSR.ContextAtPush;
+    const DeclContext *ContractDC = CSR.Context;
     if (!ContractDC->Encloses(CurContext))
       continue;
     if (ContractDC->Equals(CurContext))
       return &CSR;
 
-    // Find the outermost context nested within the contract's context.
+    // Find the outermost context nested within the contract's context, and
+    // check that it is part of the predicate.
     const DeclContext *Outermost = CurContext;
     while (Outermost->getParent() &&
            !ContractDC->Equals(Outermost->getParent()))
@@ -1565,8 +1316,10 @@ const ContractScopeRecord *Sema::getActiveContractScope() const {
   return nullptr;
 }
 
-SourceLocation Sema::getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const {
-  assert(FSI->isInContract());
-  assert(FSI->ContractScopeIndex < ContractScopeStack.size());
-  return ContractScopeStack[FSI->ContractScopeIndex].KeywordLoc;
+const Sema::ContractScopeRecord *Sema::getContractAssertionInFunctionScope(
+    const sema::FunctionScopeInfo *FSI) const {
+  for (const ContractScopeRecord &CSR : llvm::reverse(ContractScopeStack))
+    if (CSR.FunctionScope == FSI)
+      return &CSR;
+  return nullptr;
 }

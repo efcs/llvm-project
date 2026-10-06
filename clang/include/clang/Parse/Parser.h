@@ -9186,7 +9186,7 @@ private:
   void ParseContractSpecifierSequence(Declarator &DeclarationInfo);
 
   StmtResult ParseFunctionContractSpecifierImpl(
-      llvm::function_ref<QualType()> ReturnTypeResolver, ContractScopeOffset ScopeOffset, bool &IsInvalid);
+      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);

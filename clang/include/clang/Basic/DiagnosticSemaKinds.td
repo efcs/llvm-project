@@ -8174,7 +8174,9 @@ def note_typecheck_assign_const_method
     : Note<"member function %q0 is declared const here">;
 
 def err_typecheck_assign_constified : Error<
-    "cannot assign to %select{variable %1|non-static data member}0 because it is considered 'const' inside of a contract">;
+  "cannot assign to %select{variable %1|non-static data member|"
+  "result name %1|structured binding %1}0 because it is considered 'const' "
+  "inside of a contract">;
 
 def warn_unsigned_always_true_comparison : Warning<
   "result of comparison of %select{%3|unsigned expression}0 %2 "
@@ -10330,7 +10332,8 @@ def ext_ms_anonymous_record : ExtWarn<
 
 // C++ local classes
 def err_reference_to_local_in_enclosing_context : Error<
-  "reference to local %select{variable|binding}1 %0 declared in enclosing "
+  "reference to %select{local variable|local binding|result name}1 %0 "
+  "declared in enclosing "
   "%select{%3|block literal|lambda expression|context}2">;
 def err_local_nested_class_invalid_scope : Error<
   "nested local class %0 must be defined in the same block scope as %1">;
@@ -13151,9 +13154,6 @@ def err_contract_postcondition_redecl_param_not_const : Error<
   "in a postcondition of the function">;
 def note_contract_postcondition_param_first_decl : Note<
   "parameter referenced in postcondition of first declaration here">;
-def err_result_name_capture_unsupported : Error<
-  "capturing result name %0 in a lambda expression or block is not supported "
-  "yet">;
 def err_coroutine_postcondition_uses_param : Error<
   "postcondition of a coroutine cannot odr-use non-reference parameter %0">;
 def note_coroutine_postcondition_function : Note<
@@ -13163,8 +13163,6 @@ def err_result_name_shadows_param : Error<
   "declaration of result name %0 shadows parameter">;
 def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
-def err_deduced_auto_result_name_without_body : Error<
-  "result name on function with deduced return type requires a body">;
 def err_result_name_not_allowed : Error<
   "result name %0 not allowed outside of post condition specifier">;
 
@@ -13217,19 +13215,11 @@ def warn_contract_always_evaluates_to : Warning<
 
 def err_contract_postcondition_parameter_type_invalid : Error<
     "parameter %0 referenced in contract postcondition %select{cannot have an array type|cannot have a function type|must be declared const}1">;
-def note_parameter_with_name : Note<
-  "parameter %0 is declared here">;
-def note_parameter_with_name_and_type : Note<
-  "parameter %0 declared with type %1 here">;
-
 def err_lambda_implicit_capture_in_contracts_only : Error<
          "implicit capture of %select{local entity %1|'this'}0 is not allowed when used exclusively in contract assertions">;
 
 def  note_lambda_implicit_capture_in_contract_usage : Note<"capture of %select{local entity %1|'this'}0 is "
   "required here">;
-
-def note_lambda_implicit_capture_in_contracts_only : Note<
-  "use explicit capture list to capture %select{%1|'this'}0">;
 
 def err_auto_result_name_on_non_def_decl : Error<
    "postcondition with result name %0 cannot appear on a function declaration with deduced return type unless it is a definition">;
@@ -13244,9 +13234,6 @@ def note_cxx_this_const_in_contract_introduced_here : Note<
 def err_keyword_not_allowed_in_contract : Error<
     "'%0' cannot be used inside a contract">;
 
-
-def err_lambda_decl_ref_not_modifiable_lvalue_contract : Error<
-  "cannot assign to a variable captured by reference which was captured as const because it is inside a contract">;
 } // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<

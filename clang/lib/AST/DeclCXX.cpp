@@ -3705,8 +3705,8 @@ StaticAssertDecl *StaticAssertDecl::CreateDeserialized(ASTContext &C,
 }
 
 VarDecl *ValueDecl::getPotentiallyDecomposedVarDecl() {
-  assert((isa<VarDecl, BindingDecl>(this)) &&
-         "expected a VarDecl or a BindingDecl");
+  assert((isa<VarDecl, BindingDecl, ResultNameDecl>(this)) &&
+         "expected a VarDecl, a BindingDecl or a ResultNameDecl");
   if (auto *Var = llvm::dyn_cast<VarDecl>(this))
     return Var;
   if (auto *BD = llvm::dyn_cast<BindingDecl>(this))

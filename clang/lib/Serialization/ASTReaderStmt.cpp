@@ -670,8 +670,8 @@ void ASTStmtReader::VisitDeclRefExpr(DeclRefExpr *E) {
   E->DeclRefExprBits.NonOdrUseReason =
       CurrentUnpackingBits->getNextBits(/*Width=*/2);
   E->DeclRefExprBits.IsImmediateEscalating = CurrentUnpackingBits->getNextBit();
-  E->DeclRefExprBits.IsConstified = CurrentUnpackingBits->getNextBit();
-  E->DeclRefExprBits.IsInContractContext = CurrentUnpackingBits->getNextBit();
+  E->DeclRefExprBits.IsContractConstified =
+      CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasFoundDecl = CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasQualifier = CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasTemplateKWAndArgsInfo =
@@ -3341,9 +3341,9 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case EXPR_DECL_REF: {
       BitsUnpacker DeclRefExprBits(Record[ASTStmtReader::NumExprFields]);
       // Skip HadMultipleCandidates, RefersToEnclosingVariableOrCapture,
-      // NonOdrUseReason (2 bits), IsImmediateEscalating, IsConstified and
-      // IsInContractContext; see ASTStmtWriter::VisitDeclRefExpr.
-      DeclRefExprBits.advance(7);
+      // NonOdrUseReason (2 bits), IsImmediateEscalating and
+      // IsContractConstified; see ASTStmtWriter::VisitDeclRefExpr.
+      DeclRefExprBits.advance(6);
       bool HasFoundDecl = DeclRefExprBits.getNextBit();
       bool HasQualifier = DeclRefExprBits.getNextBit();
       bool HasTemplateKWAndArgsInfo = DeclRefExprBits.getNextBit();

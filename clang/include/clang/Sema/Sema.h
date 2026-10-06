@@ -3327,7 +3327,12 @@ public:
   bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
                                        FunctionDecl *NewDecl);
 
-  void CheckLambdaCapturesForContracts(LambdaExpr *LE);
+  /// Note that the local entity \p Var (or '*this' if \p Var is null), which
+  /// is captured by the enclosing lambda-expressions, is being referenced in
+  /// the current context, keeping track of whether all the references which
+  /// require an implicit capture occur within contract assertions of the
+  /// capturing lambda-expression ([expr.prim.lambda.closure]p10).
+  void noteCaptureReference(ValueDecl *Var);
 
   /// Perform semantic analysis for a contract specifier on the specified function.
   /// For function templates, these checks should be performed with the instantiation of
@@ -3335,12 +3340,14 @@ public:
   void CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition,
     bool IsInstantiation);
 
-  // FIXME(EricWF): Remove me. These are just convinence hooks while I move
-  // things around in the implementation.
+  /// Build the contract specifier for a parsed function-contract-specifier-seq
+  /// in the current context.
   ContractSpecifierDecl *
   ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
                                        SourceLocation Loc, bool IsInvalid);
 
+  /// Check the function contract specifiers of \p FD once the declaration
+  /// (including any late-parsed contracts) is complete.
   void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
 
   /// Called once the late-parsed function contract specifiers of \p FD have
@@ -7028,10 +7035,6 @@ public:
     bool InLifetimeExtendingContext = false;
 
 
-    /// Whether we're currently evaluating the predicate of a contract assertion
-    bool InContractAssertion = false;
-    bool IsContainedWithinContract = false;
-
     /// Whether evaluating an expression for a switch case label.
     bool IsCaseExpr = false;
 
@@ -7108,9 +7111,6 @@ public:
               InDiscardedStatement);
     }
 
-    bool isContractAssertionContext() const { return InContractAssertion; }
-
-    bool isContainedWithinContract() const { return IsContainedWithinContract; }
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -7140,80 +7140,86 @@ public:
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
 
-  bool isContractAssertionContext() const;
-
+  /// Describes a contract assertion whose predicate is currently being
+  /// parsed or instantiated.
   struct ContractScopeRecord {
-    // The index of this entry within the ContractScopeStack.
-    unsigned Index;
     ContractKind Kind;
 
-    // Whether this scope was pushed prior to the function declaration
-    // being available, and so the ContextAtPush is not the function itself yet,
-    // but the context in which the function is being declared.
-    ContractScopeOffset ScopeOffset;
-
+    /// The location of the 'pre', 'post' or 'contract_assert' keyword.
     SourceLocation KeywordLoc;
-    DeclContext *ContextAtPush;
-    QualType PreviousCXXThisType;
-    /// The _index_ of the current function scope when we entered the contract
-    /// (or -1 if there was none?)
-    unsigned FunctionIndex;
-    unsigned StartFunctionIndex;
-
-    sema::FunctionScopeInfo *FunctionScopeAtPush = nullptr;
-    bool AddedConstToCXXThis = false;
-    bool WasInContractContext = false;
-    bool HadNoFunctionScope = false;
-    unsigned FunctionScopeStartAtPush = 0;
-    /// The contract scope index of FunctionScopeAtPush before this contract
-    /// was pushed (contracts can be nested within one function scope).
-    unsigned PreviousFunctionScopeContractIndex = unsigned(-1);
-    const DeclContext *getFunctionContext(bool AllowLambda = true) const;
 
   };
+    /// The declaration context in which the predicate appears.
+    DeclContext *Context;
+
+    /// The function scope in which the predicate appears and its index within
+    /// FunctionScopes, if there is one.
+    sema::FunctionScopeInfo *FunctionScope;
+    unsigned FunctionScopeIndex;
 
   SmallVector<ContractScopeRecord, 4> ContractScopeStack;
+  /// The contract assertions whose predicates are currently being parsed or
+  /// instantiated, innermost last. Not all of them necessarily enclose the
+  /// current context: an unrelated entity may be instantiated while a
+  /// predicate is being parsed. Use getEnclosingContractAssertion to find the
+  /// one (if any) that does.
 
-  /// Return the innermost contract assertion whose predicate lexically
-  /// contains the current context, or null if there is none.
-  const ContractScopeRecord *getActiveContractScope() const;
-
-  SourceLocation getContractLocForFunctionScope(const sema::FunctionScopeInfo *FSI) const;
-
-  void PushContractScope(ContractKind CK, ContractScopeOffset ScopeOffset, SourceLocation Loc);
-  ContractScopeRecord PopContractScope();
-
-  ArrayRef<ContractScopeRecord> getContractScopes() const;
-  ArrayRef<ContractScopeRecord> getAllContractScopes() const;
+  void PushContractScope(ContractKind CK, SourceLocation KeywordLoc);
+  void PopContractScope();
 
   struct ContractScopeRAII {
-    ContractScopeRAII(Sema &S, ContractKind CK, ContractScopeOffset Offset, SourceLocation ContractLoc);
-    ~ContractScopeRAII();
+    ContractScopeRAII(Sema &S, ContractKind CK, SourceLocation KeywordLoc)
+        : S(S) {
+      S.PushContractScope(CK, KeywordLoc);
+    }
+    ~ContractScopeRAII() { S.PopContractScope(); }
 
-  private:
-    ContractScopeRAII(ContractScopeRAII const &) = delete;
-    ContractScopeRAII &operator=(ContractScopeRAII const &) = delete;
+    ContractScopeRAII(const ContractScopeRAII &) = delete;
+    ContractScopeRAII &operator=(const ContractScopeRAII &) = delete;
 
     Sema &S;
+  private:
   };
 
-  // The contract whos condition is the current expression evaluation context.
-  // or null if we're not inside a contract.
-  const ContractScopeRecord *getCurrentContractEntry() const;
+  /// Return the innermost contract assertion whose predicate lexically
+  /// contains the current context (including from within lambda-expressions,
+  /// blocks and local classes nested in the predicate), or null if there is
+  /// none.
+  const ContractScopeRecord *getEnclosingContractAssertion() const;
 
-  SourceLocation getCurrentContractKeywordLoc() {
-    assert(getCurrentContractEntry() && "No current contract?");
-    return getCurrentContractEntry()->KeywordLoc;
-  }
+  /// Return the contract assertion (if any) whose predicate is being parsed
+  /// or instantiated directly in the function scope \p FSI, as opposed to in
+  /// a function scope nested within it.
+  const ContractScopeRecord *
+  getContractAssertionInFunctionScope(const sema::FunctionScopeInfo *FSI) const;
 
-  /// Return whether an id-expression naming the specified entity in the
-  /// current context has its type const-qualified because it appears in the
-  /// predicate of a contract assertion ([expr.prim.id.unqual]).
-  ContractConstification getContractConstification(const ValueDecl *VD);
+  /// Determine whether the current context is that of the predicate of a
+  /// contract assertion, rather than e.g. the body of a lambda-expression
+  /// nested within the predicate.
+  bool isContractAssertionContext() const;
 
-  /// Return the correctly constified 'this' type, accounting for any constification contexts
-  /// that may be in effect.
-  QualType adjustCXXThisTypeForContracts(QualType QT);
+  /// Determine whether the type of an id-expression naming \p VD in the
+  /// current context is const-qualified because the id-expression appears in
+  /// the predicate of a contract assertion ([expr.prim.id.unqual]p7,
+  /// [expr.prim.id.qual]p7), or because it names a result binding
+  /// ([expr.prim.id.unqual]p6).
+  ///
+  /// This is not the case if the entity is captured by copy by a
+  /// lambda-expression nested within the predicate: the id-expression then
+  /// names the corresponding member of the closure type instead
+  /// ([expr.prim.id.unqual]p4).
+  bool isContractConstified(const ValueDecl *VD) const;
+
+  /// Determine whether the type of 'this' in the current context is a pointer
+  /// to const because the expression appears in the predicate of a contract
+  /// assertion ([expr.prim.this]p3).
+  ///
+  /// \p CopyCapturingClosure is the closure type of the innermost enclosing
+  /// lambda-expression which captures '*this' by copy, if any. If that
+  /// lambda-expression is nested within the predicate, 'this' refers to the
+  /// copy and is not affected by the contract assertion.
+  bool isCXXThisContractConstified(
+      const CXXRecordDecl *CopyCapturingClosure) const;
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
@@ -7378,14 +7384,12 @@ public:
                           TryCaptureKind Kind, SourceLocation EllipsisLoc,
                           bool BuildAndDiagnose, QualType &CaptureType,
                           QualType &DeclRefType,
-                          const unsigned *const FunctionScopeIndexToStopAt,
-                          std::optional<ContractTag> IsConstified = std::nullopt);
+                          const unsigned *const FunctionScopeIndexToStopAt);
 
   /// Try to capture the given variable.
   bool tryCaptureVariable(ValueDecl *Var, SourceLocation Loc,
                           TryCaptureKind Kind = TryCaptureKind::Implicit,
-                          SourceLocation EllipsisLoc = SourceLocation(),
-                          ContractTag IsConstified = ContractTag::No);
+                          SourceLocation EllipsisLoc = SourceLocation());
 
   /// Checks if the variable must be captured.
   bool NeedToCaptureVariable(ValueDecl *Var, SourceLocation Loc);
@@ -7521,10 +7525,16 @@ public:
 
   /// Complete semantic analysis for a reference to the given declaration.
   ExprResult BuildDeclarationNameExpr(
+  ///
+  /// \p ContractConstified specifies whether the type of the expression is
+  /// const because it names a result binding or appears in the predicate of
+  /// a contract assertion (see isContractConstified). If not provided, this
+  /// is determined from the current context.
       const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
       NamedDecl *FoundD = nullptr,
       const TemplateArgumentListInfo *TemplateArgs = nullptr,
-      bool AcceptInvalidDecl = false);
+      bool AcceptInvalidDecl = false,
+      std::optional<bool> ContractConstified = std::nullopt);
 
   // ExpandFunctionLocalPredefinedMacros - Returns a new vector of Tokens,
   // where Tokens representing function local predefined macros (such as
@@ -8724,17 +8734,18 @@ public:
   /// Try to retrieve the type of the 'this' pointer.
   ///
   /// \returns The type of 'this', if possible. Otherwise, returns a NULL type.
-  QualType getCurrentThisType();
+  /// \param ApplyContractConstification Whether to make the type a pointer to
+  /// const if 'this' is being named within the predicate of a contract
+  /// assertion ([expr.prim.this]p3). If false, this returns the type used to
+  /// refer to the '*this' object itself in the current context, e.g. in order
+  /// to capture it.
+  ///
+  QualType getCurrentThisType(bool ApplyContractConstification = true);
 
   /// When non-NULL, the C++ 'this' expression is allowed despite the
   /// current context not being a non-static member function. In such cases,
   /// this provides the type used for 'this'.
   QualType CXXThisTypeOverride;
-
-  /// Whether the current CXXThisTypeOverride has `const` added to it by a
-  /// contract constification context when the current 'this' type would have
-  /// otherwise been non-const. Used when issuing diagnostics.
-  bool ContractAddedConstToCXXThis = false;
 
   /// RAII object used to temporarily allow the C++ 'this' expression
   /// to be used, with the given qualifiers on the current class type.

@@ -450,13 +450,10 @@ protected:
     unsigned NonOdrUseReason : 2;
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsImmediateEscalating : 1;
-    // True if the expression had constification applied due to a contract
-    // scope (and it wouldn't have otherwise been const).
+    /// Whether the type of the expression is const because it names a result
+    /// binding or appears in the predicate of a contract assertion.
     LLVM_PREFERRED_TYPE(bool)
-    unsigned IsConstified : 1;
-
-    LLVM_PREFERRED_TYPE(bool)
-    unsigned IsInContractContext : 1;
+    unsigned IsContractConstified : 1;
 
     /// The location of the declaration name itself.
     SourceLocation Loc;

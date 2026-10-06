@@ -58,7 +58,7 @@ struct A {
 };
 void f(A& x) {
   auto [a, b] = x;
-  contract_assert(++a); // expected-error {{cannot assign to variable 'a' because it is considered 'const' inside of a contract}}
+  contract_assert(++a); // expected-error {{cannot assign to structured binding 'a' because it is considered 'const' inside of a contract}}
 }
 
 }
@@ -66,7 +66,7 @@ void f(A& x) {
 namespace ModifiedIntReturnValue {
 
 template <class T>
-auto bar(T x) post(r : ++r != 42) { // expected-error {{cannot assign to variable 'r' because it is considered 'const' inside of a contract}}
+auto bar(T x) post(r : ++r != 42) { // expected-error {{cannot assign to result name 'r' because it is considered 'const' inside of a contract}}
 return x;
 }
 template auto bar(int); // expected-note {{requested here}}
@@ -86,6 +86,7 @@ struct S {
   post(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   {
     contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::S', but function is not marked const}}
+    // expected-note@-1 {{'this' is 'const' within contract introduced here}}
     contract_assert(++m); // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   }
   int m;
@@ -102,6 +103,7 @@ struct ST {
   post(++m) // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   {
     contract_assert(this->f()); // expected-error {{'this' argument to member function 'f' has type 'const NonStaticMembers::ST<int>', but function is not marked const}}
+    // expected-note@-1 {{'this' is 'const' within contract introduced here}}
     contract_assert(++m); // expected-error {{cannot assign to non-static data member because it is considered 'const' inside of a contract}}
   }
   T m;

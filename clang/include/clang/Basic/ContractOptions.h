@@ -25,13 +25,6 @@ namespace clang {
 using llvm::StringRef;
 class ASTContext;
 
-enum class ContractTag { No = 0, Yes = 1 };
-
-constexpr ContractTag NotAContract = ContractTag::No;
-constexpr ContractTag IsAContract = ContractTag::Yes;
-constexpr ContractTag InContract = ContractTag::Yes;
-constexpr ContractTag NotInContract = ContractTag::No;
-
 enum class ContractGroupDiagnostic {
   // The remaining values map to %select values in diagnostics in both
   // DiagnosticSemaKinds.td and DiagnosticDriverKinds.td.
@@ -115,13 +108,6 @@ enum class ContractEmissionStyle {
   InDefinition,
 };
 
-
-// Indicates whether the contract scope information was pushed prior to the function declaration context being
-// available (and therefore will need special consideration when adjusting the context).
-enum ContractScopeOffset {
-  CSO_ParentContext,
-  CSO_FunctionContext
-};
 
 /// Represents the contract evaluation semantics selected on the command line.
 ///

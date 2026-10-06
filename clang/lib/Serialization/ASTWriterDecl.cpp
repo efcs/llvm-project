@@ -1225,8 +1225,7 @@ void ASTDeclWriter::VisitFieldDecl(FieldDecl *D) {
   VisitDeclaratorDecl(D);
   Record.push_back(D->isMutable());
 
-  Record.push_back((D->IsConstifiedCapture << 3) | (D->StorageKind << 1) |
-                   D->BitField);
+  Record.push_back((D->StorageKind << 1) | D->BitField);
   if (D->StorageKind == FieldDecl::ISK_CapturedVLAType)
     Record.AddTypeRef(QualType(D->getCapturedVLAType(), 0));
   else if (D->BitField)
@@ -1248,7 +1247,6 @@ void ASTDeclWriter::VisitFieldDecl(FieldDecl *D) {
       !D->hasInClassInitializer() &&
       !D->hasCapturedVLAType() &&
       !D->hasExtInfo() &&
-      !D->isConstifiedCapture() &&
       !ObjCIvarDecl::classofKind(D->getKind()) &&
       !ObjCAtDefsFieldDecl::classofKind(D->getKind()) &&
       D->getDeclName())
@@ -2922,9 +2920,9 @@ void ASTWriter::WriteDeclAbbrevs() {
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Type
   // DeclRefExpr
   // Packing Bits: , HadMultipleCandidates, RefersToEnclosingVariableOrCapture,
-  // IsImmediateEscalating, NonOdrUseReason, IsConstified, IsInContractContext.
+  // IsImmediateEscalating, NonOdrUseReason, IsContractConstified.
   // GetDeclFound, HasQualifier and ExplicitTemplateArgs should be 0.
-  Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 7));
+  Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::Fixed, 6));
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // DeclRef
   Abv->Add(BitCodeAbbrevOp(BitCodeAbbrevOp::VBR, 6)); // Location
   DeclRefExprAbbrev = Stream.EmitAbbrev(std::move(Abv));

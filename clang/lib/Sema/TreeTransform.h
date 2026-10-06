@@ -2825,15 +2825,22 @@ public:
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
+  ///
+  /// \p ContractConstified is whether the original expression is const
+  /// because of where it appears relative to a contract assertion, which
+  /// applies to the new expression too.
   ExprResult RebuildDeclRefExpr(NestedNameSpecifierLoc QualifierLoc,
                                 ValueDecl *VD,
                                 const DeclarationNameInfo &NameInfo,
                                 NamedDecl *Found,
-                                TemplateArgumentListInfo *TemplateArgs) {
+                                TemplateArgumentListInfo *TemplateArgs,
+                                bool ContractConstified) {
     CXXScopeSpec SS;
     SS.Adopt(QualifierLoc);
     return getSema().BuildDeclarationNameExpr(SS, NameInfo, VD, Found,
-                                              TemplateArgs);
+                                              TemplateArgs,
+                                              /*AcceptInvalidDecl=*/false,
+                                              ContractConstified);
   }
 
   /// Build a new expression in parentheses.
@@ -9245,7 +9252,8 @@ StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
 
   assert(getSema().getFunctionLevelDeclContext(true)->isFunctionOrMethod());
 
-  Sema::ContractScopeRAII ContractScope(getSema(), S->getContractKind(), CSO_FunctionContext, S->getKeywordLoc());
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getContractKind(),
+                                        S->getKeywordLoc());
 
   StmtResult NewResultName;
   if (S->hasResultName()) {
@@ -13782,14 +13790,9 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       return ExprError();
   }
 
-  ExprResult NewRef = getDerived().RebuildDeclRefExpr(
-      QualifierLoc, ND, NameInfo, Found, TemplateArgs);
-  if (E->isInContractContext())
-    NewRef.getAs<DeclRefExpr>()->setIsInContractContext(true);
-  if (E->isConstified())
-    NewRef.getAs<DeclRefExpr>()->setIsConstified(true);
-
-  return NewRef;
+  return getDerived().RebuildDeclRefExpr(QualifierLoc, ND, NameInfo, Found,
+                                         TemplateArgs,
+                                         E->isContractConstified());
 }
 
 template<typename Derived>
@@ -16571,8 +16574,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
           }
 
           // Capture the transformed variable.
-          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind, SourceLocation(),
-            C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
+          getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind);
         }
 
         // FIXME: Retain a pack expansion if RetainExpansion is true.
@@ -16598,7 +16600,7 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     // Capture the transformed variable.
     getSema().tryCaptureVariable(CapturedVar, C->getLocation(), Kind,
-                                 EllipsisLoc, C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
+                                 EllipsisLoc);
   }
   getSema().finishLambdaExplicitCaptures(LSI);
 
@@ -16663,15 +16665,11 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
     getSema().handleLambdaNumbering(Class, NewCallOperator, Numbering);
   }
 
-  bool WasInContract =
-      getSema().currentEvaluationContext().isContractAssertionContext();
   // FIXME: Sema's lambda-building mechanism expects us to push an expression
   // evaluation context even if we're not transforming the function body.
   getSema().PushExpressionEvaluationContextForFunction(
       Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
       E->getCallOperator());
-  getSema().currentEvaluationContext().IsContainedWithinContract =
-      WasInContract;
 
   // Transform the function contract specifiers of the call operator.
   if (ContractSpecifierDecl *OldCSD = E->getCallOperator()->getContracts();
@@ -16800,10 +16798,7 @@ TreeTransform<Derived>::SkipLambdaBody(LambdaExpr *E, Stmt *S) {
       return StmtError();
 
     // Capture the transformed variable.
-    getSema().tryCaptureVariable(
-        CapturedVar, C->getLocation(), TryCaptureKind::Implicit,
-        SourceLocation(),
-        C->isCapturedAcrossContract() ? ContractTag::Yes : ContractTag::No);
+    getSema().tryCaptureVariable(CapturedVar, C->getLocation());
   }
 
   return S;

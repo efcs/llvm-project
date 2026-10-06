@@ -26,7 +26,7 @@ void f(T x) {
       // The copy of 'z' is declared outside of the contract assertion, so it
       // is const within it.
       return [=]() mutable { // expected-note {{while substituting into a lambda expression here}}
-        contract_assert(++z); // expected-error {{cannot assign to a variable captured by reference which was captured as const because it is inside a contract}}
+        contract_assert(++z); // expected-error {{cannot assign to variable 'z' because it is considered 'const' inside of a contract}}
 
       };
     }
