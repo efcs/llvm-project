@@ -175,3 +175,29 @@ namespace not_evaluated {
 constexpr int f(int x) post(r : r / 1 == r) post(r : r && true) { return x; }
 static_assert(f(1) == 1);
 } // namespace not_evaluated
+
+namespace lambda_capture {
+// A lambda-expression in a postcondition assertion can capture the result
+// name. The lambda's body then refers to the captured copy or reference, not
+// to the result of the enclosing call or to the lambda's own result name.
+constexpr int by_ref() post(r : [&] { return r == 1; }()) { return 1; }
+static_assert(by_ref() == 1);
+constexpr int by_copy() post(r : [r] { return r == 2; }()) { return 2; }
+static_assert(by_copy() == 2);
+constexpr int by_default_copy() post(r : [=] { return r == 3; }()) { return 3; }
+static_assert(by_default_copy() == 3);
+constexpr int init_capture() post(r : [x = r + 1] { return x == 5; }()) { return 4; }
+static_assert(init_capture() == 4);
+
+// The lambda has postcondition assertions and a result name of its own.
+constexpr int nested() post(r : [&]() post(q : q) { return r == 5; }()) { return 5; }
+static_assert(nested() == 5);
+constexpr int nested_outer() post(r : [&]() post(q : q == (r == 6)) { return r == 6; }()) { return 6; }
+static_assert(nested_outer() == 6);
+constexpr int nested_bad() post(r : [&]() post(q : !q) { return r == 7; }()) { return 7; } // #nested-bad
+constexpr int bad = nested_bad();
+// expected-error@-1 {{constexpr variable 'bad' must be initialized by a constant expression}}
+// expected-note@#nested-bad {{postcondition 'q : !q' evaluated to false}}
+// expected-note@#nested-bad {{in call to '[&]() post(q : !q) {}.operator()()'}}
+// expected-note@-4 {{in call to 'nested_bad()'}}
+} // namespace lambda_capture
