@@ -1025,6 +1025,94 @@ migration for code using `[[noreturn]]` after including `<stdnoreturn.h>`.
   }];
 }
 
+def ContractGroupDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_group`` attribute places a contract assertion
+(``pre``, ``post`` or ``contract_assert``) into a named contract group. The
+group name is a string of identifiers joined by ``.``; each ``.`` introduces a
+subgroup, so ``"std.hardening"`` is a subgroup of ``"std"``.
+
+The evaluation semantic of a group can be selected on the command line with
+``-fcontract-group-evaluation-semantic=<group>=<semantic>[,...]``, where
+``<semantic>`` is one of ``ignore``, ``observe``, ``enforce`` or
+``quick_enforce``. The most specific group with an explicitly specified
+semantic wins; a contract assertion that is not in any configured group uses
+the default semantic selected with ``-fcontract-evaluation-semantic=``.
+
+.. code-block:: c++
+
+  void push(T const& x)
+    pre [[clang::contract_group("std.valid_element_access")]] (size() < capacity());
+
+The attribute may be written at most once on a contract assertion and only
+between the contract keyword and the predicate.
+  }];
+}
+
+def ContractSemanticDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_semantic`` attribute records a requested evaluation
+semantic for a single contract assertion. The first argument is one of
+``"ignore"``, ``"observe"``, ``"enforce"`` or ``"quick_enforce"``; the optional
+second argument is a boolean constant expression that, when ``false``,
+disables the attribute.
+
+.. code-block:: c++
+
+  void f(int* p) pre [[clang::contract_semantic("enforce")]] (p != nullptr);
+
+The attribute is parsed, checked and preserved in the AST (it participates in
+the equivalence of redeclared contract specifiers), but the evaluation
+semantic of a contract assertion is currently determined only by the
+command-line options and by ``clang::contract_group``; this attribute does not
+yet override it.
+  }];
+}
+
+def ContractEmissionDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_emission`` attribute records where the check for a
+function contract assertion is requested to be emitted: ``"in_caller"``
+evaluates the assertion at each call site, ``"in_definition"`` evaluates it in
+the function body.
+
+.. code-block:: c++
+
+  int at(int i) pre [[clang::contract_emission("in_definition")]] (i >= 0);
+
+The attribute is parsed, checked and preserved in the AST (it participates in
+the equivalence of redeclared contract specifiers), but function contract
+assertions are currently always emitted in the definition of the function;
+this attribute does not yet change that.
+  }];
+}
+
+def ContractMessageDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_message`` attribute replaces the message that describes
+a contract assertion in diagnostics and in the ``std::contracts::
+contract_violation`` object passed to the contract-violation handler. By
+default the message is the source text of the predicate. The first argument is
+the message; the optional second argument is a boolean constant expression
+selecting whether the source text of the predicate is prepended to the message
+(it defaults to ``true``).
+
+.. code-block:: c++
+
+  void f(int x)
+    pre [[clang::contract_message("x must be positive")]] (x > 0)
+    pre [[clang::contract_message("x must be small", false)]] (x < 100);
+
+A violation of the first precondition is reported as
+``x > 0: "x must be positive"``, a violation of the second one as
+``"x must be small"``.
+  }];
+}
+
 def NoMergeDocs : Documentation {
   let Category = DocCatStmt;
   let Content = [{

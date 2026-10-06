@@ -3863,7 +3863,7 @@ def ContractGroup : StmtAttr {
   let Spellings = [CXX11<"clang", "contract_group">];
   let Args = [ StringArgument<"Group"> ];
   let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-  let Documentation = [Undocumented];
+  let Documentation = [ContractGroupDocs];
 }
 
 def ContractSemantic : StmtAttr {
@@ -3876,7 +3876,7 @@ def ContractSemantic : StmtAttr {
     DefaultBoolArgument<"Override", 0, /*fake*/ 0>
   ];
   let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-  let Documentation = [Undocumented];
+  let Documentation = [ContractSemanticDocs];
 }
 
 
@@ -3889,7 +3889,7 @@ def ContractEmission : StmtAttr {
         /*opt=*/0, /*fake=*/0, /*isExternalType=*/1, /*isCovered=*/1>
   ];
   let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-  let Documentation = [Undocumented];
+  let Documentation = [ContractEmissionDocs];
 }
 
 
@@ -3897,7 +3897,7 @@ def ContractMessage : StmtAttr {
     let Spellings = [CXX11<"clang", "contract_message">];
     let Args = [ StringArgument<"Message">, DefaultBoolArgument<"IncludeSourceText", 1, /*fake*/ 0> ];
     let Subjects = SubjectList<[ContractStmt], ErrorDiag, "contract_assert">;
-    let Documentation = [Undocumented];
+    let Documentation = [ContractMessageDocs];
 }
 
 def DiagnoseIf : InheritableAttr {

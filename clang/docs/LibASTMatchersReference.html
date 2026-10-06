@@ -691,6 +691,15 @@ Example matches integral
 </pre></td></tr>
 
 
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Decl.html">Decl</a>&gt;</td><td class="name" onclick="toggle('contractSpecifierDecl0')"><a name="contractSpecifierDecl0Anchor">contractSpecifierDecl</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;...</td></tr>
+<tr><td colspan="4" class="doc" id="contractSpecifierDecl0"><pre>Matches C++ contract statements.
+
+Example matches the node containing both pre(x) and post(x), but not
+contract_assert(x)
+  void f(int x) pre(x) post(x) { contract_assert(x); }
+</pre></td></tr>
+
+
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Decl.html">Decl</a>&gt;</td><td class="name" onclick="toggle('cxxConstructorDecl0')"><a name="cxxConstructorDecl0Anchor">cxxConstructorDecl</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1CXXConstructorDecl.html">CXXConstructorDecl</a>&gt;...</td></tr>
 <tr><td colspan="4" class="doc" id="cxxConstructorDecl0"><pre>Matches C++ constructor declarations.
 
@@ -1048,6 +1057,14 @@ Example matches X, Z, U, and S
 Example matches '{ *p; }'
   template&lt;typename T&gt;
   concept dereferencable = requires(T p) { *p; }
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Decl.html">Decl</a>&gt;</td><td class="name" onclick="toggle('resultNameDecl0')"><a name="resultNameDecl0Anchor">resultNameDecl</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ResultNameDecl.html">ResultNameDecl</a>&gt;...</td></tr>
+<tr><td colspan="4" class="doc" id="resultNameDecl0"><pre>Matches C++ result name declaration inside a post condition.
+
+Example matches r in post(r : x)
+  int f(int x) post(r : x);
 </pre></td></tr>
 
 
@@ -1572,6 +1589,14 @@ Given
   while (true) { continue; }
 continueStmt()
   matches 'continue'
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Stmt.html">Stmt</a>&gt;</td><td class="name" onclick="toggle('contractStmt0')"><a name="contractStmt0Anchor">contractStmt</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;...</td></tr>
+<tr><td colspan="4" class="doc" id="contractStmt0"><pre>Matches C++ contract statements.
+
+Example matches pre(x), post(x), and contract_assert(x)
+  void f(int x) pre(x) post(x) { contract_assert(x); }
 </pre></td></tr>
 
 
@@ -4268,6 +4293,31 @@ stringLiteral(hasSize(4))
 </pre></td></tr>
 
 
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isContractAssert0')"><a name="isContractAssert0Anchor">isContractAssert</a></td><td></td></tr>
+<tr><td colspan="4" class="doc" id="isContractAssert0"><pre>Matches a contract postcondition.
+
+Example matches contract_assert(x) but not pre(x) or post(x) (matcher = contractStmt(isContractAssert()))
+int f(int x) pre(x) post(x) { contract_assert(x); }
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isPostcondition0')"><a name="isPostcondition0Anchor">isPostcondition</a></td><td></td></tr>
+<tr><td colspan="4" class="doc" id="isPostcondition0"><pre>Matches a contract postcondition.
+
+Example matches post(x) but not pre(x) or contract_assert(x) (matcher = contractStmt(isPostcondition()))
+auto f = [x=3]() { return x; };
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('isPrecondition0')"><a name="isPrecondition0Anchor">isPrecondition</a></td><td></td></tr>
+<tr><td colspan="4" class="doc" id="isPrecondition0"><pre>Matches a contract precondition.
+
+Example matches pre(x) but not post(x) or contract_assert(x) (matcher =
+contractStmt(isPrecondition()))
+auto f = [x=3] () pre(x) post(x) { contract_assert(x); return x; };
+</pre></td></tr>
+
+
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1DeclRefExpr.html">DeclRefExpr</a>&gt;</td><td class="name" onclick="toggle('templateArgumentLocCountIs3')"><a name="templateArgumentLocCountIs3Anchor">templateArgumentLocCountIs</a></td><td>unsigned MatchCount</td></tr>
 <tr><td colspan="4" class="doc" id="templateArgumentLocCountIs3"><pre>Matches template specialization `TypeLoc`s, class template specializations,
 variable template specializations, unresolved overloads, and function
@@ -4719,6 +4769,17 @@ Given:
 functionDecl(hasDynamicExceptionSpec()) and
   functionProtoType(hasDynamicExceptionSpec())
   match the declarations of j, k, and l, but not f, g, h, or i.
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1FunctionDecl.html">FunctionDecl</a>&gt;</td><td class="name" onclick="toggle('hasFunctionContracts0')"><a name="hasFunctionContracts0Anchor">hasFunctionContracts</a></td><td></td></tr>
+<tr><td colspan="4" class="doc" id="hasFunctionContracts0"><pre>Matches a function declaration that contains either pre or post conditions.
+It does not match functions whos body contain `contract_assert` statements.
+
+Example matches 'f' but not 'g' (matcher = functionDecl(hasFunctionContracts()))
+
+  void f(int x) pre(x) post(x) { }
+  void g(int x) { contract_assert(x); }
 </pre></td></tr>
 
 
@@ -6813,7 +6874,7 @@ matches the variable declaration with "init" bound to the "3.0".
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1AbstractConditionalOperator.html">AbstractConditionalOperator</a>&gt;</td><td class="name" onclick="toggle('hasCondition5')"><a name="hasCondition5Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition5"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
@@ -8421,6 +8482,45 @@ with compoundStmt()
 </pre></td></tr>
 
 
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;</td><td class="name" onclick="toggle('forEachContract0')"><a name="forEachContract0Anchor">forEachContract</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt; InnerMatcher</td></tr>
+<tr><td colspan="4" class="doc" id="forEachContract0"><pre>Matches each method overridden by the given method. This matcher may
+produce multiple matches.
+
+Given
+ int f() pre(x) post(x) post(r: r) { contract_assert(x); return x; }
+functionDecl(hasContractSpecifier(forEachContract(isPostcondition().bind("post"))))
+  matches 'post(x)' and 'post(r: r)'
+
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt;</td><td class="name" onclick="toggle('hasAnyContract0')"><a name="hasAnyContract0Anchor">hasAnyContract</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt; InnerMatcher</td></tr>
+<tr><td colspan="4" class="doc" id="hasAnyContract0"><pre>Matches a contract that's part of a function contract specifier
+
+Given
+  int foo(int x) post(r : r) { return x; }
+functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
+  matches post(r : r) </pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition6')"><a name="hasCondition6Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
+<tr><td colspan="4" class="doc" id="hasCondition6"><pre>Matches the condition expression of an if statement, for loop, while loop,
+do-while loop, switch statement, conditional operator, or contract.
+
+Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
+  if (true) {}
+</pre></td></tr>
+
+
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractStmt.html">ContractStmt</a>&gt;</td><td class="name" onclick="toggle('hasResultName0')"><a name="hasResultName0Anchor">hasResultName</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ResultNameDecl.html">ResultNameDecl</a>&gt; InnerMatcher</td></tr>
+<tr><td colspan="4" class="doc" id="hasResultName0"><pre>Matches any using shadow declaration.
+
+Given
+  int foo(int x) post(r : r) { return x; }
+functionDecl(hasContractSpecifier(hasAnyContract(hasResultName(hasName("b")))))
+  matches post(r : r) </pre></td></tr>
+
+
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1CoroutineBodyStmt.html">CoroutineBodyStmt</a>&gt;</td><td class="name" onclick="toggle('hasBody5')"><a name="hasBody5Anchor">hasBody</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Stmt.html">Stmt</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasBody5"><pre>Matches a 'for', 'while', 'while' statement or a function or coroutine
 definition that has a given body. Note that in case of functions or
@@ -8682,7 +8782,7 @@ with compoundStmt()
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1DoStmt.html">DoStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition3')"><a name="hasCondition3Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition3"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
@@ -8969,7 +9069,7 @@ with compoundStmt()
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ForStmt.html">ForStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition1')"><a name="hasCondition1Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition1"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
@@ -9190,6 +9290,16 @@ with compoundStmt()
 </pre></td></tr>
 
 
+<tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1FunctionDecl.html">FunctionDecl</a>&gt;</td><td class="name" onclick="toggle('hasContractSpecifier0')"><a name="hasContractSpecifier0Anchor">hasContractSpecifier</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1ContractSpecifierDecl.html">ContractSpecifierDecl</a>&gt; InnerMatcher</td></tr>
+<tr><td colspan="4" class="doc" id="hasContractSpecifier0"><pre>Matches the contract specifier sequence on a function declaration.
+
+For example, given the code-
+  void f(int x) pre(x) post(x) { contract_assert(x); }
+functionDecl(hasContractSpecifier()))
+  matches the function declaration of 'f'.
+</pre></td></tr>
+
+
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1FunctionDecl.html">FunctionDecl</a>&gt;</td><td class="name" onclick="toggle('hasExplicitSpecifier0')"><a name="hasExplicitSpecifier0Anchor">hasExplicitSpecifier</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasExplicitSpecifier0"><pre>Matches the expression in an explicit specifier if present in the given
 declaration.
@@ -9293,7 +9403,7 @@ cxxMethodDecl(returns(asString("int")))
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1IfStmt.html">IfStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition0')"><a name="hasCondition0Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition0"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
@@ -10321,7 +10431,7 @@ switchStmt(forEachSwitchCase(caseStmt().bind("c"))).bind("s")
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1SwitchStmt.html">SwitchStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition4')"><a name="hasCondition4Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition4"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
@@ -11124,7 +11234,7 @@ with compoundStmt()
 
 <tr><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1WhileStmt.html">WhileStmt</a>&gt;</td><td class="name" onclick="toggle('hasCondition2')"><a name="hasCondition2Anchor">hasCondition</a></td><td>Matcher&lt;<a href="https://clang.llvm.org/doxygen/classclang_1_1Expr.html">Expr</a>&gt; InnerMatcher</td></tr>
 <tr><td colspan="4" class="doc" id="hasCondition2"><pre>Matches the condition expression of an if statement, for loop, while loop,
-do-while loop, switch statement or conditional operator.
+do-while loop, switch statement, conditional operator, or contract.
 
 Example matches true (matcher = hasCondition(cxxBoolLiteral(equals(true))))
   if (true) {}
