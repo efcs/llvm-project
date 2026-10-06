@@ -67,7 +67,6 @@
 #include "llvm/Support/Debug.h"
 #include "llvm/Support/MathExtras.h"
 #include "llvm/Support/SaveAndRestore.h"
-#include "llvm/Support/Signals.h"
 #include "llvm/Support/SipHash.h"
 #include "llvm/Support/TimeProfiler.h"
 #include "llvm/Support/raw_ostream.h"
@@ -451,6 +450,7 @@ namespace {
     CallRef() : OrigCallee(), CallIndex(0), Version() {}
     CallRef(const FunctionDecl *Callee, unsigned CallIndex, unsigned Version)
         : OrigCallee(Callee), CallIndex(CallIndex), Version(Version) {}
+
     explicit operator bool() const { return OrigCallee; }
 
     /// Get the parameter that the caller initialized, corresponding to the
@@ -465,7 +465,6 @@ namespace {
     /// virtual override), but this function's parameters are the ones that
     /// appear in the parameter map.
     const FunctionDecl *OrigCallee;
-
     /// The call index of the frame that holds the argument values.
     unsigned CallIndex;
     /// The version of the parameters corresponding to this call.
@@ -3444,12 +3443,12 @@ static bool evaluateVarDeclInit(EvalInfo &Info, const Expr *E,
   // should begin within the evaluation of E
   // Used to be C++20 [expr.const]p5.12.2:
   // ... its lifetime began within the evaluation of E;
-
   if (isa<ParmVarDecl>(VD)) {
     if (AllowConstexprUnknown) {
       Result = nullptr;
       return true;
     }
+
     // Assume parameters of a potential constant expression are usable in
     // constant expressions.
     if (!Info.checkingPotentialConstantExpression() ||
@@ -6131,14 +6130,12 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
 
   case Stmt::ReturnStmtClass: {
     const Expr *RetExpr = cast<ReturnStmt>(S)->getRetValue();
-
     FullExpressionRAII Scope(Info);
     if (RetExpr && RetExpr->isValueDependent()) {
       EvaluateDependentExpr(RetExpr, Info);
       // We know we returned, but we don't know what the value is.
       return ESR_Failed;
     }
-
     if (RetExpr &&
         !(Result.Slot
               ? EvaluateInPlace(Result.Value, Info, *Result.Slot, RetExpr)
@@ -6200,6 +6197,7 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
     }
     return Scope.destroy() ? ESR_Succeeded : ESR_Failed;
   }
+
   case Stmt::ContractStmtClass: {
     if (EvaluateContract(cast<ContractStmt>(S), Info))
       return ESR_Succeeded;
@@ -7316,7 +7314,6 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
 
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
-
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
       return EvaluatePostContracts(Info, Callee, Result, ResultSlot);
@@ -8981,8 +8978,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E) {
     APValue Result;
-    LValue ResultSlot;
-    if (!handleCallExpr(E, Result, &ResultSlot))
+    if (!handleCallExpr(E, Result, nullptr))
       return false;
     return DerivedSuccess(Result, E);
   }
@@ -9691,8 +9687,7 @@ static bool EvaluateLValue(const Expr *E, LValue &Result, EvalInfo &Info,
                            bool InvalidBaseOK) {
   assert(!E->isValueDependent());
   assert(E->isGLValue() || E->getType()->isFunctionType() ||
-         E->getType()->isVoidType() ||
-         isa<ObjCSelectorExpr>(E->IgnoreParens()));
+         E->getType()->isVoidType() || isa<ObjCSelectorExpr>(E->IgnoreParens()));
   return LValueExprEvaluator(Info, Result, InvalidBaseOK).Visit(E);
 }
 
@@ -9722,11 +9717,8 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   if (isa<FunctionDecl, MSGuidDecl, TemplateParamObjectDecl,
           UnnamedGlobalConstantDecl>(D))
     return Success(cast<ValueDecl>(D));
-
-  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D)) {
+  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D))
     return VisitResultNameDecl(E, RND);
-  }
-
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     return VisitVarDecl(E, VD);
   if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
@@ -16419,8 +16411,6 @@ static bool EvaluateIntegerOrLValue(const Expr *E, APValue &Result,
 }
 
 static bool EvaluateInteger(const Expr *E, APSInt &Result, EvalInfo &Info) {
-  if (E->isValueDependent())
-    E->dumpColor();
   assert(!E->isValueDependent());
   APValue Val;
   if (!EvaluateIntegerOrLValue(E, Val, Info))
