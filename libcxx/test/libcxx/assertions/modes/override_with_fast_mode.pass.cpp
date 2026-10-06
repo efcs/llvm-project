@@ -11,7 +11,7 @@
 // REQUIRES: can-test-hardening-assertions
 // HWASAN replaces TRAP with abort or error exit code.
 // XFAIL: hwasan
-// ADDITIONAL_COMPILE_FLAGS: -U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST
+// ADDITIONAL_COMPILE_FLAGS: -U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_FAST -fcontract-group-evaluation-semantic=std=enforce,std.valid_element_access=enforce,std.compatible_allocator=ignore
 
 #include <cassert>
 #include "check_assertion.h"

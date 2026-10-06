@@ -117,11 +117,16 @@ public:
   }
 
   template <class _D2 = _Derived>
+  _LIBCPP_HIDE_FROM_ABI constexpr bool __is_empty_() const {
+    return const_cast<view_interface*>(this)->empty();
+  }
+
+  template <class _D2 = _Derived>
   [[nodiscard]] _LIBCPP_HIDE_FROM_ABI constexpr decltype(auto) front()
     requires forward_range<_D2>
   {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        !empty(), "Precondition `!empty()` not satisfied. `.front()` called on an empty view.");
+        !__is_empty_(), "Precondition `!empty()` not satisfied. `.front()` called on an empty view.");
     return *ranges::begin(__derived());
   }
 
@@ -130,7 +135,7 @@ public:
     requires forward_range<const _D2>
   {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        !empty(), "Precondition `!empty()` not satisfied. `.front()` called on an empty view.");
+        !__is_empty_(), "Precondition `!empty()` not satisfied. `.front()` called on an empty view.");
     return *ranges::begin(__derived());
   }
 
@@ -139,7 +144,7 @@ public:
     requires bidirectional_range<_D2> && common_range<_D2>
   {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        !empty(), "Precondition `!empty()` not satisfied. `.back()` called on an empty view.");
+        !__is_empty_(), "Precondition `!empty()` not satisfied. `.back()` called on an empty view.");
     return *ranges::prev(ranges::end(__derived()));
   }
 
@@ -148,7 +153,7 @@ public:
     requires bidirectional_range<const _D2> && common_range<const _D2>
   {
     _LIBCPP_ASSERT_VALID_ELEMENT_ACCESS(
-        !empty(), "Precondition `!empty()` not satisfied. `.back()` called on an empty view.");
+        !__is_empty_(), "Precondition `!empty()` not satisfied. `.back()` called on an empty view.");
     return *ranges::prev(ranges::end(__derived()));
   }
 

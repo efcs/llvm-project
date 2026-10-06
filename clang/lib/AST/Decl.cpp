@@ -71,6 +71,7 @@
 #include <string>
 #include <tuple>
 #include <type_traits>
+#include "clang/Basic/EricWFDebug.h"
 
 using namespace clang;
 
@@ -2553,12 +2554,14 @@ EvaluatedStmt *VarDecl::getEvaluatedStmt() const {
 }
 
 const APValue *VarDecl::evaluateValue() const {
-  return evaluateValueImpl(/*Notes=*/nullptr, hasConstantInitialization());
+  return evaluateValueImpl(/*Notes=*/nullptr, hasConstantInitialization(),
+                           /*EvaluateContracts=*/true);
 }
 
 const APValue *
 VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
-                           bool IsConstantInitialization) const {
+                           bool IsConstantInitialization,
+                           bool EvaluateContracts) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
 
   const auto *Init = getInit();
@@ -2582,8 +2585,8 @@ VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
   Expr::EvalResult EStatus;
   EStatus.Diag = Notes;
   EStatus.ExtendedDiag = &MSWarning;
-  bool Result =
-      Init->EvaluateAsInitializer(Ctx, this, EStatus, IsConstantInitialization);
+  bool Result = Init->EvaluateAsInitializer(
+      Ctx, this, EStatus, IsConstantInitialization, EvaluateContracts);
   Eval->Evaluated = std::move(EStatus.Val);
 
   // In C++, or in C23 if we're initialising a 'constexpr' variable, this isn't
@@ -2606,8 +2609,10 @@ VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
       for (auto &Info : MSWarning)
         getASTContext().getDiagnostics().Report(Info.first,
                                                 Info.second.getDiagID());
-    if (Eval->Evaluated.needsCleanup())
+    if (Eval->Evaluated.needsCleanup() && !Eval->RegisteredForDestruction) {
+      Eval->RegisteredForDestruction = true;
       Ctx.addDestruction(&Eval->Evaluated);
+    }
   }
 
   Eval->IsEvaluating = false;
@@ -2653,12 +2658,12 @@ bool VarDecl::hasConstantInitialization() const {
 }
 
 bool VarDecl::checkForConstantInitialization(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes, bool EvaluateContracts) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
   // If we ask for the value before we know whether we have a constant
   // initializer, we can compute the wrong value (for example, due to
   // std::is_constant_evaluated()).
-  assert(!Eval->WasEvaluated &&
+  assert((!Eval->WasEvaluated) &&
          "already evaluated var value before checking for constant init");
   assert((getASTContext().getLangOpts().CPlusPlus ||
           getASTContext().getLangOpts().C23) &&
@@ -2668,7 +2673,8 @@ bool VarDecl::checkForConstantInitialization(
 
   // Evaluate the initializer to check whether it's a constant expression.
   Eval->HasConstantInitialization =
-      evaluateValueImpl(&Notes, true) && Notes.empty();
+      evaluateValueImpl(&Notes, true, /*EnableContracts=*/EvaluateContracts) &&
+      Notes.empty();
 
   // If evaluation as a constant initializer failed, allow re-evaluation as a
   // non-constant initializer if we later find we want the value.
@@ -2676,6 +2682,32 @@ bool VarDecl::checkForConstantInitialization(
     Eval->WasEvaluated = false;
 
   return Eval->HasConstantInitialization;
+}
+
+bool VarDecl::recheckForConstantInitialization(
+    SmallVectorImpl<PartialDiagnosticAt> &Notes, bool EnableContracts) const {
+  EvaluatedStmt *Eval = ensureEvaluatedStmt();
+
+  assert((Eval->WasEvaluated && Eval->HasConstantInitialization) &&
+         "Trial initialization should have been performed first");
+
+  // If we ask for the value before we know whether we have a constant
+  // initializer, we can compute the wrong value (for example, due to
+  // std::is_constant_evaluated()).
+
+  assert((getASTContext().getLangOpts().CPlusPlus ||
+          getASTContext().getLangOpts().C23) &&
+         "only meaningful in C++/C23");
+  assert(Notes.empty() && "Reevaluating with old notes?");
+  assert(!getInit()->isValueDependent());
+  Eval->WasEvaluated = false;
+
+  // Wipe out the previously computed value.
+  // FIXME(EricWF): We should diagnose with the initializer produces a different
+  // value the second time around.
+  Eval->Evaluated = APValue();
+
+  return evaluateValueImpl(&Notes, true, EnableContracts) && Notes.empty();
 }
 
 bool VarDecl::isEscapingByref() const {
@@ -3068,7 +3100,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            TypeSourceInfo *TInfo, StorageClass S,
                            bool UsesFPIntrin, bool isInlineSpecified,
                            ConstexprSpecKind ConstexprKind,
-                           const AssociatedConstraint &TrailingRequiresClause)
+                           const AssociatedConstraint &TrailingRequiresClause,
+                           ContractSpecifierDecl *Contracts)
     : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                      StartLoc),
       DeclContext(DK), redeclarable_base(C), Body(), ODRHash(0),
@@ -3106,6 +3139,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
 
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
+  if (Contracts)
+    setContracts(Contracts);
 }
 
 void FunctionDecl::getNameForDiagnostic(
@@ -3787,6 +3822,47 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
 }
 
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
+
+
+FunctionDecl *FunctionDecl::getDeclForContracts() {
+  // Try getting the contracts from the defining decl, and if those aren't present
+  // use the contracts on the first declaration.
+  if (auto *Def = getDefinition(); Def && Def->getContracts())
+    return Def;
+  return getCanonicalDecl();
+}
+
+const FunctionDecl *FunctionDecl::getDeclForContracts() const {
+  if (auto *Def = getDefinition(); Def && Def->getContracts())
+    return Def;
+  return getCanonicalDecl();
+}
+
+void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
+  Contracts = CSD;
+  if (CSD)
+    CSD->setOwningFunction(this);
+}
+
+ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
+  if (auto *CSD = Contracts)
+    return CSD->contracts();
+  return {};
+}
+
+FunctionDecl::ContractRange FunctionDecl::postconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Post;
+      });
+}
+
+FunctionDecl::ContractRange FunctionDecl::preconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Pre;
+      });
+}
 
 /// Returns a value indicating whether this function corresponds to a builtin
 /// function.
@@ -5692,16 +5768,18 @@ ImplicitParamDecl *ImplicitParamDecl::CreateDeserialized(ASTContext &C,
   return new (C, ID) ImplicitParamDecl(C, QualType(), ImplicitParamKind::Other);
 }
 
+
 FunctionDecl *
 FunctionDecl::Create(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
                      const DeclarationNameInfo &NameInfo, QualType T,
                      TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                      bool isInlineSpecified, bool hasWrittenPrototype,
                      ConstexprSpecKind ConstexprKind,
-                     const AssociatedConstraint &TrailingRequiresClause) {
+                     const AssociatedConstraint &TrailingRequiresClause,
+                     ContractSpecifierDecl *Contracts) {
   FunctionDecl *New = new (C, DC) FunctionDecl(
       Function, C, DC, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
-      isInlineSpecified, ConstexprKind, TrailingRequiresClause);
+      isInlineSpecified, ConstexprKind, TrailingRequiresClause, Contracts);
   New->setHasWrittenPrototype(hasWrittenPrototype);
   return New;
 }

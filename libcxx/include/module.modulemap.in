@@ -1244,6 +1244,11 @@ module std {
     export *
   }
 
+  module contracts {
+    header "contracts"
+    export *
+  }
+
   module deque {
     module fwd { header "__fwd/deque.h" }
 

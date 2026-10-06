@@ -853,6 +853,7 @@ QualType Sema::buildLambdaInitCaptureInitialization(
   TypeLocBuilder TLB;
   AutoTypeLoc TL = TLB.push<AutoTypeLoc>(DeductType);
   TL.setNameLoc(Loc);
+
   if (ByRef) {
     DeductType = BuildReferenceType(DeductType, true, Loc, Id);
     assert(!DeductType.isNull() && "can't build reference to auto");
@@ -937,7 +938,8 @@ void Sema::addInitCapture(LambdaScopeInfo *LSI, VarDecl *Var, bool ByRef) {
   assert(Var->isInitCapture() && "init capture flag should be set");
   LSI->addCapture(Var, /*isBlock=*/false, ByRef,
                   /*isNested=*/false, Var->getLocation(), SourceLocation(),
-                  Var->getType(), /*Invalid=*/false);
+                  Var->getType(), /*AcrossContract=*/false,
+                  /*ContractLoc=*/SourceLocation(), /*Invalid=*/false);
 }
 
 // Unlike getCurLambda, getCurrentLambdaScopeUnsafe doesn't
@@ -1458,7 +1460,6 @@ void Sema::ActOnLambdaClosureParameters(
 void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
                                         Declarator &ParamInfo,
                                         const DeclSpec &DS) {
-
   LambdaScopeInfo *LSI = getCurrentLambdaScopeUnsafe(*this);
   LSI->CallOperator->setConstexprKind(DS.getConstexprSpecifier());
   LSI->BeforeCompoundStatement = false;
@@ -1480,6 +1481,7 @@ void Sema::ActOnStartOfLambdaDefinition(LambdaIntroducer &Intro,
 
   CXXRecordDecl *Class = LSI->Lambda;
   CXXMethodDecl *Method = LSI->CallOperator;
+  Method->setContracts(ParamInfo.Contracts);
 
   TypeSourceInfo *MethodTyInfo = getLambdaType(
       *this, Intro, ParamInfo, getCurScope(), TypeLoc, ExplicitResultType);
@@ -1955,9 +1957,11 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     return ExprResult();
 
   // An init-capture is initialized directly from its stored initializer.
-  if (Cap.isInitCapture())
-    return cast<VarDecl>(Cap.getVariable())->getInit();
-
+  if (Cap.isInitCapture()) {
+    auto Init = cast<VarDecl>(Cap.getVariable())->getInit();
+    assert(Init);
+    return Init;
+  }
   // For anything else, build an initialization expression. For an implicit
   // capture, the capture notionally happens at the capture-default, so use
   // that location here.
@@ -2003,6 +2007,14 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     Name = Var->getIdentifier();
     Init = BuildDeclarationNameExpr(
         CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var);
+    if (auto *DRE = dyn_cast_or_null<DeclRefExpr>(Init.get())) {
+      if (Cap.isCapturedAcrossContract() && !Cap.isCopyCapture()) {
+        llvm::errs() << "Setting Is Constified capture!\n";
+        DRE->setIsInContractContext(true);
+      }
+      // llvm::errs() << "Dumping DeclarationNameExpr\n";
+      // Init.get()->dumpColor();
+    }
   }
 
   // In OpenMP, the capture kind doesn't actually describe how to capture:
@@ -2015,8 +2027,25 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
     return ExprError();
 
   Expr *InitExpr = Init.get();
-  InitializedEntity Entity = InitializedEntity::InitializeLambdaCapture(
-      Name, Cap.getCaptureType(), Loc);
+
+  bool NeedsConst = [&]() {
+    if (!InitExpr)
+      return false;
+
+    auto *DRE = dyn_cast<DeclRefExpr>(InitExpr);
+    if (!DRE)
+      return false;
+
+    return DRE->isInContractContext();
+  }();
+
+  QualType CapT = Cap.getCaptureType();
+  if (CapT->isReferenceType() && NeedsConst) {
+    CapT = Context.getLValueReferenceType(CapT->getPointeeType().withConst());
+  }
+
+  InitializedEntity Entity =
+      InitializedEntity::InitializeLambdaCapture(Name, CapT, Loc);
   InitializationKind InitKind =
       InitializationKind::CreateDirect(Loc, Loc, Loc);
   InitializationSequence InitSeq(*this, Entity, InitKind, InitExpr);
@@ -2112,6 +2141,15 @@ FieldDecl *Sema::BuildCaptureField(RecordDecl *RD, const sema::Capture &Capture,
                                    bool IsOpenMP) {
   SourceLocation Loc = Capture.getLocation();
   QualType FieldType = Capture.getCaptureType();
+  if (Capture.isCapturedAcrossContract() && Capture.isVariableCapture()) {
+    if (FieldType->isReferenceType()) {
+      assert(!FieldType->isRValueReferenceType());
+      QualType TmpT = FieldType.getNonReferenceType();
+      TmpT.addConst();
+      FieldType = Context.getLValueReferenceType(TmpT);
+    }
+  }
+
   TypeSourceInfo *TSI = nullptr;
   if (Capture.isVariableCapture()) {
     const VarDecl *Var = nullptr;
@@ -2170,6 +2208,9 @@ FieldDecl *Sema::BuildCaptureField(RecordDecl *RD, const sema::Capture &Capture,
 
   if (Capture.isVLATypeCapture())
     Field->setCapturedVLAType(Capture.getCapturedVLAType());
+
+  if (Capture.isCapturedAcrossContract())
+    Field->setIsConstifiedCapture(true);
 
   return Field;
 }
@@ -2259,10 +2300,19 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     if (From.isInvalid())
       return ExprError();
 
+
     assert(!From.isBlockCapture() && "Cannot capture __block variables");
     bool IsImplicit = I >= LSI->NumExplicitCaptures;
     SourceLocation ImplicitCaptureLoc =
         IsImplicit ? CaptureDefaultLoc : SourceLocation();
+
+    if (IsImplicit && From.isVariableCapture() &&
+        From.isCapturedAcrossContract() &&
+        LSI->ContractCaptureMap.count(From.getVariable()) != 0) {
+      ((void)From);
+      assert(false);
+      // FIXME(EricWF)
+    }
 
     // Use source ranges of explicit captures for fixits where available.
     SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];
@@ -2281,6 +2331,7 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
         IsCaptureUsed =
             !DiagnoseUnusedLambdaCapture(CaptureRange, FixItRange, From);
       }
+
     }
 
     if (CaptureRange.isValid()) {
@@ -2309,8 +2360,15 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
         assert(From.isVariableCapture() && "unknown kind of capture");
         ValueDecl *Var = From.getVariable();
         LambdaCaptureKind Kind = From.isCopyCapture() ? LCK_ByCopy : LCK_ByRef;
-        return LambdaCapture(From.getLocation(), IsImplicit, Kind, Var,
+
+
+        LambdaCapture Cap(From.getLocation(), IsImplicit, Kind, Var,
                              From.getEllipsisLoc());
+        if (From.isCapturedAcrossContract() && !From.isCopyCapture())
+          Cap.setCapturedAcrossContract(true, From.getContractLoc());
+
+        return Cap;
+
       }
     }();
 
@@ -2411,6 +2469,9 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     }
     maybeAddDeclWithEffects(LSI->CallOperator);
   }
+  // Diagnose lambda captures that occur exclusively within contract statements
+  // within the lambda.
+  CheckLambdaCapturesForContracts(Lambda);
 
   return MaybeBindToTemporary(Lambda);
 }

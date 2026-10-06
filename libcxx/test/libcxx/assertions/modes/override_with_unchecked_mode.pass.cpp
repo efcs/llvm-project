@@ -9,7 +9,7 @@
 // This test ensures that we can override any hardening mode with the unchecked mode on a per-TU basis.
 
 // REQUIRES: stdlib=libc++
-// ADDITIONAL_COMPILE_FLAGS: -U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE
+// ADDITIONAL_COMPILE_FLAGS: -U_LIBCPP_HARDENING_MODE -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE -fcontract-group-evaluation-semantic=std=enforce,std.valid_element_access=ignore
 
 #include <__assert>
 

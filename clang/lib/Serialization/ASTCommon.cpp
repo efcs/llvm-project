@@ -412,6 +412,10 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::Empty:
     return true;
 
+  // FIXME(EricWF): Is this correct? I think so?
+  case Decl::ContractSpecifier:
+    return true;
+
   // Never redeclarable.
   case Decl::ExplicitInstantiation:
   case Decl::UsingDirective:
@@ -474,6 +478,7 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::OpenACCDeclare:
   case Decl::OpenACCRoutine:
   case Decl::CXXExpansionStmt:
+  case Decl::ResultName:
     return false;
 
   // These indirectly derive from Redeclarable<T> but are not actually

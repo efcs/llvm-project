@@ -345,6 +345,13 @@ Retry:
   case tok::kw__Defer: // C defer TS: defer-statement
     return ParseDeferStatement(TrailingElseLoc);
 
+  case tok::kw_contract_assert: // C++20 contract-assert-statement
+    ProhibitAttributes(CXX11Attrs);
+    ProhibitAttributes(GNUAttrs); // The attributes go after the keyword
+    Res = ParseContractAssertStatement();
+    SemiError = "contract_assert";
+    break;
+
   case tok::kw_asm: {
     for (const ParsedAttr &AL : CXX11Attrs)
       // Could be relaxed if asm-related regular keyword attributes are
@@ -997,7 +1004,7 @@ StmtResult Parser::ParseCompoundStatement(bool isStmtExpr) {
 }
 
 StmtResult Parser::ParseCompoundStatement(bool isStmtExpr,
-                                          unsigned ScopeFlags) {
+                                          unsigned long ScopeFlags) {
   assert(Tok.is(tok::l_brace) && "Not a compound stmt!");
 
   // Enter a scope to hold everything within the compound stmt.  Compound
@@ -1698,7 +1705,7 @@ StmtResult Parser::ParseSwitchStatement(SourceLocation *TrailingElseLoc,
   // while, for, and switch statements are local to the if, while, for, or
   // switch statement (including the controlled statement).
   //
-  unsigned ScopeFlags = Scope::SwitchScope;
+  unsigned long ScopeFlags = Scope::SwitchScope;
   if (C99orCXX)
     ScopeFlags |= Scope::DeclScope | Scope::ControlScope;
   ParseScope SwitchScope(this, ScopeFlags);
@@ -1783,7 +1790,7 @@ StmtResult Parser::ParseWhileStatement(SourceLocation *TrailingElseLoc,
   // while, for, and switch statements are local to the if, while, for, or
   // switch statement (including the controlled statement).
   //
-  unsigned ScopeFlags =
+  unsigned long ScopeFlags =
       Scope::ControlScope | (C99orCXX ? Scope::DeclScope : Scope::NoScope);
   ParseScope WhileScope(this, ScopeFlags);
 
@@ -1837,7 +1844,8 @@ StmtResult Parser::ParseDoStatement(LabelDecl *PrecedingLabel) {
 
   // C99 6.8.5p5 - In C99, the do statement is a block.  This is not
   // the case for C90.  Start the loop scope.
-  unsigned ScopeFlags = getLangOpts().C99 ? Scope::DeclScope : Scope::NoScope;
+  unsigned long ScopeFlags =
+      getLangOpts().C99 ? Scope::DeclScope : Scope::NoScope;
   ParseScope DoScope(this, ScopeFlags);
 
   // OpenACC Restricts a do-while-loop inside of certain construct/clause
@@ -2011,8 +2019,9 @@ StmtResult Parser::ParseForStatement(SourceLocation *TrailingElseLoc,
   // doesn't cause declarations to bind to this scope. We use this to avoid
   // diagnosing a comma operator in e.g. the third part of a for loop when
   // '-Wcomma' is enabled.
-  unsigned ScopeFlags = Scope::ControlScope |
-                        (C99orCXXorObjC ? Scope::DeclScope : Scope::NoScope);
+  unsigned long ScopeFlags =
+      Scope::ControlScope |
+      (C99orCXXorObjC ? Scope::DeclScope : Scope::NoScope);
   if (ESD)
     ScopeFlags |= Scope::TemplateParamScope | Scope::ExpansionStmtScope;
   ParseScope ForScope(this, ScopeFlags);

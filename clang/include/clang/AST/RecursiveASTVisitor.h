@@ -1729,6 +1729,12 @@ DEF_TRAVERSE_DECL(FriendDecl, {
   }
 })
 
+DEF_TRAVERSE_DECL(ContractSpecifierDecl, {
+  for (auto *C : D->contracts()) {
+    TRY_TO(TraverseStmt(C));
+  }
+})
+
 DEF_TRAVERSE_DECL(FriendTemplateDecl, {
   const TemplateName Template = D->getFriendTemplateName();
   if (D->getFriendType())
@@ -2301,6 +2307,8 @@ DEF_TRAVERSE_DECL(BindingDecl, {
   }
 })
 
+DEF_TRAVERSE_DECL(ResultNameDecl, {})
+
 DEF_TRAVERSE_DECL(MSPropertyDecl, { TRY_TO(TraverseDeclaratorHelper(D)); })
 
 DEF_TRAVERSE_DECL(MSGuidDecl, {})
@@ -2384,6 +2392,13 @@ bool RecursiveASTVisitor<Derived>::TraverseFunctionHelper(FunctionDecl *D) {
     TRY_TO(TraverseStmt(
         const_cast<Expr *>(TrailingRequiresClause.ConstraintExpr)));
   }
+
+  // Visit any contracts attached to the function declaration..
+#if 1 // TODO(EricWF): Enable this.
+  if (auto *Contracts = D->getContracts()) {
+    TRY_TO(TraverseDecl(Contracts));
+  }
+#endif
 
   if (CXXConstructorDecl *Ctor = dyn_cast<CXXConstructorDecl>(D)) {
     // Constructor initializers.
@@ -2604,6 +2619,15 @@ DEF_TRAVERSE_STMT(ObjCAtThrowStmt, {})
 DEF_TRAVERSE_STMT(ObjCAtTryStmt, {})
 DEF_TRAVERSE_STMT(ObjCForCollectionStmt, {})
 DEF_TRAVERSE_STMT(ObjCAutoreleasePoolStmt, {})
+// FIXME(EricWF): This may have a declaration with a body eventually.
+// Will that need a different implementation.
+DEF_TRAVERSE_STMT(ContractStmt, {
+  if (S->hasResultName()) {
+    TRY_TO(TraverseDecl(S->getResultName()));
+  }
+  TRY_TO_TRAVERSE_OR_ENQUEUE_STMT(S->getCond());
+  ShouldVisitChildren = false;
+})
 
 DEF_TRAVERSE_STMT(CXXForRangeStmt, {
   if (!getDerived().shouldVisitImplicitCode()) {

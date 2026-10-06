@@ -387,6 +387,12 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
   // };
   // Lambda capture handling in tryCaptureVariable() expects an enclosing
   // function scope in Sema's FunctionScopes stack.
+  //
+  // Delayed function contracts are parsed after this scope has been popped:
+  // they enter their own function scope and context (see
+  // ParseLexedFunctionContracts), and the contract bookkeeping expects no
+  // other function scope in between.
+  {
   Sema::FunctionScopeRAII PopFnContext(Actions);
   Actions.PushFunctionScope();
 
@@ -558,6 +564,11 @@ void Parser::ParseLexedMethodDeclaration(LateParsedMethodDeclaration &LM) {
     delete Toks;
     LM.ExceptionSpecTokens = nullptr;
   }
+  }
+
+  if (!LM.ContractTokens.empty())
+    ParseLexedFunctionContracts(LM.ContractTokens, LM.Method,
+                                Parser::CES_Function | Parser::CES_CXXThis);
 
   InFunctionTemplateScope.Scopes.Exit();
 
