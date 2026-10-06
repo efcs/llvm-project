@@ -221,8 +221,9 @@ void dispatch_noexcept(const __cxa_contract_data_block* chain, uint8_t semantic)
 #endif
 }
 
-// Holds a reference to the exception the predicate exited with, for the
-// duration of the dispatch.
+// Holds a reference to the exception the predicate exited with (the current
+// exception when an 'ex' entry point is called), for the duration of the
+// dispatch.
 struct current_exception_holder {
   void* exception = __cxa_current_primary_exception();
   ~current_exception_holder() { __cxa_decrement_exception_refcount(exception); }
@@ -230,7 +231,6 @@ struct current_exception_holder {
 
 template <bool IsNoexcept, bool IsException>
 void dispatch_with_override(void* data, uint8_t kind, uint8_t semantic, uint8_t mode) {
-  current_exception_holder exception;
   override_block_t block = {
       reinterpret_cast<const __cxa_descriptor_table_t*>(IsException ? static_cast<const void*>(&override_descriptor_ex)
                                                                     : static_cast<const void*>(&override_descriptor_pf)),
@@ -238,13 +238,25 @@ void dispatch_with_override(void* data, uint8_t kind, uint8_t semantic, uint8_t 
       kind,
       semantic,
       mode,
-      IsException ? exception.exception : nullptr,
+      nullptr,
   };
   const __cxa_contract_data_block* chain = reinterpret_cast<const __cxa_contract_data_block*>(&block);
-  if (IsNoexcept)
-    dispatch_noexcept(chain, semantic);
-  else
-    dispatch(chain, semantic);
+  auto dispatch_chain                    = [&] {
+    if (IsNoexcept)
+      dispatch_noexcept(chain, semantic);
+    else
+      dispatch(chain, semantic);
+  };
+  if constexpr (IsException) {
+    // Only the 'ex' entry points are called from within a handler for the
+    // exception the predicate exited with; the 'pf' entry points may be called
+    // from within a handler for an unrelated exception, which is left alone.
+    current_exception_holder exception;
+    block.exception = exception.exception;
+    dispatch_chain();
+  } else {
+    dispatch_chain();
+  }
 }
 
 } // namespace
