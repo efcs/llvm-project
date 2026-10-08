@@ -328,7 +328,14 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   if (Cond.isInvalid()) {
     Cond =
         Actions.CreateRecoveryExpr(ExprLoc, EndLoc, {}, Actions.Context.BoolTy);
-  } else {
+    // There is no predicate to build the contract assertion with when
+    // recovery expressions are disabled.
+    if (Cond.isInvalid())
+      return StmtError();
+  } else if (!Cond.get()->containsErrors()) {
+    // A predicate which contains errors (a recovery expression) is kept for
+    // tooling, but the contract assertion is invalid: in particular, it must
+    // not be compared with the contracts of another declaration.
     SetInvalidOnExit.release();
   }
 

@@ -114,6 +114,12 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    ArrayRef<const Attr *> Attrs,
                                    StringRef PredicateText,
                                    SourceRange ParenRange) {
+  // The predicate is a full-expression: the cleanups it requires (e.g. for
+  // the closure object of a lambda-expression) belong to it, not to the
+  // contract assertion. ActOnCondition leaves them pending when the condition
+  // is already a full-expression (an immediate invocation) or when it had to
+  // be wrapped in a recovery expression.
+  Cond = MaybeCreateExprWithCleanups(Cond);
   return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs,
                               PredicateText, ParenRange.getBegin(),
                               ParenRange.getEnd());
@@ -204,11 +210,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
       !inTemplateInstantiation())
     Diag(RND->getLocation(), diag::warn_unused_result_name) << RND;
 
-  if (RND && RND->getType()->isUndeducedAutoType()) {
-    return Res;
-  }
-
-  return ActOnFinishFullStmt(Res.get());
+  return Res;
 }
 
 /// Declare the result binding introduced by the result-name-introducer of a
