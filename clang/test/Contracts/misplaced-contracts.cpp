@@ -49,7 +49,7 @@ struct Y {
 Y::Y() pre(true) = default;
 
 // A result name may only appear on a postcondition.
-int g() pre(r: true); // expected-error {{result name 'r' not allowed outside of post condition specifier}}
+int g() pre(r: true); // expected-error {{result name 'r' is not allowed in a precondition specifier; only a postcondition specifier can introduce a result name}}
 void v() post(r: true); // expected-error {{result name 'r' cannot be used with a void return type}}
 template <class T> T tv() post(r: true) { return T(); } // expected-error {{result name 'r' cannot be used with a void return type}}
 void use_tv() { tv<void>(); } // expected-note {{in instantiation of function template specialization 'tv<void>' requested here}}

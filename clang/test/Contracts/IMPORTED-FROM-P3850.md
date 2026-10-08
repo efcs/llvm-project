@@ -143,7 +143,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/OpenBugs/retval-throwing-cleanup.cpp` | D | kept in OpenBugs with XFAIL (core-language codegen bug, no contracts; %libcxx_flags dropped) |
 | `Contracts/OpenBugs/this-in-xobj-noexcept-specifier.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
 | `Contracts/OpenBugs/this-in-xobj-trailing-return-type.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
-| `Contracts/over.call.func.p3.1.cpp` | A | imported, fails here -> OpenBugs/over.call.func.p3.1.cpp (XFAIL): member access in ctor-pre / dtor-post accepted |
+| `Contracts/over.call.func.p3.1.cpp` | A | imported; was OpenBugs (member access in ctor-pre / dtor-post accepted) -- fixed in round three, now Contracts/over.call.func.p3.1.cpp with our wording and more cases; passes |
 | `Contracts/p2900-constexpr-potential-postcondition.cpp` | A | imported, fails here -> OpenBugs/p2900-constexpr-potential-postcondition.cpp (XFAIL): -Winvalid-constexpr evaluates no contract assertions at all (quality, not conformance); round three left it open on purpose, see the note in the test (the observe expectations also go beyond [basic.contract.eval]p8) |
 | `Contracts/p3097-basic-sema.cpp` | B | skipped: P3097 virtual-function contracts |
 | `Contracts/p3097-config-semantic.cpp` | B | skipped: P3097 virtual-function contracts |
@@ -479,7 +479,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/postcondition-redecl-no-diagnostics.cpp` | A | imported verbatim; passes |
 | `Contracts/pure-virtual-dependent-predicate-codegen.cpp` | B | skipped: P3097 virtual-function contracts (all cases virtual) |
 | `Contracts/result-name-misplaced.cpp` | A | imported; expectations re-worded to our diagnostics ('result name cannot be used with a void return type'; `contract_assert(r: ...)` is a plain parse error here); passes |
-| `Contracts/result-name-shadows-template-param.cpp` | A | imported, fails here -> OpenBugs/result-name-shadows-template-param.cpp (XFAIL): assertion crash in ActOnResultNameDeclarator |
+| `Contracts/result-name-shadows-template-param.cpp` | A | imported; was OpenBugs (result name redeclaring a template parameter accepted) -- fixed in round three, now Contracts/result-name-shadows-template-param.cpp; passes |
 | `Contracts/scope-rules.cpp` | A | imported verbatim; passes |
 | `Contracts/Sema/basic.contract.eval.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/contract-predicate-constify-in-lambda.cpp` | A | imported (captured-*this member case was an OpenBug on the round-one base, fixed in round two); by-ref-capture wording updated to round-two diagnostics; passes |
@@ -492,13 +492,13 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/Sema/deducing-this-postcondition-param-dependent.cpp` | A | imported, fails here -> OpenBugs/deducing-this-postcondition-param-dependent.cpp (XFAIL): contracts of declared-only templates not instantiated on odr-use |
 | `Contracts/Sema/expr.const.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/expr.prim.closure.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
-| `Contracts/Sema/postcondition-discarded-operand-dependent.cpp` | A | imported; the discarded-comma-operand exempt case moved to OpenBugs/pr126897.cpp; rest passes |
+| `Contracts/Sema/postcondition-discarded-operand-dependent.cpp` | A | imported; the discarded-comma-operand exempt case moved to Sema/pr126897.cpp; passes |
 | `Contracts/Sema/postcondition-lambda-param.cpp` | A | imported verbatim; passes |
-| `Contracts/Sema/postcondition-pack-const.cpp` | A | imported, fails here -> OpenBugs/postcondition-pack-const.cpp (XFAIL): pack-indexing odr-use not checked |
+| `Contracts/Sema/postcondition-pack-const.cpp` | A | imported; was OpenBugs (pack-indexing odr-use not checked) -- fixed in round three, now Sema/postcondition-pack-const.cpp; passes |
 | `Contracts/Sema/postcondition-pack-empty.cpp` | A | imported verbatim; passes |
 | `Contracts/Sema/postcondition-redecl-dependent-param.cpp` | A | imported, fails here -> OpenBugs/postcondition-redecl-dependent-param.cpp (XFAIL): [dcl.contract.func]/7 'all declarations' not checked for dependent parameter types |
 | `Contracts/Sema/postcondition-unevaluated-operand.cpp` | A | imported verbatim; passes |
-| `Contracts/Sema/pr126897.cpp` | A | imported, fails here -> OpenBugs/pr126897.cpp (XFAIL): discarded comma operand treated as odr-use |
+| `Contracts/Sema/pr126897.cpp` | A | imported; was OpenBugs (discarded comma operand treated as odr-use) -- fixed in round three, now Sema/pr126897.cpp with redeclaration and potential-result cases added; passes |
 | `Contracts/sfinae-test.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/template-contract-diagnostics.cpp` | C | ours kept: rename of our templates.cpp with only wording changes |
 | `Contracts/this-in-out-of-line-member-contract.cpp` | A | imported verbatim; passes |

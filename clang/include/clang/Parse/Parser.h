@@ -9192,9 +9192,25 @@ private:
 
   void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
   bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
-  void DiagnoseAndSkipMisplacedContractSpecifiers();
-  /// Whether function contract specifiers may follow the given declarator.
+  /// Diagnose (with \p DiagID and its argument \p DiagArg, if it takes one)
+  /// and skip the function contract specifiers at the current token, which
+  /// cannot belong to the declarator they follow.
+  void DiagnoseAndSkipMisplacedContractSpecifiers(unsigned DiagID,
+                                                  int DiagArg = -1);
+  /// Whether function contract specifiers may follow the given declarator,
+  /// that is, whether it may declare a function.
   bool canHaveFunctionContracts(const Declarator &D) const;
+  /// Handle the function contract specifiers at the current token, which
+  /// follow the declarator \p D of a declaration described by
+  /// \p TemplateInfo: cache their tokens for late parsing if the declarator
+  /// may declare a function, or diagnose and skip them otherwise.
+  void LateParseOrDiagnoseFunctionContractSpecifierSeq(
+      Declarator &D, const ParsedTemplateInfo *TemplateInfo = nullptr);
+  /// Handle the late-parsed function contract specifiers of the member
+  /// \p ThisDecl whose declarator \p DeclaratorInfo is not a function
+  /// declarator: they belong to it if it declares a function through a
+  /// typedef-name.
+  void HandleMemberContractDelays(Declarator &DeclaratorInfo, Decl *ThisDecl);
 
   bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
                                    ContractEnterScopeKind EnterScopeKinds);

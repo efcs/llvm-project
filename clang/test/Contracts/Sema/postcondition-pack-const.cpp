@@ -1,12 +1,4 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -verify %s
-// XFAIL: *
-//
-// OPEN BUG (sema-templates): a non-const pack element odr-used in a
-// postcondition through PACK INDEXING (`args...[0]`) is not diagnosed.
-//   Expected (P2900R14 [dcl.contract.func]/7): "parameter 'args' referenced in
-//     contract postcondition must be declared const" for sel_nonconst and
-//     sel_nonconst_sibling.
-//   Actual: no diagnostic.  (A fold over the pack is diagnosed correctly.)
 
 // [dcl.contract.func]: a non-reference value parameter odr-used in a
 // postcondition must be declared const.  When the parameter is reached through

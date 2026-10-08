@@ -1,16 +1,4 @@
 // RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify %s -fcontracts -Wno-unused-value
-// XFAIL: *
-//
-// OPEN BUG (sema, postcondition parameters): a parameter named as the
-// DISCARDED left operand of a comma operator in a postcondition is not
-// odr-used ([basic.def.odr]/5.3: the lvalue-to-rvalue conversion is not
-// applied to a discarded-value expression of non-volatile type,
-// [expr.context]/2), so [dcl.contract.func]/7 does not apply to it.
-//   Expected (P2900R14 [dcl.contract.func]/7 + [basic.def.odr]/5): no
-//     diagnostic for f, g, h, cls, nested, exempt_param.
-//   Actual: "parameter 'b' referenced in contract postcondition must be
-//     declared const" for each of them -- the check treats every potentially
-//     evaluated reference as an odr-use.
 
 // PR126897: a parameter named as the discarded left operand of a comma is not
 // odr-used, so [dcl.contract.func]/7 does not reach it.
@@ -93,3 +81,23 @@ int plain(int x) post(r : x == r) { return x; }
 
 // CONTROL: and is satisfied by const.
 int constant(const int x) post(r : x == r) { return x; }
+
+// The exemption applies to the corresponding parameter of a redeclaration too
+// ([dcl.contract.func]/7 "on all declarations of f").
+void redecl_exempt(bool b) post((b, true));
+void redecl_exempt(bool b);
+void redecl_exempt(bool b) {}
+void redecl_odr_used(const bool b) post((true, b)); // expected-note {{parameter referenced in postcondition of first declaration here}}
+void redecl_odr_used(bool b); // expected-error {{parameter 'b' of type 'bool' must be declared const because it is referenced in a postcondition of the function}}
+
+// The potential results of an array subscript with an array operand, of a
+// member access and of a conditional operator are those of their operands;
+// a volatile glvalue is read.
+struct Arr { int a[2]; int m; };
+void subscript(Arr s, int i) post((s.a[i], true)) {} // expected-error {{parameter 'i' referenced in contract postcondition must be declared const}} expected-note {{parameter of type 'int' is declared here}}
+void subscript_const(Arr s, const int i) post((s.a[i], true)) {}
+void member(Arr s) post((s.m, true)) {}
+void conditional(bool c, int x, int y) post((c ? x : y, true)) {} // expected-error {{parameter 'c' referenced in contract postcondition must be declared const}} expected-note {{parameter of type 'bool' is declared here}}
+void conditional_const(const bool c, int x, int y) post((c ? x : y, true)) {}
+void vol(volatile int v) post((v, true)) {} // expected-error {{parameter 'v' referenced in contract postcondition must be declared const}} expected-note {{parameter of type 'volatile int' is declared here}} \
+                                           // expected-warning {{volatile-qualified parameter type 'volatile int' is deprecated}}

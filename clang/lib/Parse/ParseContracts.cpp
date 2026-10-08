@@ -168,19 +168,79 @@ void Parser::ParseFunctionContractsAfterBody(Decl *FD) {
 }
 
 bool Parser::canHaveFunctionContracts(const Declarator &D) const {
-  // [dcl.decl.general], [class.mem.general]: a function-contract-specifier-seq
-  // shall be present only if the declarator declares a function.
-  return D.isFunctionDeclarator() &&
-         D.getDeclSpec().getStorageClassSpec() != DeclSpec::SCS_typedef;
+  // [dcl.decl.general]p4+a, [class.mem.general]p1+a: a
+  // function-contract-specifier-seq shall be present only if the declarator
+  // declares a function.
+  //
+  // A typedef declaration never declares a function. Otherwise, the
+  // declarator declares a function if its innermost (non-parenthesized)
+  // declarator chunk is a function chunk, or if it has no such chunk and the
+  // type specified by the decl-specifier-seq is a function type (e.g. a
+  // typedef-name for a function type); the latter is only known once the
+  // declaration has been built, see ParseLexedFunctionContracts.
+  if (D.getDeclSpec().getStorageClassSpec() == DeclSpec::SCS_typedef)
+    return false;
+  for (unsigned I = 0, E = D.getNumTypeObjects(); I != E; ++I) {
+    const DeclaratorChunk &Chunk = D.getTypeObject(I);
+    if (Chunk.Kind == DeclaratorChunk::Paren)
+      continue;
+    return Chunk.Kind == DeclaratorChunk::Function;
+  }
+  return true;
 }
 
-void Parser::DiagnoseAndSkipMisplacedContractSpecifiers() {
+void Parser::DiagnoseAndSkipMisplacedContractSpecifiers(unsigned DiagID,
+                                                        int DiagArg) {
   assert(isFunctionContractKeyword(Tok) && "Not in a contract");
   SourceLocation StartLoc = Tok.getLocation();
   CachedTokens Discarded;
   LateParseFunctionContractSpecifierSeq(Discarded);
-  Diag(StartLoc, diag::err_contract_on_non_function)
-      << SourceRange(StartLoc, PrevTokLocation);
+  auto DB = Diag(StartLoc, DiagID);
+  if (DiagArg >= 0)
+    DB << DiagArg;
+  DB << SourceRange(StartLoc, PrevTokLocation);
+}
+
+void Parser::LateParseOrDiagnoseFunctionContractSpecifierSeq(
+    Declarator &D, const ParsedTemplateInfo *TemplateInfo) {
+  assert(isFunctionContractKeyword(Tok) && "Not in a contract");
+
+  // [temp.explicit]: an explicit instantiation declares a specialization
+  // which is not a first declaration; its function-contract-specifier-seq
+  // could only repeat that of the template, which is dependent.
+  if (TemplateInfo &&
+      TemplateInfo->Kind == ParsedTemplateKind::ExplicitInstantiation)
+    return DiagnoseAndSkipMisplacedContractSpecifiers(
+        diag::err_contract_on_declaration_kind, /*explicit instantiation*/ 1);
+
+  // [temp.deduct.guide]: a deduction-guide is not a function declaration.
+  if (D.getName().getKind() == UnqualifiedIdKind::IK_DeductionGuideName)
+    return DiagnoseAndSkipMisplacedContractSpecifiers(
+        diag::err_contract_on_declaration_kind, /*deduction guide*/ 0);
+
+  if (!canHaveFunctionContracts(D))
+    return DiagnoseAndSkipMisplacedContractSpecifiers(
+        diag::err_contract_on_non_function);
+
+  LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
+}
+
+void Parser::HandleMemberContractDelays(Declarator &DeclaratorInfo,
+                                        Decl *ThisDecl) {
+  CachedTokens &Toks = DeclaratorInfo.LateParsedContracts;
+  assert(!Toks.empty() && "no late-parsed contracts");
+  if (ThisDecl && ThisDecl->getAsFunction()) {
+    // Parse the contracts in the complete-class context, like those of the
+    // other member functions.
+    auto *LateMethod = new LateParsedMethodDeclaration(this, ThisDecl);
+    getCurrentClass().LateParsedDeclarations.push_back(LateMethod);
+    LateMethod->ContractTokens = std::move(Toks);
+  } else if (ThisDecl) {
+    // [class.mem.general]p1+a: the declarator does not declare a function.
+    Diag(Toks.front().getLocation(), diag::err_contract_on_non_function)
+        << SourceRange(Toks.front().getLocation(), Toks.back().getLocation());
+  }
+  Toks.clear();
 }
 
 /// ParseContractAssertStatement
@@ -255,15 +315,16 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
   ResultNameDecl *RND = nullptr;
-  // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
-  // can diagnose it but we don't do the same for contract assert... Should we?
+  // A result-name-introducer is parsed for every kind of contract assertion
+  // so that one on a precondition or an assertion-statement can be diagnosed
+  // (and so that references to its name in the predicate don't cascade).
   //
   //   result-name-introducer:
   //     attributed-identifier :
   //   attributed-identifier:
   //     identifier attribute-specifier-seq[opt]
   bool IsResultNameIntroducer = false;
-  if (CK != ContractKind::Assert && Tok.is(tok::identifier)) {
+  if (Tok.is(tok::identifier)) {
     if (NextToken().is(tok::colon)) {
       IsResultNameIntroducer = true;
     } else if (NextToken().is(tok::l_square)) {
@@ -286,9 +347,10 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     MaybeParseCXX11Attributes(ResultNameAttrs);
 
     ExprLoc = ConsumeToken();
-    QualType ReturnType;
-    if (ReturnTypeResolver)
-      ReturnType = ReturnTypeResolver();
+    // An assertion-statement has no result to name; the type of the (invalid)
+    // result name declared for it does not matter.
+    QualType ReturnType = ReturnTypeResolver ? ReturnTypeResolver()
+                                             : Actions.Context.IntTy;
 
     // The result name is profiled (for the purpose of comparing contracts on
     // different declarations) like a parameter of the function, so give it
@@ -328,7 +390,14 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
   if (Cond.isInvalid()) {
     Cond =
         Actions.CreateRecoveryExpr(ExprLoc, EndLoc, {}, Actions.Context.BoolTy);
-  } else {
+    // There is no predicate to build the contract assertion with when
+    // recovery expressions are disabled.
+    if (Cond.isInvalid())
+      return StmtError();
+  } else if (!Cond.get()->containsErrors()) {
+    // A predicate which contains errors (a recovery expression) is kept for
+    // tooling, but the contract assertion is invalid: in particular, it must
+    // not be compared with the contracts of another declaration.
     SetInvalidOnExit.release();
   }
 
@@ -347,8 +416,13 @@ bool Parser::ParseLexedFunctionContracts(
 
   FunctionDecl *FunctionToPush = FD ? FD->getAsFunction() : nullptr;
   if (!FunctionToPush) {
-    // The declaration was invalid or not a function; there is nothing to
-    // attach the contracts to.
+    // [dcl.decl.general]p4+a: the declarator must declare a function. If the
+    // declaration was invalid, there is nothing to attach the contracts to.
+    if (FD)
+      Diag(ContractToks.front().getLocation(),
+           diag::err_contract_on_non_function)
+          << SourceRange(ContractToks.front().getLocation(),
+                         ContractToks.back().getLocation());
     ContractToks.clear();
     return false;
   }

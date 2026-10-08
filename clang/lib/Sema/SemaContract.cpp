@@ -114,6 +114,12 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                                    ArrayRef<const Attr *> Attrs,
                                    StringRef PredicateText,
                                    SourceRange ParenRange) {
+  // The predicate is a full-expression: the cleanups it requires (e.g. for
+  // the closure object of a lambda-expression) belong to it, not to the
+  // contract assertion. ActOnCondition leaves them pending when the condition
+  // is already a full-expression (an immediate invocation) or when it had to
+  // be wrapped in a recovery expression.
+  Cond = MaybeCreateExprWithCleanups(Cond);
   return ContractStmt::Create(Context, CK, KeywordLoc, Cond, RND, Attrs,
                               PredicateText, ParenRange.getBegin(),
                               ParenRange.getEnd());
@@ -204,11 +210,7 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
       !inTemplateInstantiation())
     Diag(RND->getLocation(), diag::warn_unused_result_name) << RND;
 
-  if (RND && RND->getType()->isUndeducedAutoType()) {
-    return Res;
-  }
-
-  return ActOnFinishFullStmt(Res.get());
+  return Res;
 }
 
 /// Declare the result binding introduced by the result-name-introducer of a
@@ -245,24 +247,42 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
   if (IsInvalid)
     New->setInvalidDecl();
 
+  if (CK != ContractKind::Post) {
+    Diag(IDLoc, diag::err_result_name_not_allowed)
+        << II << (CK == ContractKind::Assert);
+    New->setInvalidDecl(true);
+  }
+
   // [basic.scope.contract]p2: The result-name-introducer shall not
-  // potentially conflict with a declaration in the function parameter scope
-  // of the function.
-  // FIXME: This should also apply to the lambda scope of the lambda-expression
-  // the postcondition is associated with, if any (its init-captures).
-  if (S) {
+  // potentially conflict with a declaration whose target scope is the
+  // function parameter scope of the function or, for a lambda-expression,
+  // its lambda scope (that is, its init-captures).
+  if (S && CK == ContractKind::Post) {
     LookupResult R(*this, II, IDLoc, LookupOrdinaryName,
                    RedeclarationKind::ForVisibleRedeclaration);
     LookupName(R, S);
     if (!R.empty()) {
       NamedDecl *PrevDecl = *R.begin();
       if (R.isSingleResult() && PrevDecl->isTemplateParameter()) {
-        // Just pretend that we didn't see the previous declaration.
+        // [temp.local]p6: The name of a template-parameter shall not be bound
+        // to any following declaration whose locus is contained by the scope
+        // to which the template-parameter belongs.
+        DiagnoseTemplateParameterShadow(IDLoc, PrevDecl);
+        New->setInvalidDecl(true);
         PrevDecl = nullptr;
       }
-      if (auto *PVD = dyn_cast_if_present<ParmVarDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_result_name_shadows_param) << II;
-        Diag(PVD->getLocation(), diag::note_previous_declaration);
+      auto *VD = dyn_cast_if_present<VarDecl>(PrevDecl);
+      LambdaScopeInfo *LSI =
+          VD && VD->isInitCapture() ? getCurLambda() : nullptr;
+      if (VD && isa<ParmVarDecl>(VD) &&
+          VD->getDeclContext()->Equals(CurContext)) {
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II << 0;
+        Diag(VD->getLocation(), diag::note_previous_declaration);
+        New->setInvalidDecl(true);
+      } else if (LSI && LSI->isCaptured(VD) &&
+                 LSI->getCapture(VD).isInitCapture()) {
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II << 1;
+        Diag(VD->getLocation(), diag::note_previous_declaration);
         New->setInvalidDecl(true);
       } else if (PrevDecl && isa<VarDecl, FieldDecl, BindingDecl>(PrevDecl) &&
                  !Diags.isIgnored(diag::warn_decl_shadow, IDLoc)) {
@@ -291,13 +311,6 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
       Diag(AL.getLoc(), diag::err_attribute_invalid_on_result_name)
           << AL << AL.isRegularKeywordAttribute() << AL.getRange();
     }
-  }
-
-  if (CK != ContractKind::Post) {
-    assert(II && "ResultName requires an identifier");
-
-    Diag(IDLoc, diag::err_result_name_not_allowed) << II;
-    New->setInvalidDecl(true);
   }
 
   // Add the result name into the contract-assertion scope so that it is
@@ -498,6 +511,64 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
 }
 
 namespace {
+/// Traverse the discarded-value expression \p E (the left operand of a comma
+/// operator) with the visitor \p V, without visiting the id-expressions in
+/// its set of potential results ([basic.def.odr]p3): a non-reference variable
+/// named by one of them is not odr-used ([basic.def.odr]p5.3), as the
+/// lvalue-to-rvalue conversion is not applied to a discarded-value expression
+/// of non-volatile type ([expr.context]p2).
+template <class Visitor>
+bool traverseDiscardedValueExpr(Visitor &V, Expr *E) {
+  while (true) {
+    E = E->IgnoreParens();
+    if (isa<DeclRefExpr>(E))
+      return true;
+    // The operand of a cast to void is a discarded-value expression itself.
+    if (auto *CE = dyn_cast<ExplicitCastExpr>(E);
+        CE && CE->getCastKind() == CK_ToVoid) {
+      E = CE->getSubExpr();
+      continue;
+    }
+    if (auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
+      // An array operand of a subscript decays to a pointer. An
+      // lvalue-to-rvalue conversion is applied to a volatile glvalue.
+      if (ICE->getCastKind() != CK_ArrayToPointerDecay &&
+          ICE->getCastKind() != CK_NoOp)
+        break;
+      E = ICE->getSubExpr();
+    } else if (auto *CO = dyn_cast<ConditionalOperator>(E)) {
+      return V.TraverseStmt(CO->getCond()) &&
+             traverseDiscardedValueExpr(V, CO->getTrueExpr()) &&
+             traverseDiscardedValueExpr(V, CO->getFalseExpr());
+    } else if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_Comma) {
+        if (!traverseDiscardedValueExpr(V, BO->getLHS()))
+          return false;
+        E = BO->getRHS();
+      } else if (BO->getOpcode() == BO_PtrMemD) {
+        if (!V.TraverseStmt(BO->getRHS()))
+          return false;
+        E = BO->getLHS();
+      } else {
+        break;
+      }
+    } else if (auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (ME->isArrow() || !isa<FieldDecl>(ME->getMemberDecl()))
+        break;
+      E = ME->getBase();
+    } else if (auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+      if (!ASE->getBase()->IgnoreImpCasts()->getType()->isArrayType())
+        break;
+      if (!V.TraverseStmt(ASE->getIdx()))
+        return false;
+      E = ASE->getBase();
+    } else {
+      break;
+    }
+  }
+  return V.TraverseStmt(E);
+}
+
 /// A checker which white-lists certain expressions whose conversion
 /// to or from retainable type would otherwise be forbidden in ARC.
 struct ParamReferenceChecker : RecursiveASTVisitor<ParamReferenceChecker> {
@@ -523,6 +594,22 @@ public:
     if (CS->getCond())
       TraverseStmt(CS->getCond());
     return true;
+  }
+
+  /// The left operand of a comma operator is a discarded-value expression.
+  bool TraverseBinaryOperator(BinaryOperator *BO) {
+    if (BO->getOpcode() != BO_Comma)
+      return super::TraverseBinaryOperator(BO);
+    return traverseDiscardedValueExpr(*this, BO->getLHS()) &&
+           TraverseStmt(BO->getRHS());
+  }
+
+  /// Only the selected element of a pack is named by a pack indexing
+  /// expression.
+  bool TraversePackIndexingExpr(PackIndexingExpr *E) {
+    if (E->isFullySubstituted() && !E->expandsToEmptyPack())
+      return TraverseStmt(E->getSelectedExpr());
+    return super::TraversePackIndexingExpr(E);
   }
 
   enum DiagSelector {
@@ -637,6 +724,17 @@ static void diagnoseNonConstParamsOnRedeclaration(Sema &S, FunctionDecl *First,
           FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD)
         Indices.insert(PVD->getFunctionScopeIndex());
       return true;
+    }
+    bool TraverseBinaryOperator(BinaryOperator *BO) {
+      if (BO->getOpcode() != BO_Comma)
+        return RecursiveASTVisitor<Collector>::TraverseBinaryOperator(BO);
+      return traverseDiscardedValueExpr(*this, BO->getLHS()) &&
+             TraverseStmt(BO->getRHS());
+    }
+    bool TraversePackIndexingExpr(PackIndexingExpr *E) {
+      if (E->isFullySubstituted() && !E->expandsToEmptyPack())
+        return TraverseStmt(E->getSelectedExpr());
+      return RecursiveASTVisitor<Collector>::TraversePackIndexingExpr(E);
     }
   } C;
   C.FD = First;
@@ -767,6 +865,27 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
   return BuildContractSpecifierDecl(Contracts, CurContext, Loc, IsInvalid);
 }
 
+/// Diagnose function contract specifiers on a naked function: it has no
+/// prologue or epilogue in which its contract assertions could be evaluated.
+static void diagnoseContractsOnNakedFunction(Sema &S, FunctionDecl *FD,
+                                             const FunctionDecl *First) {
+  // Diagnose on the declaration which introduces the attribute (the contracts
+  // may be on an earlier declaration), once.
+  const auto *NA = FD->getAttr<NakedAttr>();
+  if (!NA || NA->isInherited())
+    return;
+  ContractSpecifierDecl *CSD =
+      FD->hasContracts() ? FD->getContracts() : First->getContracts();
+  if (!CSD || CSD->contracts().empty())
+    return;
+  S.Diag(CSD->contracts().front()->getBeginLoc(),
+         diag::err_contract_on_function_kind)
+      << /*naked function*/ 3 << FD;
+  S.Diag(NA->getLocation(), diag::note_attribute);
+  if (FD->hasContracts())
+    CSD->setInvalidDecl(true);
+}
+
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
 
@@ -791,7 +910,7 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
     return;
   }
 
-
+  diagnoseContractsOnNakedFunction(*this, FD, First);
 
   // If the definition has omitted the contracts, but the first declaration has
   // them, we need to rebuild the contracts to refer to the parameters of the
@@ -1131,11 +1250,47 @@ bool Sema::isContractConstified(const ValueDecl *VD) const {
     return false;
 
   // If a lambda-expression within the predicate captures the entity by copy,
-  // the id-expression names the member of the closure type instead.
-  if (Var->isLocalVarDeclOrParm() &&
+  // the id-expression names the member of the closure type instead. Only an
+  // entity with automatic storage duration can be captured.
+  if (Var->hasLocalStorage() &&
       isCapturedByCopyInLambda(*this, FirstNestedScope, VD))
     return false;
 
+  return true;
+}
+
+bool Sema::DiagnoseImplicitMemberAccessInContract(
+    const DeclarationNameInfo &NameInfo) {
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  if (!CSR)
+    return false;
+
+  // [expr.prim.id.general]p2, [over.call.func]p3:
+  //   If this transformation [into a class member access expression using
+  //   (*this) as the object expression] occurs in the predicate of a
+  //   precondition assertion of a constructor of X or a postcondition
+  //   assertion of a destructor of X, the expression is ill-formed.
+  bool IsCtorPre = CSR->Kind == ContractKind::Pre &&
+                   isa<CXXConstructorDecl>(CSR->Context);
+  bool IsDtorPost = CSR->Kind == ContractKind::Post &&
+                    isa<CXXDestructorDecl>(CSR->Context);
+  if (!IsCtorPre && !IsDtorPost)
+    return false;
+
+  // The standard's example allows an unevaluated operand (sizeof(b)), in
+  // which the object is not accessed.
+  if (isUnevaluatedContext())
+    return false;
+
+  // Within a class (other than a closure type) nested within the predicate,
+  // 'this' does not refer to the object under construction or destruction.
+  for (const DeclContext *DC = CurContext; DC && !CSR->Context->Equals(DC);
+       DC = DC->getParent())
+    if (const auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && !RD->isLambda())
+      return false;
+
+  Diag(NameInfo.getLoc(), diag::err_contract_implicit_member_access_structor)
+      << NameInfo.getName() << IsDtorPost;
   return true;
 }
 

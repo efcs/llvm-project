@@ -7239,6 +7239,15 @@ public:
   bool isCXXThisContractConstified(
       const CXXRecordDecl *CopyCapturingClosure) const;
 
+  /// Diagnose the transformation of the id-expression \p NameInfo, which
+  /// names a non-static member, into a class member access expression using
+  /// (*this) if it occurs in the predicate of a precondition assertion of a
+  /// constructor or a postcondition assertion of a destructor
+  /// ([expr.prim.id.general]p2, [over.call.func]p3). Returns true if a
+  /// diagnostic was issued.
+  bool DiagnoseImplicitMemberAccessInContract(
+      const DeclarationNameInfo &NameInfo);
+
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
   /// assignment.

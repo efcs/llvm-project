@@ -25,23 +25,37 @@ in a `mutable` lambda:
 - Proposal: keep constifying; raise the wording with SG21/CWG.
 
 ### 1.2 Result name that redeclares a template parameter
-`template <int r> int g() post(r : r > 0);` is accepted silently
+`template <int r> int g() post(r : r > 0);` was accepted silently
 (SemaContract.cpp "pretend we didn't see it"). GCC errors ([temp.local]p6: a
 template parameter shall not be redeclared within its scope).
-- Proposal: diagnose as an error.
+- Resolved (round three): diagnosed as an error, like a parameter that
+  shadows a template parameter ("declaration of 'r' shadows template
+  parameter"). Test: result-name-shadows-template-param.cpp.
 
 ### 1.3 Result name vs. init-capture of the same name
-`[r = 7]() post(r : r > 0) { ... }` is accepted ([basic.scope.contract]p2.2 would
-make the result name conflict with the init-capture). There is a FIXME in the code.
-- Proposal: diagnose.
+`[r = 7]() post(r : r > 0) { ... }` was accepted ([basic.scope.contract]p2.2 makes
+the result name conflict with the init-capture).
+- Resolved (round three): diagnosed as an error ("declaration of result name
+  'r' conflicts with init-capture"), for the init-captures of the lambda the
+  postcondition belongs to only; a simple-capture, or an init-capture or
+  parameter of an enclosing lambda or function, is merely hidden. The
+  parameter check was narrowed the same way (a result name of a lambda no
+  longer "shadows" a parameter of the enclosing function). Test:
+  result-name-init-capture.cpp.
 
 ### 1.4 Members named in a constructor precondition / destructor postcondition
-`S() pre(k)` and `~S() post(f())` are accepted. [expr.prim.id.general]/2 and the
+`S() pre(k)` and `~S() post(f())` were accepted. [expr.prim.id.general]/2 and the
 standard's own example (`C() pre(b) // error`) make them ill-formed. Chuanqi Xu's
 implementation rejects *any* use of `this` there, which is over-strict
 (`this != nullptr`, `sizeof(this->m)` are fine).
-- Proposal: diagnose implicit/explicit member access of the object under
-  construction/destruction only. (OpenBugs/over.call.func.p3.1.cpp)
+- Resolved (round three): the implicit transformation of an id-expression
+  naming a non-static member into `(*this).m` (including a qualified `S::m`,
+  an unqualified member call, and inside a lambda within the predicate) is an
+  error in a constructor precondition / destructor postcondition; explicit
+  `this->m`, `(*this).m`, `&this->m`, unevaluated operands and static members
+  are fine, as are members of a local class nested within the predicate. The
+  expression is still built, to avoid follow-on errors. Test:
+  over.call.func.p3.1.cpp.
 
 ### 1.5 Destructor postconditions that name members — RESOLVED (round three)
 `constexpr ~M() post(m == 0) { m = 0; }` used in constant evaluation: the AST

@@ -8943,8 +8943,8 @@ let CategoryName = "Lambda Issue" in {
     "variable %0 with flexible array member cannot be captured in "
     "a lambda expression">;
   def err_lambda_impcap : Error<
-    "variable %0 cannot be implicitly captured in a lambda with no "
-    "capture-default specified">;
+    "%select{variable|result name}1 %0 cannot be implicitly captured in a "
+    "lambda with no capture-default specified">;
   def note_lambda_variable_capture_fixit : Note<
     "capture %0 by %select{value|reference}1">;
   def note_lambda_default_capture_fixit : Note<
@@ -13145,7 +13145,7 @@ def select_contract_kind : TextSubstitution<
 let CategoryName = "Contract Issue" in {
 def err_contract_on_function_kind : Error<
   "%select{virtual function|deleted function|function defaulted on its first "
-  "declaration}0 %1 cannot have function contract specifiers">;
+  "declaration|naked function}0 %1 cannot have function contract specifiers">;
 def err_contract_postcondition_redecl_param_not_const : Error<
   "parameter %0 of type %1 must be declared const because it is referenced "
   "in a postcondition of the function">;
@@ -13157,11 +13157,18 @@ def note_coroutine_postcondition_function : Note<
   "function %0 is a coroutine">;
 
 def err_result_name_shadows_param : Error<
-  "declaration of result name %0 shadows parameter">;
+  "declaration of result name %0 %select{shadows parameter|"
+  "conflicts with init-capture}1">;
 def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
 def err_result_name_not_allowed : Error<
-  "result name %0 not allowed outside of post condition specifier">;
+  "result name %0 is not allowed in %select{a precondition specifier|"
+  "a contract_assert statement}1; only a postcondition specifier can "
+  "introduce a result name">;
+def err_contract_implicit_member_access_structor : Error<
+  "implicit access to non-static member %0 of the object under "
+  "%select{construction is not allowed in the precondition of a constructor|"
+  "destruction is not allowed in the postcondition of a destructor}1">;
 
 // Diagnose clang::contract_group attribute strings
 def err_contract_group_attribute_invalid_group : Error<

@@ -29,12 +29,12 @@ struct S {
   static int s;
   int f(T x); // expected-note {{previously declared without contracts here}}
   int g(T x) pre(m > 0 && x > 0 && s > 0) post(r: r == m);
-  S() pre(m >= 0);
-  ~S() post(m >= 0);
+  S() post(m >= 0);
+  ~S() pre(m >= 0);
 };
 int S::g(T x) pre(m > 0 && x > 0 && s > 0) post(r: r == m) { return m; }
-S::S() pre(m >= 0) {}
-S::~S() post(m >= 0) {}
+S::S() post(m >= 0) {}
+S::~S() pre(m >= 0) {}
 
 // Contracts on a non-first declaration must match (none here).
 int S::f(T x) pre(m > 0) { return m; } // expected-error {{method out-of-line definition differs in contract specifier sequence}}
