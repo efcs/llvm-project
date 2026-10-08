@@ -3457,11 +3457,15 @@ CFGBlock *CFGBuilder::VisitReturnStmt(Stmt *S) {
         R->getRetValue());
 
   // If the one of the destructors does not return, we already have the Exit
-  // block as a successor. A return statement (but not a co_return statement)
-  // returns through the postconditions of the function, if it has any.
+  // block as a successor. A return statement returns through the
+  // postconditions of the function, if it has any. So does a co_return
+  // statement: the postconditions of a coroutine are those of the function as
+  // seen by its callers, evaluated when the ramp returns (see CGCoroutine.cpp);
+  // this CFG models the coroutine as if its body ran to completion before
+  // that.
   if (!Block->hasNoReturnElement()) {
     CFGBlock *Target = &cfg->getExit();
-    if (isa<ReturnStmt>(S) && cfg->getPostconditionsEntry())
+    if (cfg->getPostconditionsEntry())
       Target = cfg->getPostconditionsEntry();
     addSuccessor(Block, Target);
   }

@@ -60,6 +60,7 @@ export template <class T> T tmpl(T x) pre(x > T{});
 export int same(const int x) pre(x > 0) post(r : r > x);
 export template <class T> T tsame(T x) pre(x > T{});
 export int lambda(int x) pre([x] { return x > 0; }());
+export int ldiff(int x) pre([x](int v) { return v > x; }(x));
 export int omitted(int x) pre(x > 0);
 export int redecl(int x) pre(x > 0);
 
@@ -74,6 +75,7 @@ export template <class T> T tmpl(T x) pre(x >= T{});
 export int same(const int y) pre(y > 0) post(s : s > y);
 export template <class U> U tsame(U y) pre(y > U{});
 export int lambda(int y) pre([y] { return y > 0; }());
+export int ldiff(int y) pre([y](int w) { return w >= y; }(y));
 export int omitted(int x) pre(x > 0);
 export int redecl(int x) pre(x > 0);
 
@@ -87,7 +89,7 @@ export import :b;
 import p;
 int main() {
   return pred(1) + missing(1) + count(1) + kind(1) + name(1) + tmpl(1) +
-         same(1) + tsame(1) + lambda(1) + omitted(1) + redecl(1);
+         same(1) + tsame(1) + lambda(1) + ldiff(1) + omitted(1) + redecl(1);
 }
 // none-no-diagnostics
 
@@ -103,6 +105,8 @@ int main() {
 // expected-note@a.cppm:6 {{but the declaration in module 'p:a' has a function contract specifier with a result name}}
 // expected-error@b.cppm:7 {{'tmpl' has different function contract specifiers in different translation units; declaration in module 'p:b' has this predicate in its 1st function contract specifier}}
 // expected-note@a.cppm:7 {{but the declaration in module 'p:a' has a different predicate}}
+// expected-error@b.cppm:11 {{'ldiff' has different function contract specifiers in different translation units; declaration in module 'p:b' has this predicate in its 1st function contract specifier}}
+// expected-note@a.cppm:13 {{but the declaration in module 'p:a' has a different predicate}}
 
 // warn-warning@b.cppm:2 {{'pred' has different function contract specifiers in different translation units}}
 // warn-note@a.cppm:2 {{but the declaration in module 'p:a' has a different predicate}}
@@ -116,6 +120,8 @@ int main() {
 // warn-note@a.cppm:6 {{but the declaration in module 'p:a' has a function contract specifier with a result name}}
 // warn-warning@b.cppm:7 {{'tmpl' has different function contract specifiers in different translation units}}
 // warn-note@a.cppm:7 {{but the declaration in module 'p:a' has a different predicate}}
+// warn-warning@b.cppm:11 {{'ldiff' has different function contract specifiers in different translation units}}
+// warn-note@a.cppm:13 {{but the declaration in module 'p:a' has a different predicate}}
 
 //--- c.cppm
 export module p:c;
@@ -126,7 +132,7 @@ int omitted(int x);
 int lambda(int y) pre([y] { return y > 0; }());
 int redecl(int x) pre(x > 1); // expected-error {{function redeclaration differs in contract specifier sequence}}
 // expected-note@-1 {{in contract specified here}}
-// expected-note@a.cppm:14 {{contract previously specified with a non-equivalent condition}}
+// expected-note@a.cppm:15 {{contract previously specified with a non-equivalent condition}}
 int missing(int x); // OK, omitted
 int count(int x) pre(x > 0) pre(x > 1); // expected-error {{function redeclaration differs in contract specifier sequence}}
 // expected-note@a.cppm:4 {{previously declared with fewer contracts here (1 vs 2)}}
@@ -137,7 +143,7 @@ int same(const int z) pre(z > 0) post(t : t > z) { return z + 1; }
 int omitted(int x) { return x; }
 int redecl(int x) pre(x > 2) { return x; } // expected-error {{function redeclaration differs in contract specifier sequence}}
 // expected-note@-1 {{in contract specified here}}
-// expected-note@a.cppm:14 {{contract previously specified with a non-equivalent condition}}
+// expected-note@a.cppm:15 {{contract previously specified with a non-equivalent condition}}
 
 // The first declarations of these functions in the partitions don't match.
 // expected-error@b.cppm:* 0+ {{has different function contract specifiers in different translation units}}

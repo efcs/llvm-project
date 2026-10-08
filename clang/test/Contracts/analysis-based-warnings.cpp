@@ -49,6 +49,85 @@ int returns_with_post(int x) post(r : r > 0) {
 void unreachable_after_pre(int x) pre(fail()) { // expected-warning {{code will never be executed}}
   check(x);
 }
+// The postconditions of a function which never returns normally are not
+// reported as unreachable code (they are not written at that point of the
+// function), and a contract_assert after a statement which never completes
+// is reported like any other statement.
+int post_never_returns_loop(int x) post(r : r > 0) {
+  for (;;) {
+  }
+}
+int post_never_returns_loop2(int x) post(r : r > 0) {
+  while (true) {
+    if (x)
+      continue;
+  }
+}
+int post_never_returns_noreturn(int x) post(r : r > 0) {
+  fail();
+}
+int post_never_returns_pre(int x) pre(fail()) post(r : r > 0) { // expected-warning {{code will never be executed}}
+  return x;
+}
+int assert_after_return(int x) {
+  return x;
+  contract_assert(check(x)); // expected-warning {{code will never be executed}}
+}
+int assert_after_loop(int x) post(r : r > 0) {
+  for (;;) {
+  }
+  contract_assert(check(x)); // expected-warning {{code will never be executed}}
+}
+
+// The postconditions of a coroutine are reachable through its co_return
+// statements (they are evaluated when the ramp returns), so they are not
+// reported as unreachable code either.
+namespace std {
+template <class R, class...> struct coroutine_traits {
+  using promise_type = typename R::promise_type;
+};
+template <class P = void> struct coroutine_handle {
+  coroutine_handle() = default;
+  template <class Q> coroutine_handle(coroutine_handle<Q>);
+  static coroutine_handle from_address(void *);
+};
+struct suspend_never {
+  bool await_ready() noexcept;
+  void await_suspend(coroutine_handle<>) noexcept;
+  void await_resume() noexcept;
+};
+} // namespace std
+struct Task {
+  struct promise_type {
+    Task get_return_object();
+    std::suspend_never initial_suspend();
+    std::suspend_never final_suspend() noexcept;
+    void return_value(int);
+    void unhandled_exception();
+  };
+  bool valid() const;
+};
+struct VoidTask {
+  struct promise_type {
+    VoidTask get_return_object();
+    std::suspend_never initial_suspend();
+    std::suspend_never final_suspend() noexcept;
+    void return_void();
+    void unhandled_exception();
+  };
+};
+Task co_post(const int x) pre(x > 0) post(r : r.valid()) {
+  co_return x;
+}
+int gl;
+VoidTask co_post_void(int x) post(check(gl)) {
+  if (x)
+    co_return;
+}
+VoidTask co_post_never_returns(int x) post(check(gl)) {
+  for (;;) {
+  }
+}
 
 // -Wuninitialized: the predicate uses the variables like any other expression.
 int uninit_in_assert() {

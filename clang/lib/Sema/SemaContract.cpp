@@ -124,7 +124,17 @@ StmtResult Sema::BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
                               ParenRange.getEnd());
 }
 
-std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
+void Sema::recordSkippedSourceRange(SourceRange Range) {
+  const SourceManager &SM = getSourceManager();
+  FileIDAndOffset Begin = SM.getDecomposedLoc(Range.getBegin());
+  FileIDAndOffset End = SM.getDecomposedLoc(Range.getEnd());
+  if (Begin.first.isValid() && Begin.first == End.first &&
+      Begin.second <= End.second)
+    SkippedSourceRanges[Begin.first].emplace_back(Begin.second, End.second);
+}
+
+std::string Sema::getContractPredicateText(SourceRange PredicateRange,
+                                           SourceRange ExcludedRange) const {
   if (PredicateRange.isInvalid())
     return std::string();
 
@@ -153,6 +163,33 @@ std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
   if (Invalid || End.second > Buffer.size())
     return std::string();
 
+  // The characters to leave out, if they are written in the same file.
+  unsigned ExcludedBegin = 0, ExcludedEnd = 0;
+  if (ExcludedRange.isValid()) {
+    CharSourceRange Excluded = Lexer::makeFileCharRange(
+        CharSourceRange::getTokenRange(ExcludedRange), SM, getLangOpts());
+    if (Excluded.isValid()) {
+      FileIDAndOffset XBegin = SM.getDecomposedLoc(Excluded.getBegin());
+      FileIDAndOffset XEnd = SM.getDecomposedLoc(Excluded.getEnd());
+      if (XBegin.first == Begin.first && XEnd.first == Begin.first) {
+        ExcludedBegin = XBegin.second;
+        ExcludedEnd = XEnd.second;
+      }
+    }
+  }
+
+  // The inactive branches of conditional inclusion directives within the
+  // predicate are not part of its text either.
+  ArrayRef<std::pair<unsigned, unsigned>> Skipped;
+  if (auto It = SkippedSourceRanges.find(Begin.first);
+      It != SkippedSourceRanges.end())
+    Skipped = It->second;
+  auto IsSkipped = [&](unsigned Offset) {
+    return llvm::any_of(Skipped, [&](const auto &Range) {
+      return Offset >= Range.first && Offset <= Range.second;
+    });
+  };
+
   // Normalize the whitespace in the same way as the '#' operator: tokens are
   // separated by a single space if there was whitespace (including new-lines
   // and comments) between them.
@@ -160,9 +197,20 @@ std::string Sema::getContractPredicateText(SourceRange PredicateRange) const {
                  Buffer.begin(), Buffer.begin() + Begin.second, Buffer.end());
   std::string Text;
   Token Tok;
+  bool InDirective = false;
   while (!RawLexer.LexFromRawLexer(Tok)) {
-    if (SM.getFileOffset(Tok.getLocation()) >= End.second)
+    unsigned Offset = SM.getFileOffset(Tok.getLocation());
+    if (Offset >= End.second)
       break;
+    // The lines of preprocessing directives within the predicate (conditional
+    // inclusion, #line, #pragma, ...) are not part of its text. A directive
+    // extends from a '#' at the start of a line to the end of the line.
+    if (Tok.isAtStartOfLine())
+      InDirective = Tok.is(tok::hash);
+    if (InDirective || IsSkipped(Offset))
+      continue;
+    if (Offset >= ExcludedBegin && Offset < ExcludedEnd)
+      continue;
     if (!Text.empty() && (Tok.hasLeadingSpace() || Tok.isAtStartOfLine()))
       Text += ' ';
     Text += Lexer::getSpelling(Tok, SM, getLangOpts());
@@ -174,7 +222,8 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
                                      Expr *Cond, ResultNameDecl *RND,
                                      ParsedAttributes &ContractAttrs,
                                      SourceRange PredicateRange,
-                                     SourceRange ParenRange) {
+                                     SourceRange ParenRange,
+                                     SourceRange ResultNameAttrRange) {
 
   // A result name is only permitted on a postcondition. We have already
   // diagnosed it on other kinds of contracts; don't attach it.
@@ -195,9 +244,10 @@ StmtResult Sema::ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
   SmallVector<const Attr *, 2> Attrs;
   ProcessContractAttributes(ContractAttrs, Attrs);
 
-  StmtResult Res =
-      BuildContractStmt(CK, KeywordLoc, Cond, RNDStmt, Attrs,
-                        getContractPredicateText(PredicateRange), ParenRange);
+  StmtResult Res = BuildContractStmt(
+      CK, KeywordLoc, Cond, RNDStmt, Attrs,
+      getContractPredicateText(PredicateRange, ResultNameAttrRange),
+      ParenRange);
 
   if (Res.isInvalid())
     return StmtError();

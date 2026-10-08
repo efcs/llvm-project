@@ -754,6 +754,17 @@ void FindUnreachableCode(AnalysisDeclContext &AC, Preprocessor &PP,
       return;
   }
 
+  // The postconditions of the function are evaluated when it returns
+  // normally. If it never does (it loops forever, always throws or calls a
+  // function which does not return), they are unreachable, but they are not
+  // code written at that point of the function: like other synthesized code,
+  // do not report them.
+  if (const CFGBlock *Post = cfg->getPostconditionsEntry()) {
+    numReachable += scanMaybeReachableFromBlock(Post, PP, reachable);
+    if (numReachable == cfg->getNumBlockIDs())
+      return;
+  }
+
   // There are some unreachable blocks.  We need to find the root blocks that
   // contain code that should be considered unreachable.
   for (const CFGBlock *block : *cfg) {

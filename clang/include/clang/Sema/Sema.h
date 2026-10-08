@@ -3308,15 +3308,31 @@ public:
   /// of the contract assertion: the result-name-introducer (if any) and the
   /// conditional-expression. Used to record the text of the predicate.
   /// \param ParenRange the locations of the parentheses.
-  StmtResult ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc,
-                                 Expr *Cond, ResultNameDecl *ResultNameDecl,
-                                 ParsedAttributes &Attrs,
-                                 SourceRange PredicateRange = SourceRange(),
-                                 SourceRange ParenRange = SourceRange());
+  /// \param ResultNameAttrRange the range of the attribute-specifier-seq of
+  /// the result-name-introducer, if any. It is not part of the text.
+  StmtResult
+  ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc, Expr *Cond,
+                      ResultNameDecl *ResultNameDecl, ParsedAttributes &Attrs,
+                      SourceRange PredicateRange = SourceRange(),
+                      SourceRange ParenRange = SourceRange(),
+                      SourceRange ResultNameAttrRange = SourceRange());
 
   /// Compute the text of the predicate of a contract assertion, given the
   /// range of its tokens. See ContractStmt::getPredicateText().
-  std::string getContractPredicateText(SourceRange PredicateRange) const;
+  /// \param ExcludedRange a range of tokens within \p PredicateRange which
+  /// is left out of the text (the attributes of the result name).
+  std::string
+  getContractPredicateText(SourceRange PredicateRange,
+                           SourceRange ExcludedRange = SourceRange()) const;
+
+  /// The source ranges skipped by the preprocessor (the inactive branches of
+  /// conditional inclusion directives, including the directives themselves),
+  /// by file and as pairs of offsets, recorded so that they can be left out
+  /// of the text of contract predicates. Only recorded when contracts are
+  /// enabled.
+  llvm::DenseMap<FileID, SmallVector<std::pair<unsigned, unsigned>, 4>>
+      SkippedSourceRanges;
+  void recordSkippedSourceRange(SourceRange Range);
 
   /// \param Attrs the attributes of the attributed-identifier which
   /// declares the result binding, if any.

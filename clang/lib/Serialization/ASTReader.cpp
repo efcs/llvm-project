@@ -10697,6 +10697,22 @@ void ASTReader::visitTopLevelModuleMaps(
   }
 }
 
+static const FunctionDecl *
+getFunctionWithLambdaInContracts(const CXXRecordDecl *RD,
+                                 const SourceManager &SM);
+
+/// Determine whether \p FD is the call operator of the closure type of a
+/// lambda-expression which appears in the function contract specifiers of a
+/// function declaration.
+static bool isLambdaCallOperatorInContracts(const FunctionDecl *FD,
+                                            const SourceManager &SM) {
+  const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+  if (!MD || MD->getOverloadedOperator() != OO_Call)
+    return false;
+  const CXXRecordDecl *Closure = MD->getParent();
+  return Closure->isLambda() && getFunctionWithLambdaInContracts(Closure, SM);
+}
+
 void ASTReader::finishPendingActions() {
   while (!PendingIdentifierInfos.empty() ||
          !PendingDeducedFunctionTypes.empty() ||
@@ -10939,8 +10955,15 @@ void ASTReader::finishPendingActions() {
        PB != PBEnd; ++PB) {
     if (FunctionDecl *FD = dyn_cast<FunctionDecl>(PB->first)) {
       // FIXME: Check for =delete/=default?
+      //
+      // The call operator of a closure type declared in a function contract
+      // specifier keeps its body even if it was merged with the call operator
+      // of the corresponding lambda-expression of another translation unit,
+      // so that the predicates can be compared as written in each translation
+      // unit (see diagnoseMismatchedFunctionContracts).
       const FunctionDecl *Defn = nullptr;
-      if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn)) {
+      if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn) ||
+          isLambdaCallOperatorInContracts(FD, getSourceManager())) {
         FD->setLazyBody(PB->second);
       } else {
         auto *NonConstDefn = const_cast<FunctionDecl*>(Defn);
@@ -11331,7 +11354,10 @@ void ASTReader::diagnoseOdrViolations() {
       // ([dcl.contract.func]p5). The closure types of corresponding
       // lambda-expressions within the predicates are merged, but their ODR
       // hashes depend on those names. Don't diagnose a mismatch between
-      // them if such renaming is involved.
+      // them if such renaming is involved: the lambda-expressions were
+      // compared structurally with the predicates they appear in
+      // (diagnoseMismatchedFunctionContracts), and a mismatch between the
+      // predicates has already been diagnosed if there was one.
       const SourceManager &SM = getSourceManager();
       const FunctionDecl *FirstFn =
           getFunctionWithLambdaInContracts(FirstRecord, SM);
@@ -11339,7 +11365,9 @@ void ASTReader::diagnoseOdrViolations() {
           FirstFn ? getFunctionWithLambdaInContracts(RecordPair.first, SM)
                   : nullptr;
       if (FirstFn && SecondFn &&
-          hasRenamedContractEntities(FirstFn, SecondFn)) {
+          (hasRenamedContractEntities(FirstFn, SecondFn) ||
+           DiagnosedFunctionContractMismatches.count(
+               FirstFn->getCanonicalDecl()))) {
         Diagnosed = true;
         continue;
       }

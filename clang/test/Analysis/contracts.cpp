@@ -154,3 +154,63 @@ void call_ignored_post() {
                                // observe-warning {{FALSE}} \
                                // ignore-warning {{TRUE}}
 }
+
+// Under observe, the eagerly assumed comparison of an observed predicate leaves
+// a path on which it is false, which the analysis continues on (the function
+// does continue after a violation under observe); see OPEN_QUESTIONS.md 1.11.
+// The report is issued once, on the first dereference.
+int deref_after_pre(int *p) pre(p != nullptr) {
+  return *p; // observe-warning {{Dereference of null pointer (loaded from variable 'p')}}
+}
+int deref_after_pre_twice(int *p) pre(p != nullptr) {
+  int v = *p; // observe-warning {{Dereference of null pointer (loaded from variable 'p')}}
+  return v + *p;
+}
+int deref_after_assert(int *p) {
+  contract_assert(p != nullptr);
+  return *p; // observe-warning {{Dereference of null pointer (loaded from variable 'p')}}
+}
+// The result name of a postcondition refers to the result object, so the
+// assumption on it does not affect the caller's pointer either way.
+int *post_not_null(int *p) post(r : r != nullptr) {
+  return p;
+}
+int deref_post_result(int *p) {
+  return *post_not_null(p);
+}
+
+// The postconditions of a coroutine are evaluated (in the ramp), and the CFG
+// reaches them through the co_return statements. The analyzer does not model
+// coroutines yet (it stops at the co_return statement), so it does not reach
+// them under any semantic; it does not crash on them either.
+namespace std {
+template <class R, class...> struct coroutine_traits {
+  using promise_type = typename R::promise_type;
+};
+template <class P = void> struct coroutine_handle {
+  coroutine_handle() = default;
+  template <class Q> coroutine_handle(coroutine_handle<Q>);
+  static coroutine_handle from_address(void *);
+};
+struct suspend_never {
+  bool await_ready() noexcept;
+  void await_suspend(coroutine_handle<>) noexcept;
+  void await_resume() noexcept;
+};
+} // namespace std
+struct Task {
+  struct promise_type {
+    Task get_return_object();
+    std::suspend_never initial_suspend();
+    std::suspend_never final_suspend() noexcept;
+    void return_value(int);
+    void unhandled_exception();
+  };
+  bool valid() const;
+};
+Task co_post(const int x) post(r : (clang_analyzer_warnIfReached(), true)) {
+  co_return x;
+}
+Task co_post_result(const int x) post(r : r.valid()) {
+  co_return x;
+}

@@ -123,7 +123,8 @@ namespace {
       PDK_Other,
       PDK_Local,
       PDK_ClosureMember,
-      PDK_Specialization
+      PDK_Specialization,
+      PDK_TULocal
     };
 
   public:
@@ -193,6 +194,134 @@ namespace {
       return RD && RD->isLambda();
     }
 
+    /// Determine whether \p D is an entity with internal or no linkage which
+    /// is declared at namespace or class scope outside of the predicate: an
+    /// entity in an unnamed namespace, a static function, a namespace-scope
+    /// constant, an unnamed enumeration, ... Each translation unit has its
+    /// own such entity, which is never merged with the corresponding entity
+    /// of another translation unit, so the same predicate written in two
+    /// translation units refers to different declarations ([basic.def.odr]
+    /// permits this). Such an entity is identified by its name (as it is
+    /// when computing the ODR hash of a definition) rather than by its
+    /// identity.
+    bool isTULocalEntity(const Decl *D) const {
+      const auto *ND = dyn_cast<NamedDecl>(D);
+      if (!ND || isa<ParmVarDecl, ResultNameDecl>(ND) ||
+          ND->isTemplateParameter() || ND->isExternallyVisible())
+        return false;
+      for (const DeclContext *DC = ND->getDeclContext(); DC;
+           DC = DC->getParent()) {
+        if (DC->isFunctionOrMethod() || isClosureType(DC))
+          return false;
+        if (DC->isFileContext())
+          return true;
+      }
+      return false;
+    }
+
+    /// Determine whether \p T (a canonical type) involves an entity with
+    /// internal or no linkage.
+    bool isTULocalType(QualType T) const {
+      if (!isExternallyVisible(T->getLinkage()))
+        return true;
+      // A dependent specialization of a template with internal linkage.
+      if (const auto *TST = dyn_cast<TemplateSpecializationType>(T))
+        if (const TemplateDecl *TD = TST->getTemplateName().getAsTemplateDecl())
+          return isTULocalEntity(TD);
+      return false;
+    }
+
+    /// Profile the kind and the name of \p ND, and the template arguments if
+    /// it is a class template specialization.
+    void VisitTULocalName(const NamedDecl *ND) {
+      ID.AddInteger(ND->getKind());
+      DeclarationName Name = ND->getDeclName();
+      if (const auto *TD = dyn_cast<TagDecl>(ND); TD && Name.isEmpty())
+        if (const TypedefNameDecl *Typedef = TD->getTypedefNameForAnonDecl())
+          Name = Typedef->getDeclName();
+      VisitName(Name, /*TreatAsDecl=*/true);
+      ArrayRef<TemplateArgument> Args;
+      if (const auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(ND))
+        Args = Spec->getTemplateArgs().asArray();
+      else if (const auto *Spec = dyn_cast<VarTemplateSpecializationDecl>(ND))
+        Args = Spec->getTemplateArgs().asArray();
+      ID.AddInteger(Args.size());
+      for (const TemplateArgument &Arg : Args)
+        VisitTemplateArgument(Arg);
+    }
+
+    /// Profile a TU-local entity by its qualified name: its own name and the
+    /// names of the namespaces and classes it is declared in.
+    void VisitTULocalEntity(const NamedDecl *ND) {
+      ID.AddInteger(PDK_TULocal);
+      VisitTULocalName(ND);
+      for (const DeclContext *DC = ND->getDeclContext();
+           DC && !DC->isTranslationUnit(); DC = DC->getParent())
+        if (const auto *Parent = dyn_cast<NamedDecl>(DC))
+          VisitTULocalName(Parent);
+      // Distinguish overloads of a function (and, in general, entities whose
+      // types involve other TU-local entities).
+      if (const auto *VD = dyn_cast<ValueDecl>(ND))
+        VisitType(VD->getType());
+    }
+
+    /// Profile a canonical type which involves a TU-local entity by its
+    /// structure, identifying the entities by their names.
+    void VisitTULocalType(QualType T) {
+      ID.AddInteger(PDK_TULocal);
+      ID.AddInteger(T.getQualifiers().getAsOpaqueValue());
+      const Type *Ty = T.getTypePtr();
+      ID.AddInteger(Ty->getTypeClass());
+      switch (Ty->getTypeClass()) {
+      case Type::Pointer:
+        return VisitType(cast<PointerType>(Ty)->getPointeeType());
+      case Type::LValueReference:
+      case Type::RValueReference:
+        return VisitType(cast<ReferenceType>(Ty)->getPointeeType());
+      case Type::MemberPointer: {
+        const auto *MPT = cast<MemberPointerType>(Ty);
+        VisitType(MPT->getPointeeType());
+        if (const CXXRecordDecl *Class = MPT->getMostRecentCXXRecordDecl())
+          VisitDecl(Class);
+        else
+          VisitNestedNameSpecifier(MPT->getQualifier());
+        return;
+      }
+      case Type::ConstantArray:
+        ID.AddInteger(cast<ConstantArrayType>(Ty)->getZExtSize());
+        return VisitType(cast<ArrayType>(Ty)->getElementType());
+      case Type::IncompleteArray:
+        return VisitType(cast<ArrayType>(Ty)->getElementType());
+      case Type::FunctionProto: {
+        const auto *FPT = cast<FunctionProtoType>(Ty);
+        VisitType(FPT->getReturnType());
+        ID.AddInteger(FPT->getNumParams());
+        for (QualType Param : FPT->getParamTypes())
+          VisitType(Param);
+        ID.AddBoolean(FPT->isVariadic());
+        ID.AddInteger(FPT->getMethodQuals().getAsOpaqueValue());
+        ID.AddInteger(FPT->getRefQualifier());
+        ID.AddInteger(FPT->getExceptionSpecType());
+        return;
+      }
+      case Type::Record:
+      case Type::Enum:
+      case Type::InjectedClassName:
+        return VisitDecl(cast<TagType>(Ty)->getDecl());
+      case Type::TemplateSpecialization: {
+        const auto *TST = cast<TemplateSpecializationType>(Ty);
+        VisitTemplateName(TST->getTemplateName());
+        ID.AddInteger(TST->template_arguments().size());
+        for (const TemplateArgument &Arg : TST->template_arguments())
+          VisitTemplateArgument(Arg);
+        return;
+      }
+      default:
+        ID.AddPointer(T.getAsOpaquePtr());
+        return;
+      }
+    }
+
     /// Profile a reference to a member of a closure type declared within the
     /// predicate. The members of a closure type are identified by the closure
     /// type and their name.
@@ -247,8 +376,12 @@ namespace {
         }
       }
 
-      if (!isDeclaredInPredicate(D))
-        return false;
+      if (!isDeclaredInPredicate(D)) {
+        if (!isTULocalEntity(D))
+          return false;
+        VisitTULocalEntity(cast<NamedDecl>(D));
+        return true;
+      }
 
       if (isClosureType(D->getDeclContext()) && isa<NamedDecl>(D)) {
         VisitClosureMember(cast<CXXRecordDecl>(D->getDeclContext()),
@@ -353,22 +486,51 @@ namespace {
         Visit(Requires);
     }
 
+    /// Returns the call operator declared by the definition of \p Closure,
+    /// found among its own declarations. If the closure type was loaded from
+    /// an AST file and merged with the closure type of the corresponding
+    /// lambda-expression of another declaration of the function, the lookup
+    /// of the closure type (and therefore LambdaExpr::getCallOperator()) finds
+    /// the call operator of the closure type they were merged into, not the
+    /// one of this lambda-expression.
+    static const CXXMethodDecl *
+    getDeclaredCallOperator(const CXXRecordDecl *Closure) {
+      for (const Decl *D : Closure->decls()) {
+        if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(D))
+          D = FTD->getTemplatedDecl();
+        if (const auto *MD = dyn_cast<CXXMethodDecl>(D);
+            MD && MD->getOverloadedOperator() == OO_Call)
+          return MD;
+      }
+      return nullptr;
+    }
+
     bool VisitLambdaExprStructurally(const LambdaExpr *S) override {
       if (!PredicateContext)
         return false;
 
-      // Note that if the closure type was loaded from an AST file and merged
-      // with the closure type of the corresponding lambda-expression of
-      // another declaration of the function, this is the definition of the
-      // closure type they were merged into, which is profiled instead. The
-      // entities declared by that definition belong to the other declaration
-      // of the function (see isPredicateContext).
+      // Profile the lambda-expression as written with this declaration of the
+      // function, even if its closure type was merged with that of another
+      // translation unit (see getDeclaredCallOperator). The entities declared
+      // by it belong to this declaration of the function or, once merged, to
+      // the other one (see isPredicateContext).
       const CXXRecordDecl *Closure = S->getLambdaClass();
-      const CXXMethodDecl *CallOp = S->getCallOperator();
-      if (!isDeclaredInPredicate(Closure) || !CallOp)
+      if (!isDeclaredInPredicate(Closure))
         return false;
-      // Likewise, the body refers to the parameters of the declaration of the
-      // call operator which is its definition.
+      // The closure type found through the type of the lambda-expression is
+      // its canonical declaration. If closure types were merged, find the
+      // declaration which was read with this lambda-expression: the one
+      // declared at its location.
+      for (const TagDecl *Redecl : Closure->redecls())
+        if (Redecl->getLocation() == S->getBeginLoc()) {
+          Closure = cast<CXXRecordDecl>(Redecl);
+          break;
+        }
+      const CXXMethodDecl *CallOp = getDeclaredCallOperator(Closure);
+      if (!CallOp)
+        return false;
+      // The body refers to the parameters of the declaration of the call
+      // operator which is its definition.
       if (const FunctionDecl *Definition = CallOp->getDefinition())
         CallOp = cast<CXXMethodDecl>(Definition);
 
@@ -402,7 +564,10 @@ namespace {
 
       // The template parameters, including those invented for parameters with
       // a placeholder type.
-      const TemplateParameterList *TPL = S->getTemplateParameterList();
+      const TemplateParameterList *TPL = nullptr;
+      if (const FunctionTemplateDecl *FTD =
+              CallOp->getDescribedFunctionTemplate())
+        TPL = FTD->getTemplateParameters();
       ID.AddBoolean(TPL);
       if (TPL)
         VisitTemplateParameterList(TPL);
@@ -429,7 +594,7 @@ namespace {
       VisitType(CallOp->getReturnType());
       ID.AddBoolean(CallOp->isVariadic());
       ID.AddBoolean(CallOp->isStatic());
-      ID.AddBoolean(S->isMutable());
+      ID.AddBoolean(!CallOp->isConst());
       ID.AddInteger(llvm::to_underlying(CallOp->getConstexprKind()));
       if (const auto *FPT = CallOp->getType()->getAs<FunctionProtoType>()) {
         ID.AddInteger(FPT->getExceptionSpecType());
@@ -449,7 +614,7 @@ namespace {
           Visit(CS);
 
       // The compound-statement.
-      const Stmt *Body = S->getBody();
+      const Stmt *Body = CallOp->getBody();
       ID.AddBoolean(Body);
       if (Body)
         Visit(Body);
@@ -556,6 +721,8 @@ namespace {
           ID.AddInteger(getPredicateDeclIndex(RD));
           return;
         }
+        if (isTULocalType(T))
+          return VisitTULocalType(T);
         ID.AddInteger(PDK_Other);
       }
 
@@ -579,6 +746,11 @@ namespace {
     void VisitTemplateName(TemplateName Name) override {
       if (Canonical)
         Name = Context.getCanonicalTemplateName(Name);
+
+      if (PredicateContext)
+        if (const TemplateDecl *TD = Name.getAsTemplateDecl();
+            TD && isTULocalEntity(TD))
+          return VisitTULocalEntity(TD);
 
       Name.Profile(ID);
     }

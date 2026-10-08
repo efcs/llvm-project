@@ -315,6 +315,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
   ResultNameDecl *RND = nullptr;
+  SourceRange ResultNameAttrRange;
   // A result-name-introducer is parsed for every kind of contract assertion
   // so that one on a precondition or an assertion-statement can be diagnosed
   // (and so that references to its name in the predicate don't cascade).
@@ -345,6 +346,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     // The attributes appertain to the result binding.
     ParsedAttributes ResultNameAttrs(AttrFactory);
     MaybeParseCXX11Attributes(ResultNameAttrs);
+    ResultNameAttrRange = ResultNameAttrs.Range;
 
     ExprLoc = ConsumeToken();
     // An assertion-statement has no result to name; the type of the (invalid)
@@ -403,7 +405,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
   StmtResult Res = Actions.ActOnContractAssert(
       CK, KeywordLoc, Cond.get(), RND, CXX11Attrs, PredicateRange,
-      SourceRange(T.getOpenLocation(), T.getCloseLocation()));
+      SourceRange(T.getOpenLocation(), T.getCloseLocation()),
+      ResultNameAttrRange);
   if (Res.isInvalid())
     IsInvalid = true;
   return Res;

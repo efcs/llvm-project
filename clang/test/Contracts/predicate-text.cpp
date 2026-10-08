@@ -58,10 +58,63 @@ int result_name(const int x)
   post(r : r > x)
   post(r: r > 0);
 
-// The attributes of the contract assertion are not part of the text.
+// The attributes of the contract assertion are not part of the text, nor are
+// the attributes of the result name.
 // DUMP-LABEL: FunctionDecl {{.*}} attributes
 // DUMP: ContractStmt {{.*}} pre {{.*}}"x > 0"
-int attributes(int x) pre [[clang::contract_group("g")]] (x > 0);
+// DUMP: ContractStmt {{.*}} post {{.*}}"r : r > 0"
+// DUMP: ContractStmt {{.*}} post {{.*}}"r: r > x"
+// DUMP: ContractStmt {{.*}} post {{.*}}"r : r > x"
+int attributes(const int x) pre [[clang::contract_group("g")]] (x > 0)
+  post(r [[maybe_unused]] : r > 0)
+  post(r[[maybe_unused]]: r > x)
+  post [[clang::contract_group("g")]] (r [[maybe_unused]] [[maybe_unused]] : r > x);
+
+// The lines of preprocessing directives within the predicate are not part of
+// the text, and neither are the inactive branches of conditional inclusion
+// directives.
+// DUMP-LABEL: FunctionDecl {{.*}} directives
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && x < 100"
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && x < 50"
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && x < 20"
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && true"
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && x != 7"
+// DUMP: ContractStmt {{.*}} post enforce "r : r > 0"
+#define DEBUG
+int directives(const int x)
+  pre(x > 0
+#ifdef DEBUG
+      && x < 100
+#endif
+      )
+  pre(x > 0
+# if 1 /* comment */ \
+      + 1
+      && x < 50
+# else
+      && x < 10
+# endif
+  )
+  pre(x > 0
+#ifndef DEBUG
+      && x < 10
+#elif defined(NOT_DEFINED)
+      && x < 15
+#else
+      && x < 20
+#endif
+  )
+  pre(x > 0
+#pragma clang diagnostic push
+#pragma clang diagnostic pop
+      && true)
+  pre(x > 0 && /* a comment, and
+#not a directive */ x != 7)
+  post(r :
+#if 0
+       r < 0
+#endif
+       r > 0);
 
 // Macros are not expanded if the predicate is written at the place of the
 // contract assertion.
@@ -179,3 +232,11 @@ int emit(const int x)
 // ONLY-NOT: c"x > 3\00"
 // ONLY: @.str.contract.[[ONLY:[0-9]+]] = private unnamed_addr constant [5 x i8] c"only\00"
 // ONLY-NEXT: @__contract_data.{{[0-9]+}} = {{.*}}, ptr @.str.contract.[[EMPTY]], ptr @.str.contract.[[ONLY]] }
+
+// A #line directive within the predicate is not part of the text either.
+// DUMP-LABEL: FunctionDecl {{.*}} line_directive_in_predicate
+// DUMP: ContractStmt {{.*}} pre enforce "x > 0 && x < 100"
+int line_directive_in_predicate(int x)
+  pre(x > 0
+#line 2000
+      && x < 100);
