@@ -512,6 +512,64 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
 }
 
 namespace {
+/// Traverse the discarded-value expression \p E (the left operand of a comma
+/// operator) with the visitor \p V, without visiting the id-expressions in
+/// its set of potential results ([basic.def.odr]p3): a non-reference variable
+/// named by one of them is not odr-used ([basic.def.odr]p5.3), as the
+/// lvalue-to-rvalue conversion is not applied to a discarded-value expression
+/// of non-volatile type ([expr.context]p2).
+template <class Visitor>
+bool traverseDiscardedValueExpr(Visitor &V, Expr *E) {
+  while (true) {
+    E = E->IgnoreParens();
+    if (isa<DeclRefExpr>(E))
+      return true;
+    // The operand of a cast to void is a discarded-value expression itself.
+    if (auto *CE = dyn_cast<ExplicitCastExpr>(E);
+        CE && CE->getCastKind() == CK_ToVoid) {
+      E = CE->getSubExpr();
+      continue;
+    }
+    if (auto *ICE = dyn_cast<ImplicitCastExpr>(E)) {
+      // An array operand of a subscript decays to a pointer. An
+      // lvalue-to-rvalue conversion is applied to a volatile glvalue.
+      if (ICE->getCastKind() != CK_ArrayToPointerDecay &&
+          ICE->getCastKind() != CK_NoOp)
+        break;
+      E = ICE->getSubExpr();
+    } else if (auto *CO = dyn_cast<ConditionalOperator>(E)) {
+      return V.TraverseStmt(CO->getCond()) &&
+             traverseDiscardedValueExpr(V, CO->getTrueExpr()) &&
+             traverseDiscardedValueExpr(V, CO->getFalseExpr());
+    } else if (auto *BO = dyn_cast<BinaryOperator>(E)) {
+      if (BO->getOpcode() == BO_Comma) {
+        if (!traverseDiscardedValueExpr(V, BO->getLHS()))
+          return false;
+        E = BO->getRHS();
+      } else if (BO->getOpcode() == BO_PtrMemD) {
+        if (!V.TraverseStmt(BO->getRHS()))
+          return false;
+        E = BO->getLHS();
+      } else {
+        break;
+      }
+    } else if (auto *ME = dyn_cast<MemberExpr>(E)) {
+      if (ME->isArrow() || !isa<FieldDecl>(ME->getMemberDecl()))
+        break;
+      E = ME->getBase();
+    } else if (auto *ASE = dyn_cast<ArraySubscriptExpr>(E)) {
+      if (!ASE->getBase()->IgnoreImpCasts()->getType()->isArrayType())
+        break;
+      if (!V.TraverseStmt(ASE->getIdx()))
+        return false;
+      E = ASE->getBase();
+    } else {
+      break;
+    }
+  }
+  return V.TraverseStmt(E);
+}
+
 /// A checker which white-lists certain expressions whose conversion
 /// to or from retainable type would otherwise be forbidden in ARC.
 struct ParamReferenceChecker : RecursiveASTVisitor<ParamReferenceChecker> {
@@ -537,6 +595,22 @@ public:
     if (CS->getCond())
       TraverseStmt(CS->getCond());
     return true;
+  }
+
+  /// The left operand of a comma operator is a discarded-value expression.
+  bool TraverseBinaryOperator(BinaryOperator *BO) {
+    if (BO->getOpcode() != BO_Comma)
+      return super::TraverseBinaryOperator(BO);
+    return traverseDiscardedValueExpr(*this, BO->getLHS()) &&
+           TraverseStmt(BO->getRHS());
+  }
+
+  /// Only the selected element of a pack is named by a pack indexing
+  /// expression.
+  bool TraversePackIndexingExpr(PackIndexingExpr *E) {
+    if (E->isFullySubstituted() && !E->expandsToEmptyPack())
+      return TraverseStmt(E->getSelectedExpr());
+    return super::TraversePackIndexingExpr(E);
   }
 
   enum DiagSelector {
@@ -651,6 +725,17 @@ static void diagnoseNonConstParamsOnRedeclaration(Sema &S, FunctionDecl *First,
           FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD)
         Indices.insert(PVD->getFunctionScopeIndex());
       return true;
+    }
+    bool TraverseBinaryOperator(BinaryOperator *BO) {
+      if (BO->getOpcode() != BO_Comma)
+        return RecursiveASTVisitor<Collector>::TraverseBinaryOperator(BO);
+      return traverseDiscardedValueExpr(*this, BO->getLHS()) &&
+             TraverseStmt(BO->getRHS());
+    }
+    bool TraversePackIndexingExpr(PackIndexingExpr *E) {
+      if (E->isFullySubstituted() && !E->expandsToEmptyPack())
+        return TraverseStmt(E->getSelectedExpr());
+      return RecursiveASTVisitor<Collector>::TraversePackIndexingExpr(E);
     }
   } C;
   C.FD = First;

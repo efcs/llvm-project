@@ -492,13 +492,13 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/Sema/deducing-this-postcondition-param-dependent.cpp` | A | imported, fails here -> OpenBugs/deducing-this-postcondition-param-dependent.cpp (XFAIL): contracts of declared-only templates not instantiated on odr-use |
 | `Contracts/Sema/expr.const.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/expr.prim.closure.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
-| `Contracts/Sema/postcondition-discarded-operand-dependent.cpp` | A | imported; the discarded-comma-operand exempt case moved to OpenBugs/pr126897.cpp; rest passes |
+| `Contracts/Sema/postcondition-discarded-operand-dependent.cpp` | A | imported; the discarded-comma-operand exempt case moved to Sema/pr126897.cpp; passes |
 | `Contracts/Sema/postcondition-lambda-param.cpp` | A | imported verbatim; passes |
-| `Contracts/Sema/postcondition-pack-const.cpp` | A | imported, fails here -> OpenBugs/postcondition-pack-const.cpp (XFAIL): pack-indexing odr-use not checked |
+| `Contracts/Sema/postcondition-pack-const.cpp` | A | imported; was OpenBugs (pack-indexing odr-use not checked) -- fixed in round three, now Sema/postcondition-pack-const.cpp; passes |
 | `Contracts/Sema/postcondition-pack-empty.cpp` | A | imported verbatim; passes |
 | `Contracts/Sema/postcondition-redecl-dependent-param.cpp` | A | imported, fails here -> OpenBugs/postcondition-redecl-dependent-param.cpp (XFAIL): [dcl.contract.func]/7 'all declarations' not checked for dependent parameter types |
 | `Contracts/Sema/postcondition-unevaluated-operand.cpp` | A | imported verbatim; passes |
-| `Contracts/Sema/pr126897.cpp` | A | imported, fails here -> OpenBugs/pr126897.cpp (XFAIL): discarded comma operand treated as odr-use |
+| `Contracts/Sema/pr126897.cpp` | A | imported; was OpenBugs (discarded comma operand treated as odr-use) -- fixed in round three, now Sema/pr126897.cpp with redeclaration and potential-result cases added; passes |
 | `Contracts/sfinae-test.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/template-contract-diagnostics.cpp` | C | ours kept: rename of our templates.cpp with only wording changes |
 | `Contracts/this-in-out-of-line-member-contract.cpp` | A | imported verbatim; passes |
