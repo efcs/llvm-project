@@ -8943,8 +8943,8 @@ let CategoryName = "Lambda Issue" in {
     "variable %0 with flexible array member cannot be captured in "
     "a lambda expression">;
   def err_lambda_impcap : Error<
-    "variable %0 cannot be implicitly captured in a lambda with no "
-    "capture-default specified">;
+    "%select{variable|result name}1 %0 cannot be implicitly captured in a "
+    "lambda with no capture-default specified">;
   def note_lambda_variable_capture_fixit : Note<
     "capture %0 by %select{value|reference}1">;
   def note_lambda_default_capture_fixit : Note<
@@ -13162,7 +13162,9 @@ def err_result_name_shadows_param : Error<
 def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
 def err_result_name_not_allowed : Error<
-  "result name %0 not allowed outside of post condition specifier">;
+  "result name %0 is not allowed in %select{a precondition specifier|"
+  "a contract_assert statement}1; only a postcondition specifier can "
+  "introduce a result name">;
 def err_contract_implicit_member_access_structor : Error<
   "implicit access to non-static member %0 of the object under "
   "%select{construction is not allowed in the precondition of a constructor|"

@@ -101,7 +101,7 @@ void lambdas() {
 int b1() post(r: ^{ return r > 0; }()) { return 1; } // expected-error {{reference to result name 'r' declared in enclosing function 'b1'}} expected-note {{'r' declared here}}
 
 // A lambda without a capture-default cannot capture it implicitly.
-int n1() post(r: [] { return r > 0; }()) { return 1; } // expected-error {{variable 'r' cannot be implicitly captured in a lambda with no capture-default specified}}
+int n1() post(r: [] { return r > 0; }()) { return 1; } // expected-error {{result name 'r' cannot be implicitly captured in a lambda with no capture-default specified}}
 // expected-note@-1 {{'r' declared here}} expected-note@-1 {{lambda expression begins here}} expected-note@-1 2 {{capture 'r' by}} expected-note@-1 2 {{default capture by}}
 int n2() post(r: [] { return sizeof(decltype((r))) > 0; }()) { return 1; } // OK, not odr-used.
 int n3() post(r: [] { return sizeof(r) > 0; }()) { return 1; } // OK, not odr-used.

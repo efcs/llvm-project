@@ -315,15 +315,16 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
   ResultNameDecl *RND = nullptr;
-  // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
-  // can diagnose it but we don't do the same for contract assert... Should we?
+  // A result-name-introducer is parsed for every kind of contract assertion
+  // so that one on a precondition or an assertion-statement can be diagnosed
+  // (and so that references to its name in the predicate don't cascade).
   //
   //   result-name-introducer:
   //     attributed-identifier :
   //   attributed-identifier:
   //     identifier attribute-specifier-seq[opt]
   bool IsResultNameIntroducer = false;
-  if (CK != ContractKind::Assert && Tok.is(tok::identifier)) {
+  if (Tok.is(tok::identifier)) {
     if (NextToken().is(tok::colon)) {
       IsResultNameIntroducer = true;
     } else if (NextToken().is(tok::l_square)) {
@@ -346,9 +347,10 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     MaybeParseCXX11Attributes(ResultNameAttrs);
 
     ExprLoc = ConsumeToken();
-    QualType ReturnType;
-    if (ReturnTypeResolver)
-      ReturnType = ReturnTypeResolver();
+    // An assertion-statement has no result to name; the type of the (invalid)
+    // result name declared for it does not matter.
+    QualType ReturnType = ReturnTypeResolver ? ReturnTypeResolver()
+                                             : Actions.Context.IntTy;
 
     // The result name is profiled (for the purpose of comparing contracts on
     // different declarations) like a parameter of the function, so give it

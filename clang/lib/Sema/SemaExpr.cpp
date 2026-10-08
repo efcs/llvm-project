@@ -14298,12 +14298,30 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
   if (!DRE) return NCCK_None;
   if (!DRE->refersToEnclosingVariableOrCapture()) return NCCK_None;
 
-  // If the expression is const because it appears in the predicate of a
-  // contract assertion, it isn't const because of how it was captured.
-  if (DRE->isContractConstified())
-    return NCCK_None;
-
   ValueDecl *Value = DRE->getDecl();
+
+  // If the expression is const because it appears in the predicate of a
+  // contract assertion, it is only const because of how it was captured if it
+  // names the copy of the entity made by a non-mutable lambda-expression
+  // which encloses the contract assertion.
+  if (DRE->isContractConstified()) {
+    for (FunctionScopeInfo *FSI : llvm::reverse(S.FunctionScopes)) {
+      auto *CSI = dyn_cast<CapturingScopeInfo>(FSI);
+      if (!CSI)
+        break;
+      if (!CSI->isCaptured(Value))
+        continue;
+      const Capture &Cap = CSI->getCapture(Value);
+      auto *LSI = dyn_cast<LambdaScopeInfo>(CSI);
+      if (LSI && Cap.isCopyCapture())
+        return LSI->CallOperator && LSI->CallOperator->isConst() ? NCCK_Lambda
+                                                                 : NCCK_None;
+      // A reference capture of an enclosing capture refers to that capture.
+      if (!Cap.isReferenceCapture() || !Cap.isNested())
+        break;
+    }
+    return NCCK_None;
+  }
 
   // The declaration must be a value which is not declared 'const'.
   if (Value->getType().isConstQualified())
@@ -20393,7 +20411,8 @@ bool Sema::tryCaptureVariable(
       if (BuildAndDiagnose) {
         LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
         if (LSI->ImpCaptureStyle == CapturingScopeInfo::ImpCap_None) {
-          Diag(ExprLoc, diag::err_lambda_impcap) << Var;
+          Diag(ExprLoc, diag::err_lambda_impcap)
+              << Var << isa<ResultNameDecl>(Var);
           Diag(Var->getLocation(), diag::note_previous_decl) << Var;
           Diag(LSI->Lambda->getBeginLoc(), diag::note_lambda_decl);
           buildLambdaCaptureFixit(*this, LSI, Var);
@@ -20475,7 +20494,8 @@ bool Sema::tryCaptureVariable(
       // No capture-default, and this is not an explicit capture
       // so cannot capture this variable.
       if (BuildAndDiagnose) {
-        Diag(ExprLoc, diag::err_lambda_impcap) << Var;
+        Diag(ExprLoc, diag::err_lambda_impcap)
+            << Var << isa<ResultNameDecl>(Var);
         Diag(Var->getLocation(), diag::note_previous_decl) << Var;
         auto *LSI = cast<LambdaScopeInfo>(CSI);
         if (LSI->Lambda) {

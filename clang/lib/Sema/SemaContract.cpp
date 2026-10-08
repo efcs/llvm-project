@@ -247,11 +247,17 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
   if (IsInvalid)
     New->setInvalidDecl();
 
+  if (CK != ContractKind::Post) {
+    Diag(IDLoc, diag::err_result_name_not_allowed)
+        << II << (CK == ContractKind::Assert);
+    New->setInvalidDecl(true);
+  }
+
   // [basic.scope.contract]p2: The result-name-introducer shall not
   // potentially conflict with a declaration whose target scope is the
   // function parameter scope of the function or, for a lambda-expression,
   // its lambda scope (that is, its init-captures).
-  if (S) {
+  if (S && CK == ContractKind::Post) {
     LookupResult R(*this, II, IDLoc, LookupOrdinaryName,
                    RedeclarationKind::ForVisibleRedeclaration);
     LookupName(R, S);
@@ -305,13 +311,6 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
       Diag(AL.getLoc(), diag::err_attribute_invalid_on_result_name)
           << AL << AL.isRegularKeywordAttribute() << AL.getRange();
     }
-  }
-
-  if (CK != ContractKind::Post) {
-    assert(II && "ResultName requires an identifier");
-
-    Diag(IDLoc, diag::err_result_name_not_allowed) << II;
-    New->setInvalidDecl(true);
   }
 
   // Add the result name into the contract-assertion scope so that it is
