@@ -2642,12 +2642,12 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
   // Function contract specifiers of member declarations are parsed in the
   // complete-class context, so cache them for late parsing.
   if (isFunctionContractKeyword(Tok)) {
-    if (canHaveFunctionContracts(DeclaratorInfo) && BitfieldSize.isUnset()) {
-      LateParseFunctionContractSpecifierSeq(
-          DeclaratorInfo.LateParsedContracts);
+    if (BitfieldSize.isUnset()) {
+      LateParseOrDiagnoseFunctionContractSpecifierSeq(DeclaratorInfo);
 
       // A virt-specifier-seq must precede the function contract specifiers.
-      if (VS.isUnset() && isCXX11VirtSpecifier(Tok) != VirtSpecifiers::VS_None) {
+      if (!DeclaratorInfo.LateParsedContracts.empty() && VS.isUnset() &&
+          isCXX11VirtSpecifier(Tok) != VirtSpecifiers::VS_None) {
         SourceLocation VirtSpecLoc = Tok.getLocation();
         Diag(VirtSpecLoc, diag::err_virt_specifier_after_contracts)
             << VirtSpecifiers::getSpecifierName(isCXX11VirtSpecifier(Tok));
@@ -2656,7 +2656,9 @@ bool Parser::ParseCXXMemberDeclaratorBeforeInitializer(
             DeclaratorInfo.getDeclSpec().getFriendSpecLoc());
       }
     } else {
-      DiagnoseAndSkipMisplacedContractSpecifiers();
+      // A bit-field is not a function.
+      DiagnoseAndSkipMisplacedContractSpecifiers(
+          diag::err_contract_on_non_function);
     }
   }
 
@@ -3314,6 +3316,8 @@ Parser::DeclGroupPtrTy Parser::ParseCXXClassMemberDeclaration(
           DeclaratorInfo.getDeclSpec().getStorageClassSpec() !=
               DeclSpec::SCS_typedef)
         HandleMemberFunctionDeclDelays(DeclaratorInfo, ThisDecl);
+      else if (!DeclaratorInfo.getLateParsedContracts().empty())
+        HandleMemberContractDelays(DeclaratorInfo, ThisDecl);
     }
     LateParsedAttrs.clear();
 

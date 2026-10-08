@@ -2197,12 +2197,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
 
   // Function contract specifiers are parsed once the function declaration has
   // been created, so that they are parsed in the context of the function.
-  if (isFunctionContractKeyword(Tok)) {
-    if (canHaveFunctionContracts(D))
-      LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-    else
-      DiagnoseAndSkipMisplacedContractSpecifiers();
-  }
+  if (isFunctionContractKeyword(Tok))
+    LateParseOrDiagnoseFunctionContractSpecifierSeq(D, &TemplateInfo);
 
   // Save late-parsed attributes for now; they need to be parsed in the
   // appropriate function scope after the function Decl has been constructed.
@@ -2461,12 +2457,8 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
       if (Tok.is(tok::kw_requires))
         ParseTrailingRequiresClauseWithScope(D);
 
-      if (isFunctionContractKeyword(Tok)) {
-        if (canHaveFunctionContracts(D))
-          LateParseFunctionContractSpecifierSeq(D.LateParsedContracts);
-        else
-          DiagnoseAndSkipMisplacedContractSpecifiers();
-      }
+      if (isFunctionContractKeyword(Tok))
+        LateParseOrDiagnoseFunctionContractSpecifierSeq(D, &TemplateInfo);
 
       Decl *ThisDecl = ParseDeclarationAfterDeclarator(D, TemplateInfo);
 
@@ -7768,6 +7760,14 @@ void Parser::ParseParameterDeclarationClause(
       ConsumeToken();
       ParseConstraintLogicalOrExpression(/*IsTrailingRequiresClause=*/true);
     }
+
+    // Likewise for function contract specifiers: a parameter (even one with a
+    // function type, which is adjusted to a pointer) is not a function.
+    //   void f(int g() pre(true));
+    if (isFunctionContractKeyword(Tok) &&
+        NextToken().isOneOf(tok::l_paren, tok::l_square))
+      DiagnoseAndSkipMisplacedContractSpecifiers(
+          diag::err_contract_on_parameter);
 
     // Remember this parsed parameter in ParamInfo.
     const IdentifierInfo *ParmII = ParmDeclarator.getIdentifier();
