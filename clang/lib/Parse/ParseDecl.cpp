@@ -2323,6 +2323,15 @@ Parser::DeclGroupPtrTy Parser::ParseDeclGroup(ParsingDeclSpec &DS,
           // otherwise expect a comma or semicolon. Note that
           // isDeclarationSpecifier already covers 'inline namespace', since
           // 'inline' can be a declaration specifier.
+        } else if (Tok.is(tok::eof) &&
+                   llvm::any_of(D.LateParsedContracts, [](const Token &T) {
+                     return T.is(tok::code_completion);
+                   })) {
+          // The code completion point is within a function contract specifier
+          // which is not terminated before the end of the file. Treat the
+          // declarator as a declaration (which is diagnosed below) so that the
+          // function is created and its contracts are parsed, which performs
+          // the completion in the context of the function.
         } else {
           Diag(Tok, diag::err_expected_fn_body);
           SkipUntil(tok::semi);
