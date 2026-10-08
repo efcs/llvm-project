@@ -1133,8 +1133,9 @@ bool Sema::isContractConstified(const ValueDecl *VD) const {
     return false;
 
   // If a lambda-expression within the predicate captures the entity by copy,
-  // the id-expression names the member of the closure type instead.
-  if (Var->isLocalVarDeclOrParm() &&
+  // the id-expression names the member of the closure type instead. Only an
+  // entity with automatic storage duration can be captured.
+  if (Var->hasLocalStorage() &&
       isCapturedByCopyInLambda(*this, FirstNestedScope, VD))
     return false;
 
