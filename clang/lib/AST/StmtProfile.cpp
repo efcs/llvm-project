@@ -486,22 +486,51 @@ namespace {
         Visit(Requires);
     }
 
+    /// Returns the call operator declared by the definition of \p Closure,
+    /// found among its own declarations. If the closure type was loaded from
+    /// an AST file and merged with the closure type of the corresponding
+    /// lambda-expression of another declaration of the function, the lookup
+    /// of the closure type (and therefore LambdaExpr::getCallOperator()) finds
+    /// the call operator of the closure type they were merged into, not the
+    /// one of this lambda-expression.
+    static const CXXMethodDecl *
+    getDeclaredCallOperator(const CXXRecordDecl *Closure) {
+      for (const Decl *D : Closure->decls()) {
+        if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(D))
+          D = FTD->getTemplatedDecl();
+        if (const auto *MD = dyn_cast<CXXMethodDecl>(D);
+            MD && MD->getOverloadedOperator() == OO_Call)
+          return MD;
+      }
+      return nullptr;
+    }
+
     bool VisitLambdaExprStructurally(const LambdaExpr *S) override {
       if (!PredicateContext)
         return false;
 
-      // Note that if the closure type was loaded from an AST file and merged
-      // with the closure type of the corresponding lambda-expression of
-      // another declaration of the function, this is the definition of the
-      // closure type they were merged into, which is profiled instead. The
-      // entities declared by that definition belong to the other declaration
-      // of the function (see isPredicateContext).
+      // Profile the lambda-expression as written with this declaration of the
+      // function, even if its closure type was merged with that of another
+      // translation unit (see getDeclaredCallOperator). The entities declared
+      // by it belong to this declaration of the function or, once merged, to
+      // the other one (see isPredicateContext).
       const CXXRecordDecl *Closure = S->getLambdaClass();
-      const CXXMethodDecl *CallOp = S->getCallOperator();
-      if (!isDeclaredInPredicate(Closure) || !CallOp)
+      if (!isDeclaredInPredicate(Closure))
         return false;
-      // Likewise, the body refers to the parameters of the declaration of the
-      // call operator which is its definition.
+      // The closure type found through the type of the lambda-expression is
+      // its canonical declaration. If closure types were merged, find the
+      // declaration which was read with this lambda-expression: the one
+      // declared at its location.
+      for (const TagDecl *Redecl : Closure->redecls())
+        if (Redecl->getLocation() == S->getBeginLoc()) {
+          Closure = cast<CXXRecordDecl>(Redecl);
+          break;
+        }
+      const CXXMethodDecl *CallOp = getDeclaredCallOperator(Closure);
+      if (!CallOp)
+        return false;
+      // The body refers to the parameters of the declaration of the call
+      // operator which is its definition.
       if (const FunctionDecl *Definition = CallOp->getDefinition())
         CallOp = cast<CXXMethodDecl>(Definition);
 
@@ -535,7 +564,10 @@ namespace {
 
       // The template parameters, including those invented for parameters with
       // a placeholder type.
-      const TemplateParameterList *TPL = S->getTemplateParameterList();
+      const TemplateParameterList *TPL = nullptr;
+      if (const FunctionTemplateDecl *FTD =
+              CallOp->getDescribedFunctionTemplate())
+        TPL = FTD->getTemplateParameters();
       ID.AddBoolean(TPL);
       if (TPL)
         VisitTemplateParameterList(TPL);
@@ -562,7 +594,7 @@ namespace {
       VisitType(CallOp->getReturnType());
       ID.AddBoolean(CallOp->isVariadic());
       ID.AddBoolean(CallOp->isStatic());
-      ID.AddBoolean(S->isMutable());
+      ID.AddBoolean(!CallOp->isConst());
       ID.AddInteger(llvm::to_underlying(CallOp->getConstexprKind()));
       if (const auto *FPT = CallOp->getType()->getAs<FunctionProtoType>()) {
         ID.AddInteger(FPT->getExceptionSpecType());
@@ -582,7 +614,7 @@ namespace {
           Visit(CS);
 
       // The compound-statement.
-      const Stmt *Body = S->getBody();
+      const Stmt *Body = CallOp->getBody();
       ID.AddBoolean(Body);
       if (Body)
         Visit(Body);

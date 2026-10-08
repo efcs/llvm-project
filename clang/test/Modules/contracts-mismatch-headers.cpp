@@ -64,9 +64,14 @@ struct S {
 int same(const int x) pre(x > 0) post(r : r > x);
 template <class T> T tsame(T x) pre(x > T{}) pre([](T v) { return v > T{}; }(x));
 int lsame(int x) pre([x] { return x > 0; }()) pre([](int v) { return v > 0; }(x));
-// The closure types of corresponding lambda-expressions are merged; their
-// definitions are required to be the same.
+// The lambda-expressions within the predicates are compared as written in
+// each translation unit (the merging of their closure types notwithstanding),
+// with the same tolerance for renaming the parameters of the function (but
+// not those of the lambda-expression).
 int ldiff(int x) pre([](int v) { return v > 0; }(x));
+int ldiff_renamed(int x) pre([x](int v) { return v > 0; }(x));
+int ldiff_captures(int x) pre([x] { return x > 0; }());
+int lsame_renamed(int x) pre([x](int v) { return v > x; }(x));
 // An implicit instantiation of the declaration, but not of its contracts.
 inline int use_a(int x) { return tsame(x); }
 #endif
@@ -87,6 +92,9 @@ int same(const int y) pre(y > 0) post(s : s > y);
 template <class U> U tsame(U y) pre(y > U{}) pre([](U v) { return v > U{}; }(y));
 int lsame(int y) pre([y] { return y > 0; }()) pre([](int v) { return v > 0; }(y));
 int ldiff(int x) pre([](int v) { return v > 1; }(x));
+int ldiff_renamed(int y) pre([y](int w) { return w > 1; }(y));
+int ldiff_captures(int y) pre([=] { return y > 0; }());
+int lsame_renamed(int y) pre([y](int v) { return v > y; }(y));
 template <class U> U tsame(U y);
 #endif
 
@@ -94,7 +102,8 @@ template <class U> U tsame(U y);
 inline int use() {
   S s;
   return pred(1) + missing(1) + kind(1) + name(1) + tmpl(1) + tmissing(1) +
-         fr(s, 1) + same(1) + tsame(1) + lsame(1) + ldiff(1);
+         fr(s, 1) + same(1) + tsame(1) + lsame(1) + ldiff(1) +
+         ldiff_renamed(1) + ldiff_captures(1) + lsame_renamed(1);
 }
 // expected-error-re@b.h:3 {{'pred' has different function contract specifiers in different translation units; declaration in module '{{.*}}' has this predicate in its 1st function contract specifier}}
 // expected-note-re@a.h:3 {{but the declaration in module '{{.*}}' has a different predicate}}
@@ -110,8 +119,12 @@ inline int use() {
 // expected-note-re@a.h:8 {{but the declaration in module '{{.*}}' has 1 function contract specifier}}
 // expected-error-re@b.h:10 {{'fr' has different function contract specifiers in different translation units; declaration in module '{{.*}}' has this predicate in its 1st function contract specifier}}
 // expected-note-re@a.h:10 {{but the declaration in module '{{.*}}' has a different predicate}}
-// expected-error-re@a.h:19 {{'(lambda at {{.*}}a.h:19:22)' has different definitions in different modules; first difference is definition in module '{{.*}}' found method 'operator()' with body}}
-// expected-note-re@b.h:15 {{but in '{{.*}}' found method 'operator()' with different body}}
+// expected-error-re@b.h:15 {{'ldiff' has different function contract specifiers in different translation units; declaration in module '{{.*}}' has this predicate in its 1st function contract specifier}}
+// expected-note-re@a.h:21 {{but the declaration in module '{{.*}}' has a different predicate}}
+// expected-error-re@b.h:16 {{'ldiff_renamed' has different function contract specifiers in different translation units; declaration in module '{{.*}}' has this predicate in its 1st function contract specifier}}
+// expected-note-re@a.h:22 {{but the declaration in module '{{.*}}' has a different predicate}}
+// expected-error-re@b.h:17 {{'ldiff_captures' has different function contract specifiers in different translation units; declaration in module '{{.*}}' has this predicate in its 1st function contract specifier}}
+// expected-note-re@a.h:23 {{but the declaration in module '{{.*}}' has a different predicate}}
 
 //--- use-header-units.cpp
 import "a.h";

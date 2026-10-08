@@ -165,13 +165,16 @@ Found while implementing the spec (`specification-proposal.rst`, branch
   libc++'s reserved-name tests forbid), `[[clang::contract_group]]` +
   `-fcontract-group-evaluation-semantic=` (string groups compete with P3400 label
   objects), `[[clang::contract_message]]`, `_LIBCPP_HARDENING_USE_CONTRACTS`.
-- **Lambdas in predicates across translation units are never compared.** The AST
-  reader merges corresponding closure types before the contract comparison runs,
-  so two TUs declaring `int f(int x) pre([](int v){ return v > 0; }(x))` with
-  different lambda bodies are not diagnosed by `-Wmismatched-contract-specifiers`
-  (the closure-type ODR check that would catch it is suppressed when contract
-  entities were renamed). No diagnostic required (NDR), but worth knowing; a fix
-  needs the comparison to run on the unmerged closure definitions.
+- **Lambdas in predicates across translation units** (resolved in round three):
+  the AST reader merges corresponding closure types, and used to drop the body
+  of the second call operator, so the predicates compared equal and only the
+  closure-type ODR check (suppressed when contract entities were renamed) could
+  catch a different lambda body. The call operator of a closure type in a
+  function contract specifier now keeps its body, and the comparison profiles
+  the lambda-expression of each declaration with its own closure declaration,
+  so `-Wmismatched-contract-specifiers` diagnoses different lambdas with the
+  same tolerance for renaming the function's parameters. The closure-type ODR
+  check is skipped once the contracts of the function were diagnosed.
 - **Runtime hosting when libc++ is not built on libc++abi** (Windows/vcruntime,
   libcxxrt, libsupc++): the contracts runtime is currently compiled out entirely.
   Host the entry points in libc++ as a fallback, or declare the configuration
