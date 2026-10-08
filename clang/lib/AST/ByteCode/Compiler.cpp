@@ -8533,6 +8533,20 @@ bool Compiler<Emitter>::visitDeclRef(const ValueDecl *D, const Expr *E) {
       return true;
     return this->emitConst(ECD->getInitVal(), E);
   }
+  if constexpr (!std::is_same_v<Emitter, EvalEmitter>) {
+    // Lambda captures. A lambda that captures the result name of the enclosing
+    // function refers to its own copy or reference, not to the result object
+    // of the enclosing call, so this has to come before the result name case.
+    if (auto It = this->LambdaCaptures.find(D);
+        It != this->LambdaCaptures.end()) {
+      auto [Offset, IsPtr] = It->second;
+      if (DiscardResult)
+        return true;
+      if (IsPtr)
+        return this->emitGetThisFieldPtr(Offset, E);
+      return this->emitGetPtrThisField(Offset, E);
+    }
+  }
   if (const auto *RND = dyn_cast<ResultNameDecl>(D)) {
     // A result name can only be evaluated as part of the postcondition
     // assertions of the function being compiled.
@@ -8669,18 +8683,6 @@ bool Compiler<Emitter>::visitDeclRef(const ValueDecl *D, const Expr *E) {
     // Retry.
     return this->visitDeclRef(D, E);
   };
-
-  if constexpr (!std::is_same_v<Emitter, EvalEmitter>) {
-    // Lambda captures.
-    if (auto It = this->LambdaCaptures.find(D);
-        It != this->LambdaCaptures.end()) {
-      auto [Offset, IsPtr] = It->second;
-
-      if (IsPtr)
-        return this->emitGetThisFieldPtr(Offset, E) && maybePopPtr();
-      return this->emitGetPtrThisField(Offset, E) && maybePopPtr();
-    }
-  }
 
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E);
       DRE && DRE->refersToEnclosingVariableOrCapture()) {

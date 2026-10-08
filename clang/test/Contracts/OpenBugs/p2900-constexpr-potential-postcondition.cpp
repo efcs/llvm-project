@@ -7,14 +7,22 @@
 // XFAIL: *
 //
 // OPEN BUG (constant evaluation, diagnostic quality -- not a conformance
-// requirement): -Winvalid-constexpr does not see a POSTcondition whose
-// predicate can never be constant-evaluated.  Expr::isPotentialConstantExpr
-// evaluates preconditions but the postcondition sequence is skipped in that
-// mode, so the identical predicate is diagnosed as a `pre` and silent as a
-// `post`.
+// requirement): -Winvalid-constexpr does not see a contract assertion whose
+// predicate can never be constant-evaluated.
 //   Expected: "constexpr function never produces a constant expression" for
-//     bad_post and mixed under the enforce/observe RUN lines.
-//   Actual: only bad_body and bad_pre are diagnosed.
+//     bad_pre, bad_post and mixed under the enforce/observe RUN lines.
+//   Actual: only bad_body is diagnosed.
+//
+// Round three (deliberately left open): Expr::isPotentialConstantExpr does
+// not evaluate contract assertions at all (State::shouldCheckContract), since
+// evaluating a contract assertion never makes an expression ineligible to be
+// a core constant expression (P2900R14 3.5.12). Diagnosing a predicate that
+// can never be constant would need to distinguish it from one that merely
+// reads a parameter or the result name with an unknown value in that mode,
+// in both evaluators. It would also only be right for a terminating
+// semantic: with observe, such a predicate is diagnosed at each call but the
+// call still produces a constant expression, so the `observe` RUN lines
+// below expect more than [basic.contract.eval]p8 supports.
 
 // Regression pin for CLANG-22: a contract predicate that can never be
 // constant-evaluated makes the call unusable in a constant expression, and

@@ -274,6 +274,9 @@ def note_constexpr_contract_violation : Note<
 def warn_constexpr_contract_violation : Warning<
   "%sub{constexpr_contract_violation}0,1,2,3">,
   InGroup<ContractViolation>, NoSFINAE;
+def note_constexpr_dtor_postcondition_after_subobjects : Note<
+  "the postcondition assertions of a destructor are evaluated after the "
+  "members and base classes of the %0 object have been destroyed">;
 def note_constexpr_inherited_ctor_call_here : Note<
   "in implicit initialization for inherited constructor of %0">;
 def note_constexpr_baa_insufficient_alignment : Note<

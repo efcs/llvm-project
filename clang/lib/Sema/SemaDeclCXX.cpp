@@ -16610,8 +16610,17 @@ void Sema::FinalizeVarWithDestructor(VarDecl *VD, CXXRecordDecl *ClassDecl) {
     if (VD->getInit() && !VD->getInit()->isValueDependent())
       HasConstantInit = VD->evaluateValue();
     SmallVector<PartialDiagnosticAt, 8> Notes;
-    if (!VD->evaluateDestruction(Notes) && VD->isConstexpr() &&
-        HasConstantInit) {
+    SmallVector<PartialDiagnosticAt, 0> ContractNotes;
+    bool HasConstantDestruction =
+        VD->evaluateDestruction(Notes, &ContractNotes);
+    // A variable whose destructor evaluates a contract assertion with a
+    // checking semantic does not have constant destruction: the destructor
+    // is called at run time, where it checks the contract assertion. A
+    // constexpr variable is required to have constant destruction, so its
+    // contract assertions are checked now: a violation with the observe
+    // semantic is diagnosed, one with a terminating semantic is an error.
+    DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+    if (!HasConstantDestruction && VD->isConstexpr() && HasConstantInit) {
       Diag(VD->getLocation(),
            diag::err_constexpr_var_requires_const_destruction) << VD;
       for (const PartialDiagnosticAt &Note : Notes)

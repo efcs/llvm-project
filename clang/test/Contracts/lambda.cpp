@@ -11,7 +11,7 @@ constexpr void f() {
             post(r : r == 2) // expected-note {{contract violation with the 'enforce' evaluation semantic: postcondition 'r : r == 2' evaluated to false}}
             pre(z == 42 && yyy == 42)
             { ((void)z); ((void)yyy); return 1; };
-  static_assert(y(1)); // expected-error {{static assertion expression is not an integral constant expression}}
+  static_assert(y(1)); // expected-error {{contract violation in a constant expression}}
   // expected-note@-1 {{in call to 'y.operator()(1)'}}
 }
 

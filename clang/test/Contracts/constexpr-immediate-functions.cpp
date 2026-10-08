@@ -28,14 +28,15 @@ void runtime_function(int n) {
 }
 
 // The initializer of a constant-initialized variable is manifestly
-// constant-evaluated as a whole.
-int global = cv(0);
+// constant-evaluated as a whole, which includes the immediate invocation. A
+// violation is diagnosed for the immediate invocation, which is ill-formed
+// whether or not the variable is constant-initialized.
+int global = cv(0); // #global
 // observe-warning@#cv {{precondition 'x > 0' evaluated to false}}
-// observe-note@-2 {{in call to 'cv(0)'}}
-// enforce-error@-3 {{constant initialization of 'global' failed when checking its contract assertions}}
+// observe-note@#global {{in call to 'cv(0)'}}
+// enforce-error@#global {{call to consteval function 'cv' is not a constant expression}}
 // enforce-note@#cv {{precondition 'x > 0' evaluated to false}}
-// enforce-note@-5 {{in call to 'cv(0)'}}
-// enforce-note@-6 {{'global' is constant-initialized because its initializer is a constant expression when all contract assertions are ignored}}
+// enforce-note@#global {{in call to 'cv(0)'}}
 
 namespace escalation {
 // An immediate invocation that is not a constant expression is
@@ -43,29 +44,29 @@ namespace escalation {
 // non-constant, so it must not make the enclosing function an immediate
 // function.
 template <class T> constexpr int not_escalating(T) { return cv(0); } // #not-escalating
-// observe-warning@#cv 2 {{precondition 'x > 0' evaluated to false}}
-// observe-note@-2 2 {{in call to 'cv(0)'}}
-// enforce-error@-3 2 {{call to consteval function 'cv' is not a constant expression}}
+// The immediate invocation is evaluated for the template and again for its
+// instantiation; the identical violation is diagnosed once.
+// observe-warning@#cv {{precondition 'x > 0' evaluated to false}}
+// observe-note@#not-escalating {{in call to 'cv(0)'}}
+// enforce-error@#not-escalating 2 {{call to consteval function 'cv' is not a constant expression}}
 // enforce-note@#cv 2 {{precondition 'x > 0' evaluated to false}}
-// enforce-note@-5 2 {{in call to 'cv(0)'}}
+// enforce-note@#not-escalating 2 {{in call to 'cv(0)'}}
 int (*pointer)(int) = &not_escalating<int>;
-// observe-note@-1 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
-// enforce-note@-2 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
+// enforce-note@-1 {{in instantiation of function template specialization 'escalation::not_escalating<int>' requested here}}
 
 // The argument is not a constant expression here, so this function is an
 // immediate function, and the contract assertions are checked when it is
 // called.
 template <class T> constexpr int escalating(T t) { return cv(t); } // #escalating
 int a = escalating(1);
-int b = escalating(0);
+int b = escalating(0); // #b
 // observe-warning@#cv {{precondition 'x > 0' evaluated to false}}
 // observe-note@#escalating {{in call to 'cv(0)'}}
-// observe-note@-3 {{in call to 'escalating<int>(0)'}}
-// enforce-error@-4 {{constant initialization of 'b' failed when checking its contract assertions}}
+// observe-note@#b {{in call to 'escalating<int>(0)'}}
+// enforce-error@#b {{call to immediate function 'escalation::escalating<int>' is not a constant expression}}
 // enforce-note@#cv {{precondition 'x > 0' evaluated to false}}
 // enforce-note@#escalating {{in call to 'cv(0)'}}
-// enforce-note@-7 {{in call to 'escalating<int>(0)'}}
-// enforce-note@-8 {{'b' is constant-initialized because}}
+// enforce-note@#b {{in call to 'escalating<int>(0)'}}
 } // namespace escalation
 
 namespace consteval_if {
@@ -89,3 +90,27 @@ constexpr int g(int x) pre(__builtin_is_constant_evaluated()) { return x; }
 constexpr int b = g(1);
 static_assert(g(1) == 1);
 } // namespace consteval_if
+
+namespace initializer {
+// An immediate invocation in the initializer of a variable with static
+// storage duration. The variable is constant-initialized (the initializer is
+// a constant expression with the contract assertions ignored), which makes
+// the initializer manifestly constant-evaluated, so the immediate invocation
+// is evaluated as part of it. A contract violation with a terminating
+// semantic is diagnosed for the immediate invocation, which is ill-formed by
+// itself, not as a failed constant initialization.
+consteval int ce(int x) post(r : r > 0) { return x; } // #ce
+int u = ce(0); // #u
+// observe-warning@#ce {{postcondition 'r : r > 0' evaluated to false}}
+// observe-note@#u {{in call to 'ce(0)'}}
+// enforce-error@#u {{call to consteval function 'initializer::ce' is not a constant expression}}
+// enforce-note@#ce {{postcondition 'r : r > 0' evaluated to false}}
+// enforce-note@#u {{in call to 'ce(0)'}}
+int u2 = ce(0) + ce(1); // #u2
+// observe-warning@#ce {{postcondition 'r : r > 0' evaluated to false}}
+// observe-note@#u2 {{in call to 'ce(0)'}}
+// enforce-error@#u2 {{call to consteval function 'initializer::ce' is not a constant expression}}
+// enforce-note@#ce {{postcondition 'r : r > 0' evaluated to false}}
+// enforce-note@#u2 {{in call to 'ce(0)'}}
+int fine = ce(1);
+} // namespace initializer

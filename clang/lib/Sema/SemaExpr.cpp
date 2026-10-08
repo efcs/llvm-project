@@ -18267,28 +18267,84 @@ static void EmitContractViolationNotes(Sema &S,
   }
 }
 
+/// Hash the diagnostics for a contract violation (the diagnostic itself, if
+/// \p Loc is valid, followed by its notes), to recognize a violation that has
+/// been diagnosed identically already. The same expression can be evaluated
+/// more than once: once per substitution into the declaration of a function
+/// template for a call, once per candidate for the template arguments of a
+/// call to an overloaded function template, for the definition and for the
+/// instantiations of a template, ...
+static llvm::hash_code
+hashContractViolationDiagnostics(Sema &S, SourceLocation Loc,
+                                 ArrayRef<PartialDiagnosticAt> Notes) {
+  llvm::hash_code Hash = llvm::hash_combine(Loc.getRawEncoding(), Notes.size());
+  for (const PartialDiagnosticAt &Note : Notes) {
+    SmallString<256> Message;
+    Note.second.EmitToString(S.Diags, Message);
+    Hash = llvm::hash_combine(Hash, Note.first.getRawEncoding(),
+                              Note.second.getDiagID(), StringRef(Message));
+  }
+  return Hash;
+}
+
 void Sema::DiagnoseConstantEvaluatedContractViolations(
     ArrayRef<PartialDiagnosticAt> ContractNotes) {
   // C++26 [intro.compliance.general]p2.3.4: A diagnostic is required for a
   // contract assertion evaluated with a checking semantic in a manifestly
   // constant-evaluated context resulting in a contract violation.
-  EmitContractViolationNotes(*this, ContractNotes);
+  //
+  // The notes consist of groups: a warning followed by the notes describing
+  // the violation. Skip the groups that an earlier evaluation has produced
+  // already. Within this evaluation, every violation is diagnosed, even if a
+  // contract assertion was violated several times with the same diagnostics
+  // (e.g. in a loop).
+  SmallVector<std::pair<ArrayRef<PartialDiagnosticAt>, llvm::hash_code>, 4>
+      Groups;
+  for (size_t I = 0, N = ContractNotes.size(); I != N;) {
+    size_t End = I + 1;
+    while (End != N && Diags.getDiagnosticIDs()->isNote(
+                           ContractNotes[End].second.getDiagID()))
+      ++End;
+    ArrayRef<PartialDiagnosticAt> Group = ContractNotes.slice(I, End - I);
+    I = End;
+    Groups.emplace_back(
+        Group, hashContractViolationDiagnostics(*this, SourceLocation(), Group));
+  }
+  for (const auto &[Group, Hash] : Groups)
+    if (!DiagnosedContractViolations.contains(Hash))
+      EmitContractViolationNotes(*this, Group);
+  for (const auto &[Group, Hash] : Groups)
+    DiagnosedContractViolations.insert(Hash);
 }
 
-bool Sema::DiagnoseContractViolationInSFINAEContext(
-    const Expr *E, const Expr::EvalStatus &Status) {
-  if (!Status.HasContractViolation || !isSFINAEContext())
+bool Sema::DiagnoseContractViolation(const Expr *E,
+                                     const Expr::EvalStatus &Status) {
+  if (!Status.HasContractViolation)
     return false;
 
   // C++26 [basic.contract.eval]p8:
   //   If a contract violation occurs in a context that is manifestly
   //   constant-evaluated, and the evaluation semantic is a terminating
   //   semantic, the program is ill-formed.
-  Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
-      << E->getSourceRange();
+  ArrayRef<PartialDiagnosticAt> Notes;
   if (Status.Diag)
-    EmitContractViolationNotes(*this, *Status.Diag);
+    Notes = *Status.Diag;
+  if (DiagnosedContractViolations
+          .insert(hashContractViolationDiagnostics(*this, E->getBeginLoc(),
+                                                   Notes))
+          .second) {
+    Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
+        << E->getSourceRange();
+    EmitContractViolationNotes(*this, Notes);
+  }
   return true;
+}
+
+bool Sema::DiagnoseContractViolationInSFINAEContext(
+    const Expr *E, const Expr::EvalStatus &Status) {
+  if (!isSFINAEContext())
+    return false;
+  return DiagnoseContractViolation(E, Status);
 }
 
 ExprResult
@@ -18431,7 +18487,10 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
       (!getLangOpts().CPlusPlus || !EvalResult.HasUndefinedBehavior);
 
   DiagnoseConstantEvaluatedContractViolations(ContractNotes);
-  if (DiagnoseContractViolationInSFINAEContext(E, EvalResult))
+  // A contract violation makes the program ill-formed; the expression must
+  // not be folded or treated as a non-constant expression (e.g. as the bound
+  // of a variable length array) instead.
+  if (DiagnoseContractViolation(E, EvalResult))
     return ExprError();
 
   if (!isa<ConstantExpr>(E))
@@ -18801,6 +18860,60 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
   return Res;
 }
 
+/// The immediate function called by the immediate invocation \p CE.
+static FunctionDecl *getImmediateFunction(ConstantExpr *CE) {
+  Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
+  if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
+    InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
+  FunctionDecl *FD = nullptr;
+  if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
+    FD = cast<FunctionDecl>(Call->getCalleeDecl());
+  else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
+    FD = Call->getConstructor();
+  else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
+    FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
+
+  assert(FD && FD->isImmediateFunction() &&
+         "could not find an immediate function in this expression");
+  return FD;
+}
+
+bool Sema::DiagnoseContractViolatingImmediateInvocations(Expr *Init) {
+  struct Finder : DynamicRecursiveASTVisitor {
+    SmallVector<ConstantExpr *, 2> Found;
+    bool VisitConstantExpr(ConstantExpr *E) override {
+      if (E->isImmediateInvocation())
+        Found.push_back(E);
+      return true;
+    }
+  } Finder;
+  Finder.TraverseStmt(Init);
+
+  bool Diagnosed = false;
+  for (ConstantExpr *CE : Finder.Found) {
+    llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+    llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
+    Expr::EvalResult Eval;
+    Eval.Diag = &Notes;
+    Eval.ContractDiag = &ContractNotes;
+    bool Result = CE->EvaluateAsConstantExpr(
+        Eval, getASTContext(), ConstantExprKind::ImmediateInvocation);
+    DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+    if (Result || !Eval.HasContractViolation)
+      continue;
+    FailedImmediateInvocations.insert(CE);
+    Diagnosed = true;
+    FunctionDecl *FD = getImmediateFunction(CE);
+    if (FD->isInvalidDecl())
+      continue;
+    Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)
+        << FD << FD->isConsteval();
+    for (const PartialDiagnosticAt &Note : Notes)
+      Diag(Note.first, Note.second);
+  }
+  return Diagnosed;
+}
+
 static void EvaluateAndDiagnoseImmediateInvocation(
     Sema &SemaRef, Sema::ImmediateInvocationCandidate Candidate) {
   llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
@@ -18814,19 +18927,7 @@ static void EvaluateAndDiagnoseImmediateInvocation(
   SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
   if (!Result || !Notes.empty()) {
     SemaRef.FailedImmediateInvocations.insert(CE);
-    Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
-    if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
-      InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
-    FunctionDecl *FD = nullptr;
-    if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
-      FD = cast<FunctionDecl>(Call->getCalleeDecl());
-    else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
-      FD = Call->getConstructor();
-    else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
-      FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
-
-    assert(FD && FD->isImmediateFunction() &&
-           "could not find an immediate function in this expression");
+    FunctionDecl *FD = getImmediateFunction(CE);
     if (FD->isInvalidDecl())
       return;
     SemaRef.Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)

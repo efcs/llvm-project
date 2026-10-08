@@ -10,6 +10,7 @@
 #include "Frame.h"
 #include "Source.h"
 #include "clang/AST/CXXInheritance.h"
+#include "clang/AST/DeclCXX.h"
 #include "clang/AST/OptionalDiagnostic.h"
 #include "clang/AST/StmtCXX.h"
 #include "llvm/Support/SaveAndRestore.h"
@@ -117,6 +118,7 @@ void State::addExtendedDiag(SourceLocation Loc, diag::kind DiagId) {
 
 OptionalDiagnostic State::diag(SourceLocation Loc, diag::kind DiagId,
                                unsigned ExtraNotes, bool IsFFDiag) {
+  EvalStatus.DiagEmitted = true;
   if (EvalStatus.Diag) {
     if (hasPriorDiagnostic()) {
       return OptionalDiagnostic();
@@ -232,7 +234,14 @@ State::ContractCheck::ContractCheck(State &S, const ContractStmt *CS)
       OldHasFoldFailureDiagnostic(S.HasFoldFailureDiagnostic),
       OldHasSideEffects(S.EvalStatus.HasSideEffects),
       OldHasUndefinedBehavior(S.EvalStatus.HasUndefinedBehavior) {
-  S.EvalStatus.Diag = &Notes;
+  // The notes explaining why the predicate is not a core constant expression
+  // are only needed if the enclosing evaluation collects diagnostics: its own
+  // or those of observed contract violations. Collecting them is expensive
+  // (each one describes the whole call stack), and would happen for every
+  // failing predicate of every expression that Sema merely tries to fold.
+  // Whether the predicate produced a diagnostic is tracked regardless.
+  S.EvalStatus.Diag = (OldDiag || S.EvalStatus.ContractDiag) ? &Notes : nullptr;
+  S.EvalStatus.DiagEmitted = false;
   S.HasActiveDiagnostic = false;
   S.HasFoldFailureDiagnostic = false;
 }
@@ -240,6 +249,7 @@ State::ContractCheck::ContractCheck(State &S, const ContractStmt *CS)
 void State::ContractCheck::restoreDiagnostics() {
   if (Restored)
     return;
+  PredicateDiagEmitted = S.EvalStatus.DiagEmitted;
   S.EvalStatus.Diag = OldDiag;
   // The diagnostics of the predicate have been collected separately; they
   // don't count as emitted for the enclosing evaluation.
@@ -263,8 +273,8 @@ bool State::ContractCheck::finish(bool Evaluated, bool Value) {
   // An exception cannot escape from a predicate that is a core constant
   // expression. Outside of a manifestly constant-evaluated context we only
   // care whether the predicate could be folded.
-  bool IsConstant =
-      Evaluated && (Notes.empty() || !S.checkingContractsAtCompileTime());
+  bool IsConstant = Evaluated && (!PredicateDiagEmitted ||
+                                  !S.checkingContractsAtCompileTime());
   if (IsConstant && Value)
     return true;
 
@@ -303,6 +313,17 @@ void State::addContractViolation(SmallVectorImpl<PartialDiagnosticAt> &Diags,
   addDiag(Cond->getExprLoc(), DiagId)
       << S->getSemanticString(Ctx) << llvm::to_underlying(S->getContractKind())
       << S->getSourceText(Ctx) << !PredicateIsFalse << Cond->getSourceRange();
+
+  // The postcondition assertions of a destructor are evaluated once the
+  // object has been destroyed completely. A predicate that names a member or
+  // a base class is thus not a constant expression; explain why.
+  if (!PredicateIsFalse && S->getContractKind() == ContractKind::Post) {
+    if (const auto *DD = dyn_cast_if_present<CXXDestructorDecl>(
+            getCurrentFrame()->getCallee()))
+      addDiag(S->getBeginLoc(),
+              diag::note_constexpr_dtor_postcondition_after_subobjects)
+          << DD->getParent();
+  }
 
   // The notes for a predicate that is not a constant expression already end
   // with the call stack.

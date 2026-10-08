@@ -1,7 +1,7 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -verify=expected,observe %s
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s
-// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -verify=expected,observe %s -fexperimental-new-constant-interpreter -DNEW_INTERP
-// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s -fexperimental-new-constant-interpreter -DNEW_INTERP
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=observe -verify=expected,observe %s -fexperimental-new-constant-interpreter
+// RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -fcontract-evaluation-semantic=enforce -verify=expected,enforce %s -fexperimental-new-constant-interpreter
 
 // The function contract assertions of constructors, destructors, assignment
 // operators and lambdas are evaluated during constant evaluation.
@@ -113,10 +113,8 @@ constexpr int fails = f(1);
 // enforce-note@-7 {{in call to 'f(1)'}}
 
 // The postcondition assertions of a destructor are evaluated after the
-// members have been destroyed, so they can't read the members.
-// FIXME: The bytecode interpreter doesn't end the lifetime of the members
-// before it evaluates the postcondition assertions.
-#ifndef NEW_INTERP
+// members and base classes have been destroyed (like at run time), so they
+// can't read the members.
 struct Late {
   int v;
   constexpr Late(int v) : v(v) {}
@@ -128,21 +126,60 @@ constexpr int g() {
 }
 constexpr int late = g();
 // observe-warning@#Late {{contract violation with the 'observe' evaluation semantic: postcondition 'this->v == 1' is not a constant expression}}
+// observe-note@#Late {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'Late' object have been destroyed}}
 // observe-note@#Late {{read of object outside its lifetime is not allowed in a constant expression}}
 // observe-note@#Late-var {{in call to 'l.~Late()'}}
-// observe-note@-4 {{in call to 'g()'}}
+// observe-note@-5 {{in call to 'g()'}}
 // observe-note@#Late-var {{declared here}}
-// enforce-error@-6 {{constexpr variable 'late' must be initialized by a constant expression}}
+// enforce-error@-7 {{constexpr variable 'late' must be initialized by a constant expression}}
 // enforce-note@#Late {{contract violation with the 'enforce' evaluation semantic: postcondition 'this->v == 1' is not a constant expression}}
+// enforce-note@#Late {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'Late' object have been destroyed}}
 // enforce-note@#Late {{read of object outside its lifetime is not allowed in a constant expression}}
 // enforce-note@#Late-var {{in call to 'l.~Late()'}}
-// enforce-note@-10 {{in call to 'g()'}}
+// enforce-note@-12 {{in call to 'g()'}}
 // enforce-note@#Late-var {{declared here}}
-#endif
+
+// A base class is destroyed too, and a postcondition assertion that reads
+// one is diagnosed the same way.
+struct LateBase { int b = 1; };
+struct LateDerived : LateBase {
+  constexpr ~LateDerived() post(this->b == 1) {} // #LateDerived
+};
+constexpr int gb() {
+  LateDerived d; // #LateDerived-var
+  return 0;
+}
+constexpr int late_base = gb();
+// observe-warning@#LateDerived {{postcondition 'this->b == 1' is not a constant expression}}
+// observe-note@#LateDerived {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'LateDerived' object have been destroyed}}
+// observe-note@#LateDerived {{read of object outside its lifetime is not allowed in a constant expression}}
+// observe-note@#LateDerived-var {{in call to 'd.~LateDerived()'}}
+// observe-note@-5 {{in call to 'gb()'}}
+// observe-note@#LateDerived-var {{declared here}}
+// enforce-error@-7 {{constexpr variable 'late_base' must be initialized by a constant expression}}
+// enforce-note@#LateDerived {{postcondition 'this->b == 1' is not a constant expression}}
+// enforce-note@#LateDerived {{the postcondition assertions of a destructor are evaluated after the members and base classes of the 'LateDerived' object have been destroyed}}
+// enforce-note@#LateDerived {{read of object outside its lifetime is not allowed in a constant expression}}
+// enforce-note@#LateDerived-var {{in call to 'd.~LateDerived()'}}
+// enforce-note@-12 {{in call to 'gb()'}}
+// enforce-note@#LateDerived-var {{declared here}}
+
+// A postcondition assertion that doesn't read the object is fine.
+struct LateOk {
+  int v;
+  constexpr LateOk(int v) : v(v) {}
+  constexpr ~LateOk() post(true) post(sizeof(this->v) == sizeof(int)) {}
+};
+constexpr int gok() {
+  LateOk l(1);
+  return 1;
+}
+static_assert(gok() == 1);
 
 // Whether a variable has constant destruction does not depend on the
-// contract assertions of its destructor.
-constexpr D constant_destruction(1);
+// contract assertions of its destructor, but those of a constexpr variable
+// are checked (see constexpr-constant-destruction.cpp).
+constexpr D constant_destruction(2);
 } // namespace destructor
 
 namespace assignment {

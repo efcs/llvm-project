@@ -73,6 +73,7 @@
 #include "llvm/ADT/BitmaskEnum.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/FloatingPointMode.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/MapVector.h"
@@ -8052,17 +8053,41 @@ public:
   /// Emit the diagnostics for the contract violations that were found, but
   /// did not make the evaluation fail, while evaluating a manifestly
   /// constant-evaluated expression. \see Expr::EvalStatus::ContractDiag.
+  ///
+  /// The same expression can be evaluated more than once, e.g. when the
+  /// declaration of a function template is substituted into several times
+  /// for one call. A violation that has been diagnosed with the same notes
+  /// already is not diagnosed again.
   void DiagnoseConstantEvaluatedContractViolations(
       ArrayRef<PartialDiagnosticAt> ContractNotes);
 
+  /// The observed contract violations that have been diagnosed, as hashes of
+  /// their diagnostics. \see DiagnoseConstantEvaluatedContractViolations.
+  llvm::DenseSet<llvm::hash_code> DiagnosedContractViolations;
+
   /// If the evaluation of the manifestly constant-evaluated expression \p E
-  /// failed in a SFINAE context because of a contract violation, diagnose the
-  /// violation. The program is ill-formed in that case; a contract violation
-  /// is never a substitution failure.
+  /// failed because of a contract violation, diagnose the violation: the
+  /// program is ill-formed ([basic.contract.eval]p8). This is used where the
+  /// evaluation would otherwise fall back to treating \p E as not being a
+  /// constant expression, e.g. by folding it or by forming a variable length
+  /// array.
   ///
   /// \returns true if the contract violation was diagnosed.
+  bool DiagnoseContractViolation(const Expr *E, const Expr::EvalStatus &Status);
+
+  /// Like DiagnoseContractViolation(), but only in a SFINAE context, where a
+  /// contract violation would otherwise be treated as a substitution failure.
   bool DiagnoseContractViolationInSFINAEContext(const Expr *E,
                                                 const Expr::EvalStatus &Status);
+
+  /// Diagnose the immediate invocations in the initializer \p Init of a
+  /// constant-initialized variable whose evaluation fails because of a
+  /// contract violation. Such an immediate invocation is ill-formed whether
+  /// or not the variable is constant-initialized, so this is more precise
+  /// than diagnosing the failed constant initialization.
+  ///
+  /// \returns true if an immediate invocation was diagnosed.
+  bool DiagnoseContractViolatingImmediateInvocations(Expr *Init);
 
   /// DiagnoseAssignmentAsCondition - Given that an expression is
   /// being used as a boolean condition, warn if it's an assignment.

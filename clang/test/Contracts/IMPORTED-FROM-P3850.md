@@ -144,7 +144,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/OpenBugs/this-in-xobj-noexcept-specifier.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
 | `Contracts/OpenBugs/this-in-xobj-trailing-return-type.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
 | `Contracts/over.call.func.p3.1.cpp` | A | imported, fails here -> OpenBugs/over.call.func.p3.1.cpp (XFAIL): member access in ctor-pre / dtor-post accepted |
-| `Contracts/p2900-constexpr-potential-postcondition.cpp` | A | imported, fails here -> OpenBugs/p2900-constexpr-potential-postcondition.cpp (XFAIL): -Winvalid-constexpr skips postconditions (quality, not conformance) |
+| `Contracts/p2900-constexpr-potential-postcondition.cpp` | A | imported, fails here -> OpenBugs/p2900-constexpr-potential-postcondition.cpp (XFAIL): -Winvalid-constexpr evaluates no contract assertions at all (quality, not conformance); round three left it open on purpose, see the note in the test (the observe expectations also go beyond [basic.contract.eval]p8) |
 | `Contracts/p3097-basic-sema.cpp` | B | skipped: P3097 virtual-function contracts |
 | `Contracts/p3097-config-semantic.cpp` | B | skipped: P3097 virtual-function contracts |
 | `Contracts/p3097-config-semantic.json` | B | skipped: configuration file for his -fcontract-configuration-file (P3595) |

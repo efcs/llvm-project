@@ -32,18 +32,36 @@ long b = g<None>(None{});
 static_assert(__is_same(decltype(g<None>(None{})), long));
 
 // A contract violation is not a substitution failure. With the observe
-// semantic the violation is diagnosed for each substitution into the
-// declaration, which happens once for the explicitly-specified and once for
-// the deduced template arguments.
+// semantic the violation is diagnosed once, although the declaration is
+// substituted into twice (once for the explicitly-specified and once for the
+// deduced template arguments): the diagnostics would be identical.
 auto c = sizeof(g<Zero>(Zero{}));
-// observe-warning@#f 2 {{contract violation with the 'observe' evaluation semantic: precondition 'x > 0' evaluated to false}}
+// observe-warning@#f {{contract violation with the 'observe' evaluation semantic: precondition 'x > 0' evaluated to false}}
 // observe-note@-2 {{while substituting explicitly-specified template arguments into function template 'g'}}
-// observe-note@-3 {{while substituting deduced template arguments into function template 'g' [with T = Zero]}}
-// observe-note@#g 2 {{in call to 'f(0)'}}
+// observe-note@#g {{in call to 'f(0)'}}
 // terminating-error@#g {{contract violation in a constant expression}}
-// terminating-note@-6 {{while substituting explicitly-specified template arguments into function template 'g'}}
+// terminating-note@-5 {{while substituting explicitly-specified template arguments into function template 'g'}}
 // terminating-note-re@#f {{contract violation with the '{{(quick_)?enforce}}' evaluation semantic: precondition 'x > 0' evaluated to false}}
 // terminating-note@#g {{in call to 'f(0)'}}
+
+// The template argument of a call to an overloaded function template is
+// evaluated for each candidate, and the declaration of the called template
+// is substituted into twice; the violation is still diagnosed only once.
+template <int M> int gg();
+template <int M> int gg(int);
+template <int N> auto k(int) -> decltype(gg<f(N)>()); // #k
+int kk = k<0>(1); // #kk
+// observe-warning@#f {{precondition 'x > 0' evaluated to false}}
+// observe-note@#k {{while substituting explicitly-specified template arguments into function template 'gg'}}
+// observe-note@#kk {{while substituting explicitly-specified template arguments into function template 'k'}}
+// observe-note@#k {{in call to 'f(0)'}}
+// terminating-error@#k {{contract violation in a constant expression}}
+// terminating-note@#k {{while substituting explicitly-specified template arguments into function template 'gg'}}
+// terminating-note@#kk {{while substituting explicitly-specified template arguments into function template 'k'}}
+// terminating-note@#f {{precondition 'x > 0' evaluated to false}}
+// terminating-note@#k {{in call to 'f(0)'}}
+// terminating-error@#kk {{no matching function for call to 'k'}}
+// terminating-note@#k {{candidate template ignored: substitution failure [with N = 0]: no matching function for call to 'gg'}}
 } // namespace template_argument
 
 namespace array_bound {

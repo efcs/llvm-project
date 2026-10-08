@@ -43,15 +43,26 @@ implementation rejects *any* use of `this` there, which is over-strict
 - Proposal: diagnose implicit/explicit member access of the object under
   construction/destruction only. (OpenBugs/over.call.func.p3.1.cpp)
 
-### 1.5 Destructor postconditions that name members
+### 1.5 Destructor postconditions that name members — RESOLVED (round three)
 `constexpr ~M() post(m == 0) { m = 0; }` used in constant evaluation: the AST
 evaluator reports a violation ("read of object outside its lifetime" — the
 postcondition runs after member destruction), the bytecode interpreter accepts,
 GCC rejects member use in a destructor postcondition outright.
 - Question: what is the evaluation point of a destructor postcondition relative to
   member destruction, and is naming a member ill-formed?
+- Decision: the postcondition assertions of a destructor are evaluated after the
+  destruction of all members and base classes (including virtual bases), in
+  constant evaluation exactly as in CodeGen (round two). Both evaluators now
+  agree: a predicate that reads a member or base subobject is not a core
+  constant expression, which is a contract violation (diagnosed with the
+  semantic's usual warning/error), and both add the note "the postcondition
+  assertions of a destructor are evaluated after the members and base classes
+  of the 'M' object have been destroyed". Whether naming a member there is
+  ill-formed outright (GCC's choice) is part of 1.4; we do not reject it in Sema.
+  Test: `clang/test/Contracts/constexpr-structors-and-lambdas.cpp` (`Late`,
+  `LateDerived`).
 
-### 1.6 Constant destruction of static objects with destructor contracts
+### 1.6 Constant destruction of static objects with destructor contracts — RESOLVED (round three)
 The constant-destruction *test* ignores contracts (permitted by [expr.const] fn.
 63), but the implementation then elides the destructor, so an `enforce` contract
 in `~D` of a static object is never evaluated at all ([basic.stc.static]p2 forbids
@@ -59,6 +70,18 @@ eliminating a destructor with side effects).
 - Proposal: recheck with contracts after a successful trial (like constant
   initialization), and force dynamic destructor registration when a checked
   assertion was skipped.
+- Decision (implemented in `VarDecl::evaluateDestruction`, both evaluators): the
+  trial ignores contracts; if it reached a checked assertion, a variable that is
+  not `constexpr` does *not* get constant destruction, so its destructor is
+  registered and checks the assertion at exit with the run-time semantic (no
+  compile-time diagnostic, also under `observe`: the destruction is not
+  manifestly constant-evaluated, and the members of a non-constexpr object are
+  not readable during its constant destruction anyway). A `constexpr` variable
+  and a class NTTP must have constant destruction, so their destruction is
+  rechecked with the assertions checked: `observe` warns and keeps constant
+  destruction, a terminating violation is an error. Tests:
+  `constexpr-constant-destruction.cpp`, `constexpr-destruction-codegen.cpp`,
+  `Runnable/static-destructor-contracts.cpp`.
 
 ### 1.7 Allocation escaping an observed predicate
 `pre((*pp = new int(5), true))` under `observe`: the evaluator discards the
