@@ -3758,6 +3758,36 @@ static StringRef GetInputKindName(InputKind IK) {
   llvm_unreachable("unknown input language");
 }
 
+/// Generate the options which select the evaluation semantics of contract
+/// assertions; see ParseContractEvaluationSemanticArgs.
+static void
+GenerateContractEvaluationSemanticArgs(const LangOptions &Opts,
+                                       ArgumentConsumer Consumer,
+                                       bool GenerateDefaultSemantic) {
+  if (GenerateDefaultSemantic) {
+    StringRef Semantic;
+    switch (Opts.ContractOpts.DefaultSemantic) {
+    case ContractEvaluationSemantic::Ignore:
+      Semantic = "ignore";
+      break;
+    case ContractEvaluationSemantic::Enforce:
+      Semantic = "enforce";
+      break;
+    case ContractEvaluationSemantic::Observe:
+      Semantic = "observe";
+      break;
+    case ContractEvaluationSemantic::QuickEnforce:
+      Semantic = "quick_enforce";
+      break;
+    }
+    GenerateArg(Consumer, OPT_fcontract_evaluation_semantic_EQ, Semantic);
+  }
+  for (const std::string &ContractGroup :
+       Opts.ContractOpts.serializeContractGroupArgs())
+    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ,
+                ContractGroup);
+}
+
 void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
                                               ArgumentConsumer Consumer,
                                               const llvm::Triple &T,
@@ -3767,6 +3797,8 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
       IK.getLanguage() == Language::CIR) {
     if (Opts.ObjCAutoRefCount)
       GenerateArg(Consumer, OPT_fobjc_arc);
+    GenerateContractEvaluationSemanticArgs(Opts, Consumer,
+                                           /*GenerateDefaultSemantic=*/true);
     if (Opts.PICLevel != 0)
       GenerateArg(Consumer, OPT_pic_level, Twine(Opts.PICLevel));
     if (Opts.PIE)
@@ -4028,10 +4060,8 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
   if (!Opts.RandstructSeed.empty())
     GenerateArg(Consumer, OPT_frandomize_layout_seed_EQ, Opts.RandstructSeed);
 
-  for (const std::string &ContractGroup :
-       Opts.ContractOpts.serializeContractGroupArgs())
-    GenerateArg(Consumer, OPT_fcontract_group_evaluation_semantic_EQ,
-                ContractGroup);
+  GenerateContractEvaluationSemanticArgs(Opts, Consumer,
+                                         /*GenerateDefaultSemantic=*/false);
 
   if (Opts.AllocTokenMax)
     GenerateArg(Consumer, OPT_falloc_token_max_EQ,
@@ -4050,6 +4080,44 @@ void CompilerInvocationBase::GenerateLangArgs(const LangOptions &Opts,
         LangOptions::MatrixMemoryLayout::MatrixRowMajor)
       GenerateArg(Consumer, OPT_fmatrix_memory_layout_EQ, "row-major");
   }
+}
+
+/// Parse the options which select the evaluation semantics of contract
+/// assertions. The semantics are a property of the translation unit which
+/// evaluates the assertions, so they also apply to the code generated from an
+/// AST file ('-c m.pcm'), for which the other language options are those
+/// recorded in the file.
+static void ParseContractEvaluationSemanticArgs(LangOptions &Opts,
+                                                ArgList &Args,
+                                                DiagnosticsEngine &Diags,
+                                                bool ParseDefaultSemantic) {
+  if (ParseDefaultSemantic) {
+    if (const Arg *A = Args.getLastArg(OPT_fcontract_evaluation_semantic_EQ)) {
+      // Keep in sync with the values of the option in Options.td.
+      std::optional<ContractEvaluationSemantic> Semantic =
+          llvm::StringSwitch<std::optional<ContractEvaluationSemantic>>(
+              A->getValue())
+              .Case("ignore", ContractEvaluationSemantic::Ignore)
+              .Case("enforce", ContractEvaluationSemantic::Enforce)
+              .Case("observe", ContractEvaluationSemantic::Observe)
+              .Case("quick_enforce", ContractEvaluationSemantic::QuickEnforce)
+              .Default(std::nullopt);
+      if (Semantic)
+        Opts.ContractOpts.DefaultSemantic = *Semantic;
+      else
+        Diags.Report(diag::err_drv_invalid_value)
+            << A->getAsString(Args) << A->getValue();
+    }
+  }
+
+  auto EmitContractDiag = [&](ContractGroupDiagnostic CGD, StringRef GroupName,
+                              StringRef InvalidChar = "") {
+    Diags.Report(diag::err_drv_contract_group_name_invalid)
+        << (int)CGD << GroupName << InvalidChar;
+  };
+  std::vector<std::string> ContractGroupValues =
+      Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
+  Opts.ContractOpts.parseContractGroups(ContractGroupValues, EmitContractDiag);
 }
 
 bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
@@ -4076,6 +4144,11 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
         "-fsanitize-ignore-for-ubsan-feature=",
         Args.getAllArgValues(OPT_fsanitize_ignore_for_ubsan_feature_EQ), Diags,
         Opts.UBSanFeatureIgnoredSanitize);
+    // The evaluation semantics of contract assertions are needed during code
+    // generation too; the default semantic is otherwise parsed by the
+    // marshalling below.
+    ParseContractEvaluationSemanticArgs(Opts, Args, Diags,
+                                        /*ParseDefaultSemantic=*/true);
 
     return Diags.getNumErrors() == NumErrorsBefore;
   }
@@ -4747,15 +4820,8 @@ bool CompilerInvocation::ParseLangArgs(LangOptions &Opts, ArgList &Args,
     }
   }
 
-  auto EmitContractDiag = [&](ContractGroupDiagnostic CGD, StringRef GroupName,
-                              StringRef InvalidChar = "") {
-    Diags.Report(diag::err_drv_contract_group_name_invalid)
-        << (int)CGD << GroupName << InvalidChar;
-  };
-
-  std::vector<std::string> ContractGroupValues =
-      Args.getAllArgValues(options::OPT_fcontract_group_evaluation_semantic_EQ);
-  Opts.ContractOpts.parseContractGroups(ContractGroupValues, EmitContractDiag);
+  ParseContractEvaluationSemanticArgs(Opts, Args, Diags,
+                                      /*ParseDefaultSemantic=*/false);
 
   return Diags.getNumErrors() == NumErrorsBefore;
 }
