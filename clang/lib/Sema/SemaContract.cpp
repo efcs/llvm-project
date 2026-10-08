@@ -865,9 +865,14 @@ void Sema::InstantiateFunctionContracts(SourceLocation PointOfInstantiation,
 
   // Enter the context of the owning declaration, and push a function scope so
   // that lambda-expressions within the predicates can capture its parameters.
+  // The predicates are evaluated in the context of the function (not of the
+  // one it is used in, if its contracts are instantiated on odr-use): whether
+  // an immediate invocation within them is immediate-escalating depends on it
+  // ([expr.const]).
   ContextRAII SavedContext(*this, Owner);
-  EnterExpressionEvaluationContext EvalContext(
-      *this, ExpressionEvaluationContext::PotentiallyEvaluated);
+  PushExpressionEvaluationContextForFunction(
+      ExpressionEvaluationContext::PotentiallyEvaluated, Owner);
+  llvm::scope_exit PopEvalContext([&] { PopExpressionEvaluationContext(); });
   LocalInstantiationScope Scope(*this);
   MultiLevelTemplateArgumentList TemplateArgs = getTemplateInstantiationArgs(
       Owner, Owner->getLexicalDeclContext(), /*Final=*/false,
@@ -930,6 +935,16 @@ void Sema::InstantiateFunctionContracts(SourceLocation PointOfInstantiation,
   ContractSpecifierDecl *NewCSD = BuildContractSpecifierDecl(
       NewContracts, Owner, PatternCSD->getLocation(), IsInvalid);
   Owner->setContracts(NewCSD);
+
+  // An immediate-escalating expression within the predicates makes an
+  // immediate-escalating function an immediate function, like one within its
+  // body ([expr.const]). Record it on the function: its definition may not
+  // have been instantiated yet (or ever).
+  if (const sema::FunctionScopeInfo *FSI = getCurFunction();
+      FSI && FSI->FoundImmediateEscalatingExpression) {
+    Owner->setBodyContainsImmediateEscalatingExpressions(true);
+    Function->setBodyContainsImmediateEscalatingExpressions(true);
+  }
 
   if (!Owner->isDependentContext()) {
     // A function which became virtual by overriding a function of a

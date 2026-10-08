@@ -15,12 +15,24 @@ template <class T> constexpr int declared(T x) { return x; }
 template <class T> struct S {
   constexpr int m(T x) pre(ce(x) > 0) { return x; } // #m
 };
+template <class T> struct MT {
+  template <class U> constexpr int m(U u) pre(ce(u) > 0) { return u; } // #mt
+};
+// The call to the lambda, which is an immediate function because of the call
+// to 'ce' in its body, is the immediate-escalating expression.
+template <class T> constexpr int lam(T x) pre([&] { return ce(x) > 0; }()) { return x; } // #lam
+// The contracts of a specialization which is odr-used before its definition
+// can be instantiated are instantiated at the odr-use, which makes the
+// specialization an immediate function right there.
+template <class T> constexpr int fwd(T x) pre(ce(x) > 0); // #fwd
 
 static_assert(in_pre(1) == 1);
 static_assert(in_post(1) == 1);
 static_assert(in_assert(1) == 1);
 static_assert(declared(1) == 1);
 static_assert(S<int>().m(1) == 1);
+static_assert(MT<int>().m(1) == 1);
+static_assert(lam(1) == 1);
 
 int runtime(int v) { // #runtime
   int a = in_pre(v); // expected-error {{call to immediate function 'in_pre<int>' is not a constant expression}} \
@@ -47,8 +59,22 @@ int runtime(int v) { // #runtime
                                                       // expected-note {{'operator()' is an immediate function because its body contains a call to a consteval function 'ce' and that call is not a constant expression}} \
                                                       // expected-note {{function parameter 'v' with unknown value cannot be used in a constant expression}} \
                                                       // expected-note@#runtime {{declared here}}
-  return a + b + c + d + e + f;
+  int g = MT<int>().m(v); // expected-error {{call to immediate function 'MT<int>::m<int>' is not a constant expression}} \
+                          // expected-note@#mt {{'m<int>' is an immediate function because its body contains a call to a consteval function 'ce' and that call is not a constant expression}} \
+                          // expected-note {{function parameter 'v' with unknown value cannot be used in a constant expression}} \
+                          // expected-note@#runtime {{declared here}}
+  int h = lam(v); // expected-error {{call to immediate function 'lam<int>' is not a constant expression}} \
+                  // expected-note@#lam {{'lam<int>' is an immediate function because its body evaluates the address of an immediate function 'operator()'}} \
+                  // expected-note {{function parameter 'v' with unknown value cannot be used in a constant expression}} \
+                  // expected-note@#runtime {{declared here}}
+  int i = fwd(v); // expected-error {{call to immediate function 'fwd<int>' is not a constant expression}} \
+                  // expected-note@#fwd {{'fwd<int>' is an immediate function because its body contains a call to a consteval function 'ce' and that call is not a constant expression}} \
+                  // expected-note {{function parameter 'v' with unknown value cannot be used in a constant expression}} \
+                  // expected-note@#runtime {{declared here}}
+  return a + b + c + d + e + f + g + h + i;
 }
+template <class T> constexpr int fwd(T x) { return x; }
+static_assert(fwd(2) == 2);
 
 int (*fp)(int) = in_pre<int>; // expected-error {{cannot take address of immediate function 'in_pre<int>' outside of an immediate invocation}} \
                               // expected-note@#in_pre {{declared here}} \

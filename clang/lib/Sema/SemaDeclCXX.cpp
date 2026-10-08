@@ -2659,9 +2659,18 @@ bool Sema::CheckImmediateEscalatingFunctionDefinition(
     FunctionDecl *FD, const sema::FunctionScopeInfo *FSI) {
   if (!getLangOpts().CPlusPlus20 || !FD->isImmediateEscalating())
     return true;
+  // The function contract assertions of a template specialization may have
+  // been instantiated before its definition, in a function scope of their
+  // own, and have recorded an immediate-escalating expression on the function
+  // already (see Sema::InstantiateFunctionContracts). The function has been
+  // an immediate function since then, so its uses before the definition were
+  // checked as immediate invocations.
+  bool WasImmediate =
+      FD->BodyContainsImmediateEscalatingExpressions() ||
+      FD->getCanonicalDecl()->BodyContainsImmediateEscalatingExpressions();
   FD->setBodyContainsImmediateEscalatingExpressions(
-      FSI->FoundImmediateEscalatingExpression);
-  if (FSI->FoundImmediateEscalatingExpression) {
+      FSI->FoundImmediateEscalatingExpression || WasImmediate);
+  if (FSI->FoundImmediateEscalatingExpression && !WasImmediate) {
     auto it = UndefinedButUsed.find(FD->getCanonicalDecl());
     if (it != UndefinedButUsed.end()) {
       Diag(it->second, diag::err_immediate_function_used_before_definition)
@@ -2678,7 +2687,10 @@ bool Sema::CheckImmediateEscalatingFunctionDefinition(
 void Sema::DiagnoseImmediateEscalatingReason(FunctionDecl *FD) {
   assert(FD->isImmediateEscalating() && !FD->isConsteval() &&
          "expected an immediate function");
-  assert(FD->hasBody() && "expected the function to have a body");
+  // The immediate-escalating expression may be within the function contract
+  // assertions of a function which has yet to be defined.
+  assert((FD->hasBody() || FD->getContractsInEffect()) &&
+         "expected the function to have a body");
   struct ImmediateEscalatingExpressionsVisitor : DynamicRecursiveASTVisitor {
     Sema &SemaRef;
 
@@ -2762,7 +2774,12 @@ void Sema::DiagnoseImmediateEscalatingReason(FunctionDecl *FD) {
     bool VisitBlockExpr(BlockExpr *T) override { return true; }
 
   } Visitor(*this, FD);
-  Visitor.TraverseDecl(FD);
+  // The function contract specifiers of the function belong to its first
+  // declaration ([dcl.contract.func]); they are not visited with another
+  // declaration of the function.
+  if (Visitor.TraverseDecl(FD) && !FD->getContracts())
+    if (ContractSpecifierDecl *CSD = FD->getContractsInEffect())
+      Visitor.TraverseDecl(CSD);
 }
 
 CXXRecordDecl *Sema::getCurrentClass(Scope *, const CXXScopeSpec *SS) {
