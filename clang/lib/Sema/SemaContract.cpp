@@ -866,6 +866,27 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
   return BuildContractSpecifierDecl(Contracts, CurContext, Loc, IsInvalid);
 }
 
+/// Diagnose function contract specifiers on a naked function: it has no
+/// prologue or epilogue in which its contract assertions could be evaluated.
+static void diagnoseContractsOnNakedFunction(Sema &S, FunctionDecl *FD,
+                                             const FunctionDecl *First) {
+  // Diagnose on the declaration which introduces the attribute (the contracts
+  // may be on an earlier declaration), once.
+  const auto *NA = FD->getAttr<NakedAttr>();
+  if (!NA || NA->isInherited())
+    return;
+  ContractSpecifierDecl *CSD =
+      FD->hasContracts() ? FD->getContracts() : First->getContracts();
+  if (!CSD || CSD->contracts().empty())
+    return;
+  S.Diag(CSD->contracts().front()->getBeginLoc(),
+         diag::err_contract_on_function_kind)
+      << /*naked function*/ 3 << FD;
+  S.Diag(NA->getLocation(), diag::note_attribute);
+  if (FD->hasContracts())
+    CSD->setInvalidDecl(true);
+}
+
 void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
                                               bool IsDefinition) {
 
@@ -890,7 +911,7 @@ void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
     return;
   }
 
-
+  diagnoseContractsOnNakedFunction(*this, FD, First);
 
   // If the definition has omitted the contracts, but the first declaration has
   // them, we need to rebuild the contracts to refer to the parameters of the

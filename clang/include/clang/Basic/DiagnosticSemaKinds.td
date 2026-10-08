@@ -13145,7 +13145,7 @@ def select_contract_kind : TextSubstitution<
 let CategoryName = "Contract Issue" in {
 def err_contract_on_function_kind : Error<
   "%select{virtual function|deleted function|function defaulted on its first "
-  "declaration}0 %1 cannot have function contract specifiers">;
+  "declaration|naked function}0 %1 cannot have function contract specifiers">;
 def err_contract_postcondition_redecl_param_not_const : Error<
   "parameter %0 of type %1 must be declared const because it is referenced "
   "in a postcondition of the function">;
