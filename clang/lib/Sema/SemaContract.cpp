@@ -248,10 +248,9 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
     New->setInvalidDecl();
 
   // [basic.scope.contract]p2: The result-name-introducer shall not
-  // potentially conflict with a declaration in the function parameter scope
-  // of the function.
-  // FIXME: This should also apply to the lambda scope of the lambda-expression
-  // the postcondition is associated with, if any (its init-captures).
+  // potentially conflict with a declaration whose target scope is the
+  // function parameter scope of the function or, for a lambda-expression,
+  // its lambda scope (that is, its init-captures).
   if (S) {
     LookupResult R(*this, II, IDLoc, LookupOrdinaryName,
                    RedeclarationKind::ForVisibleRedeclaration);
@@ -259,12 +258,25 @@ ResultNameDecl *Sema::ActOnResultNameDeclarator(
     if (!R.empty()) {
       NamedDecl *PrevDecl = *R.begin();
       if (R.isSingleResult() && PrevDecl->isTemplateParameter()) {
-        // Just pretend that we didn't see the previous declaration.
+        // [temp.local]p6: The name of a template-parameter shall not be bound
+        // to any following declaration whose locus is contained by the scope
+        // to which the template-parameter belongs.
+        DiagnoseTemplateParameterShadow(IDLoc, PrevDecl);
+        New->setInvalidDecl(true);
         PrevDecl = nullptr;
       }
-      if (auto *PVD = dyn_cast_if_present<ParmVarDecl>(PrevDecl)) {
-        Diag(IDLoc, diag::err_result_name_shadows_param) << II;
-        Diag(PVD->getLocation(), diag::note_previous_declaration);
+      auto *VD = dyn_cast_if_present<VarDecl>(PrevDecl);
+      LambdaScopeInfo *LSI =
+          VD && VD->isInitCapture() ? getCurLambda() : nullptr;
+      if (VD && isa<ParmVarDecl>(VD) &&
+          VD->getDeclContext()->Equals(CurContext)) {
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II << 0;
+        Diag(VD->getLocation(), diag::note_previous_declaration);
+        New->setInvalidDecl(true);
+      } else if (LSI && LSI->isCaptured(VD) &&
+                 LSI->getCapture(VD).isInitCapture()) {
+        Diag(IDLoc, diag::err_result_name_shadows_param) << II << 1;
+        Diag(VD->getLocation(), diag::note_previous_declaration);
         New->setInvalidDecl(true);
       } else if (PrevDecl && isa<VarDecl, FieldDecl, BindingDecl>(PrevDecl) &&
                  !Diags.isIgnored(diag::warn_decl_shadow, IDLoc)) {

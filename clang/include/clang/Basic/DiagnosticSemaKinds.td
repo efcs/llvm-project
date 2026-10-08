@@ -13157,7 +13157,8 @@ def note_coroutine_postcondition_function : Note<
   "function %0 is a coroutine">;
 
 def err_result_name_shadows_param : Error<
-  "declaration of result name %0 shadows parameter">;
+  "declaration of result name %0 %select{shadows parameter|"
+  "conflicts with init-capture}1">;
 def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
 def err_result_name_not_allowed : Error<

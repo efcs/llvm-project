@@ -479,7 +479,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/postcondition-redecl-no-diagnostics.cpp` | A | imported verbatim; passes |
 | `Contracts/pure-virtual-dependent-predicate-codegen.cpp` | B | skipped: P3097 virtual-function contracts (all cases virtual) |
 | `Contracts/result-name-misplaced.cpp` | A | imported; expectations re-worded to our diagnostics ('result name cannot be used with a void return type'; `contract_assert(r: ...)` is a plain parse error here); passes |
-| `Contracts/result-name-shadows-template-param.cpp` | A | imported, fails here -> OpenBugs/result-name-shadows-template-param.cpp (XFAIL): assertion crash in ActOnResultNameDeclarator |
+| `Contracts/result-name-shadows-template-param.cpp` | A | imported; was OpenBugs (result name redeclaring a template parameter accepted) -- fixed in round three, now Contracts/result-name-shadows-template-param.cpp; passes |
 | `Contracts/scope-rules.cpp` | A | imported verbatim; passes |
 | `Contracts/Sema/basic.contract.eval.cpp` | C | ours kept (ours is the newer/stricter version; his differs only in RUN flags/wording) |
 | `Contracts/Sema/contract-predicate-constify-in-lambda.cpp` | A | imported (captured-*this member case was an OpenBug on the round-one base, fixed in round two); by-ref-capture wording updated to round-two diagnostics; passes |
