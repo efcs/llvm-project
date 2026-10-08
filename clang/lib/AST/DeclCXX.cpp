@@ -25,6 +25,7 @@
 #include "clang/AST/LambdaCapture.h"
 #include "clang/AST/NestedNameSpecifier.h"
 #include "clang/AST/ODRHash.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/Type.h"
 #include "clang/AST/TypeLoc.h"
 #include "clang/AST/UnresolvedSet.h"
@@ -4120,6 +4121,41 @@ void ContractSpecifierDecl::setOwningFunction(DeclContext *FD) {
   setDeclContext(FD);
   for (auto *RND : result_names())
     RND->setDeclContext(FD);
+}
+
+void ContractSpecifierDecl::getLocalDecls(
+    SmallVectorImpl<const Decl *> &Decls) const {
+  const DeclContext *DC = getDeclContext();
+  auto Collect = [&](const Decl *D) {
+    if (D && D->getLexicalDeclContext() == DC)
+      Decls.push_back(D);
+  };
+  // The entities declared within a lambda-expression, a block, a
+  // requires-expression or a local class belong to that construct.
+  auto Visit = [&](const Stmt *S, auto &Self) -> void {
+    if (!S)
+      return;
+    if (const auto *LE = dyn_cast<LambdaExpr>(S)) {
+      Collect(LE->getLambdaClass());
+      for (const Expr *Init : LE->capture_inits())
+        Self(Init, Self);
+      return;
+    }
+    if (isa<BlockExpr, RequiresExpr>(S))
+      return;
+    if (const auto *DS = dyn_cast<DeclStmt>(S)) {
+      for (const Decl *D : DS->decls()) {
+        Collect(D);
+        if (const auto *VD = dyn_cast<VarDecl>(D))
+          Self(VD->getInit(), Self);
+      }
+      return;
+    }
+    for (const Stmt *Child : S->children())
+      Self(Child, Self);
+  };
+  for (const ContractStmt *CS : contracts())
+    Visit(CS->getCond(), Visit);
 }
 
 ContractSpecifierDecl::Difference

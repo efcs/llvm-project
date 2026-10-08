@@ -9568,6 +9568,11 @@ public:
   std::tuple<MangleNumberingContext *, Decl *>
   getCurrentMangleNumberContext(const DeclContext *DC);
 
+  /// Whether the predicate of a function contract specifier of the function
+  /// \p DC is being parsed, and that function-contract-specifier-seq repeats
+  /// the one of a previous declaration of the function.
+  bool isInRepeatedFunctionContracts(const DeclContext *DC) const;
+
   ///@}
 
   //

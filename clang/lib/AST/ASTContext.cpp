@@ -13848,9 +13848,29 @@ void ASTContext::setClassMaybeNeedsVectorDeletingDestructor(
 MangleNumberingContext &
 ASTContext::getManglingNumberContext(const DeclContext *DC) {
   assert(LangOpts.CPlusPlus);  // We don't need mangling numbers for plain C.
+  // The declarations of a function share one context: the closure types
+  // within the function contract specifiers of its first declaration precede
+  // those within its definition.
+  const FunctionDecl *FD = dyn_cast<FunctionDecl>(DC);
+  if (FD)
+    DC = FD = FD->getCanonicalDecl();
   std::unique_ptr<MangleNumberingContext> &MCtx = MangleNumberingContexts[DC];
-  if (!MCtx)
+  if (!MCtx) {
     MCtx = createMangleNumberingContext();
+    // The closure types within the function contract specifiers of the
+    // function may have been numbered in another translation unit (the one
+    // of a module or precompiled header that declares the function).
+    if (FD && LangOpts.Contracts)
+      if (const ContractSpecifierDecl *CSD = FD->getContractsInEffect()) {
+        SmallVector<const Decl *, 4> Decls;
+        CSD->getLocalDecls(Decls);
+        for (const Decl *D : Decls)
+          if (const auto *RD = dyn_cast<CXXRecordDecl>(D);
+              RD && RD->isLambda() && RD->getLambdaManglingNumber())
+            MCtx->reserveManglingNumber(RD->getLambdaCallOperator(),
+                                        RD->getLambdaManglingNumber());
+      }
+  }
   return *MCtx;
 }
 

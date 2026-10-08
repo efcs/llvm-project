@@ -4747,6 +4747,13 @@ public:
   /// Update the declaration context of this contract sequence and of any result name declarations contained within it.
   void setOwningFunction(DeclContext *FD);
 
+  /// Collect the declarations that the predicates of this sequence declare
+  /// directly within the declaration context of the sequence (the closure
+  /// types of lambda-expressions, in particular), in order of appearance.
+  /// Declarations nested within those (such as the members of a closure type)
+  /// are not collected.
+  void getLocalDecls(SmallVectorImpl<const Decl *> &Decls) const;
+
   /// The kind of the first difference between two
   /// function-contract-specifier-seqs.
   enum class DifferenceKind {

@@ -258,6 +258,18 @@ Sema::createLambdaClosureType(SourceRange IntroducerRange, TypeSourceInfo *Info,
   return Class;
 }
 
+/// Whether the predicate of a function contract specifier of the function
+/// \p DC is being parsed, and that function-contract-specifier-seq is a
+/// repetition of the one of a previous declaration.
+bool Sema::isInRepeatedFunctionContracts(const DeclContext *DC) const {
+  const auto *FD = dyn_cast<FunctionDecl>(DC);
+  if (!FD || !getLangOpts().Contracts || FD->hasContracts())
+    return false;
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  return CSR && CSR->Kind != ContractKind::Assert && CSR->Context == DC &&
+         FD->getContractsInEffect();
+}
+
 std::tuple<MangleNumberingContext *, Decl *>
 Sema::getCurrentMangleNumberContext(const DeclContext *DC) {
   // Compute the context for allocating mangling numbers in the current
@@ -363,6 +375,13 @@ Sema::getCurrentMangleNumberContext(const DeclContext *DC) {
         IsInFunctionThatRequiresMangling(CurContext)) {
       while (auto *CD = dyn_cast<CapturedDecl>(DC))
         DC = CD->getParent();
+      // The closure types within a function-contract-specifier-seq that a
+      // redeclaration repeats are never emitted ([dcl.contract.func]p3: the
+      // contracts of the function are those of its first declaration), so
+      // they need no mangling, and must not take up the numbers of the
+      // closure types within the function (its contracts and its body).
+      if (isInRepeatedFunctionContracts(DC))
+        return std::make_tuple(nullptr, nullptr);
       return std::make_tuple(&Context.getManglingNumberContext(DC), nullptr);
     }
 
