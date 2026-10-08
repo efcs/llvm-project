@@ -5594,7 +5594,6 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
   LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(getFunctionScopes().back());
 
   for (auto *decl : PatternDecl->decls()) {
-    assert(!isa<ResultNameDecl>(decl));
     if (!isa<VarDecl>(decl) || isa<ParmVarDecl>(decl))
       continue;
 
@@ -5615,6 +5614,17 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
                     /*isNested=*/false, VD->getLocation(), SourceLocation(),
                     VD->getType(), /*Invalid=*/false);
   }
+
+  // The result bindings of the postconditions of the function are local
+  // entities of the function too ([dcl.contract.res]), which a
+  // lambda-expression within a postcondition can refer to or capture. They
+  // are mapped to those of the instantiated contracts, if any.
+  const ContractSpecifierDecl *PatternCSD = PatternDecl->getContracts();
+  const ContractSpecifierDecl *CSD = Function->getContracts();
+  if (PatternCSD && CSD && PatternCSD != CSD)
+    for (auto [PatternRND, RND] :
+         llvm::zip(PatternCSD->result_names(), CSD->result_names()))
+      Scope.InstantiatedLocal(PatternRND, RND);
 }
 
 bool Sema::addInstantiatedParametersToScope(
@@ -7311,6 +7321,13 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
   //  - otherwise find its instantiated decl.
   if (isa<ParmVarDecl>(D) && !ParentDependsOnArgs &&
       !cast<ParmVarDecl>(D)->getType()->isInstantiationDependentType())
+    return D;
+  // Likewise, a result binding ([dcl.contract.res]) of a function whose
+  // context is not dependent is referred to by a lambda-expression within a
+  // postcondition of the function whose generic call operator is being
+  // instantiated; it is not instantiated itself.
+  if (isa<ResultNameDecl>(D) && !ParentDependsOnArgs &&
+      !cast<ResultNameDecl>(D)->getType()->isInstantiationDependentType())
     return D;
   if (isa<ParmVarDecl>(D) || isa<NonTypeTemplateParmDecl>(D) ||
       isa<ResultNameDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
