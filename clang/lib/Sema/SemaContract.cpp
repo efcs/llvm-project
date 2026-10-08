@@ -1154,6 +1154,41 @@ bool Sema::isContractConstified(const ValueDecl *VD) const {
   return true;
 }
 
+bool Sema::DiagnoseImplicitMemberAccessInContract(
+    const DeclarationNameInfo &NameInfo) {
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  if (!CSR)
+    return false;
+
+  // [expr.prim.id.general]p2, [over.call.func]p3:
+  //   If this transformation [into a class member access expression using
+  //   (*this) as the object expression] occurs in the predicate of a
+  //   precondition assertion of a constructor of X or a postcondition
+  //   assertion of a destructor of X, the expression is ill-formed.
+  bool IsCtorPre = CSR->Kind == ContractKind::Pre &&
+                   isa<CXXConstructorDecl>(CSR->Context);
+  bool IsDtorPost = CSR->Kind == ContractKind::Post &&
+                    isa<CXXDestructorDecl>(CSR->Context);
+  if (!IsCtorPre && !IsDtorPost)
+    return false;
+
+  // The standard's example allows an unevaluated operand (sizeof(b)), in
+  // which the object is not accessed.
+  if (isUnevaluatedContext())
+    return false;
+
+  // Within a class (other than a closure type) nested within the predicate,
+  // 'this' does not refer to the object under construction or destruction.
+  for (const DeclContext *DC = CurContext; DC && !CSR->Context->Equals(DC);
+       DC = DC->getParent())
+    if (const auto *RD = dyn_cast<CXXRecordDecl>(DC); RD && !RD->isLambda())
+      return false;
+
+  Diag(NameInfo.getLoc(), diag::err_contract_implicit_member_access_structor)
+      << NameInfo.getName() << IsDtorPost;
+  return true;
+}
+
 bool Sema::isCXXThisContractConstified(
     const CXXRecordDecl *CopyCapturingClosure) const {
   const ContractScopeRecord *CSR = getEnclosingContractAssertion();

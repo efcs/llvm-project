@@ -44,12 +44,18 @@ the result name conflict with the init-capture).
   result-name-init-capture.cpp.
 
 ### 1.4 Members named in a constructor precondition / destructor postcondition
-`S() pre(k)` and `~S() post(f())` are accepted. [expr.prim.id.general]/2 and the
+`S() pre(k)` and `~S() post(f())` were accepted. [expr.prim.id.general]/2 and the
 standard's own example (`C() pre(b) // error`) make them ill-formed. Chuanqi Xu's
 implementation rejects *any* use of `this` there, which is over-strict
 (`this != nullptr`, `sizeof(this->m)` are fine).
-- Proposal: diagnose implicit/explicit member access of the object under
-  construction/destruction only. (OpenBugs/over.call.func.p3.1.cpp)
+- Resolved (round three): the implicit transformation of an id-expression
+  naming a non-static member into `(*this).m` (including a qualified `S::m`,
+  an unqualified member call, and inside a lambda within the predicate) is an
+  error in a constructor precondition / destructor postcondition; explicit
+  `this->m`, `(*this).m`, `&this->m`, unevaluated operands and static members
+  are fine, as are members of a local class nested within the predicate. The
+  expression is still built, to avoid follow-on errors. Test:
+  over.call.func.p3.1.cpp.
 
 ### 1.5 Destructor postconditions that name members
 `constexpr ~M() post(m == 0) { m = 0; }` used in constant evaluation: the AST

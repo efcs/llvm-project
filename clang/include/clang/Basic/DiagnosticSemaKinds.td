@@ -13163,6 +13163,10 @@ def err_void_result_name : Error<
   "result name %0 cannot be used with a void return type">;
 def err_result_name_not_allowed : Error<
   "result name %0 not allowed outside of post condition specifier">;
+def err_contract_implicit_member_access_structor : Error<
+  "implicit access to non-static member %0 of the object under "
+  "%select{construction is not allowed in the precondition of a constructor|"
+  "destruction is not allowed in the postcondition of a destructor}1">;
 
 // Diagnose clang::contract_group attribute strings
 def err_contract_group_attribute_invalid_group : Error<

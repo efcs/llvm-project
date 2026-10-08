@@ -143,7 +143,7 @@ a 'Based on tests from Joshua Berne's contracts-p3850 branch.' line.
 | `Contracts/OpenBugs/retval-throwing-cleanup.cpp` | D | kept in OpenBugs with XFAIL (core-language codegen bug, no contracts; %libcxx_flags dropped) |
 | `Contracts/OpenBugs/this-in-xobj-noexcept-specifier.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
 | `Contracts/OpenBugs/this-in-xobj-trailing-return-type.cpp` | D | kept in OpenBugs with XFAIL (core-language P0847 bug, no contracts) |
-| `Contracts/over.call.func.p3.1.cpp` | A | imported, fails here -> OpenBugs/over.call.func.p3.1.cpp (XFAIL): member access in ctor-pre / dtor-post accepted |
+| `Contracts/over.call.func.p3.1.cpp` | A | imported; was OpenBugs (member access in ctor-pre / dtor-post accepted) -- fixed in round three, now Contracts/over.call.func.p3.1.cpp with our wording and more cases; passes |
 | `Contracts/p2900-constexpr-potential-postcondition.cpp` | A | imported, fails here -> OpenBugs/p2900-constexpr-potential-postcondition.cpp (XFAIL): -Winvalid-constexpr skips postconditions (quality, not conformance) |
 | `Contracts/p3097-basic-sema.cpp` | B | skipped: P3097 virtual-function contracts |
 | `Contracts/p3097-config-semantic.cpp` | B | skipped: P3097 virtual-function contracts |
