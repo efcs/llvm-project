@@ -620,19 +620,6 @@ void CodeGenFunction::EmitContractViolation(const ContractStmt &S,
 /// if given) which is evaluated with a checking semantic.
 static bool hasCheckedContracts(const FunctionDecl *FD,
                                 std::optional<ContractKind> Kind) {
-  // Function contract specifiers may be omitted on redeclarations.
-  if (!FD->hasContracts()) {
-    const FunctionDecl *WithContracts = nullptr;
-    for (const FunctionDecl *Redecl : FD->redecls()) {
-      if (Redecl->hasContracts()) {
-        WithContracts = Redecl;
-        break;
-      }
-    }
-    if (!WithContracts)
-      return false;
-    FD = WithContracts;
-  }
   const ASTContext &Ctx = FD->getASTContext();
   for (const ContractStmt *S : FD->contracts())
     if ((!Kind || S->getContractKind() == *Kind) &&
@@ -715,6 +702,23 @@ bool CodeGenFunction::shouldEmitFunctionContracts(GlobalDecl GD) {
   }
 
   return true;
+}
+
+void CodeGenFunction::MapContractParameters(const FunctionDecl *FD) {
+  // The predicates of the function contract assertions refer to the
+  // parameters (and result name) of the declaration that introduces the
+  // contracts, which need not be the definition being emitted. Make them
+  // denote the parameters of the definition; the result name reads the
+  // return slot (see EmitDeclRefLValue).
+  const ContractSpecifierDecl *CSD = FD->getContractsInEffect();
+  const auto *Owner = dyn_cast<FunctionDecl>(CSD->getDeclContext());
+  if (!Owner || Owner == FD || Owner->getNumParams() != FD->getNumParams())
+    return;
+  for (unsigned I = 0, N = FD->getNumParams(); I != N; ++I) {
+    auto It = LocalDeclMap.find(FD->getParamDecl(I));
+    if (It != LocalDeclMap.end())
+      setAddrOfLocalVar(Owner->getParamDecl(I), It->second);
+  }
 }
 
 void CodeGenFunction::EmitPreconditions(const FunctionDecl *FD) {

@@ -1,15 +1,10 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -fsyntax-only -verify %s
-// XFAIL: *
 //
-// OPEN BUG (sema-templates): [dcl.contract.func]/7 requires the odr-used
-// parameter to be const on "all declarations of f".  When the offending
-// declaration's parameter type is dependent the check only looks at the merged
-// (surviving) parameter list, so a `T a` declaration carrying the postcondition
-// is not diagnosed once a `T const a` definition follows it.
-//   Expected (P2900R14 [dcl.contract.func]/7): errors in namespaces Reported
-//     and ThreeDeclarations.
-//   Actual: no diagnostic (NonDependent, BothConst, ConstTemplateArgument,
-//     Reference, NotOdrUsed behave correctly).
+// [dcl.contract.func]/7 requires the odr-used parameter to be const on "all
+// declarations of f". When the offending declaration's parameter type is
+// dependent, the parameter types of all declarations of the pattern are
+// checked after substitution, when the contracts of the specialization are
+// instantiated.
 
 // [dcl.contract.func]: a parameter a postcondition odr-uses must have const
 // type on that declaration "and the corresponding parameter on all

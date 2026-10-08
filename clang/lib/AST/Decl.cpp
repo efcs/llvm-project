@@ -3881,22 +3881,70 @@ void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
 
 ContractSpecifierDecl *
 FunctionDecl::getContractsInEffect(bool InSameModuleOnly) const {
-  auto GetModule = [](const FunctionDecl *FD) -> const Module * {
-    const Module *M = FD->getImportedOwningModule();
-    return M ? M->getTopLevelModule() : nullptr;
-  };
-  const Module *M = InSameModuleOnly ? GetModule(this) : nullptr;
-  for (const FunctionDecl *FD = this; FD; FD = FD->getPreviousDecl()) {
-    if (InSameModuleOnly && FD != this && GetModule(FD) != M)
-      continue;
-    if (ContractSpecifierDecl *Contracts = FD->getContracts())
-      return Contracts;
+  if (InSameModuleOnly) {
+    auto GetModule = [](const FunctionDecl *FD) -> const Module * {
+      const Module *M = FD->getImportedOwningModule();
+      return M ? M->getTopLevelModule() : nullptr;
+    };
+    const Module *M = GetModule(this);
+    for (const FunctionDecl *FD = this; FD; FD = FD->getPreviousDecl()) {
+      if (FD != this && GetModule(FD) != M)
+        continue;
+      if (ContractSpecifierDecl *Contracts = FD->getContracts())
+        return Contracts;
+    }
+    return nullptr;
+  }
+
+  // [dcl.contract.func]p3: the function contract assertions of a function are
+  // introduced by its first declaration.
+  const FunctionDecl *First = getFirstDecl();
+  if (ContractSpecifierDecl *Contracts = First->getContracts())
+    return Contracts;
+
+  // [temp.expl.spec]p12: the function contract specifiers of a template have
+  // no effect on an explicit specialization, which has its own. The first
+  // declaration of the specialization may be one that was implicitly
+  // instantiated (e.g. by template argument deduction) before the explicit
+  // specialization was declared; the contracts are introduced by the first
+  // declaration that has them.
+  if (First->getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
+    for (const FunctionDecl *FD : First->redecls())
+      if (ContractSpecifierDecl *Contracts = FD->getContracts())
+        return Contracts;
+  return nullptr;
+}
+
+const FunctionDecl *FunctionDecl::getContractInstantiationPattern() const {
+  // Explicit specializations have their own function contract specifiers.
+  if (getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
+    return nullptr;
+
+  const FunctionDecl *Pattern = nullptr;
+  if (isTemplateInstantiation())
+    Pattern = getTemplateInstantiationPattern(/*ForDefinition=*/false);
+  else if (getTemplatedKind() == TK_NonTemplate)
+    // A function declared locally in a function template.
+    Pattern = getInstantiatedFromDecl();
+
+  // The declarations of a member of a class template specialization, or of a
+  // member template of one, don't carry the contracts of their pattern; keep
+  // looking through the member instantiation chain.
+  while (Pattern) {
+    if (ContractSpecifierDecl *Contracts = Pattern->getContractsInEffect())
+      return cast<FunctionDecl>(Contracts->getDeclContext());
+    const FunctionDecl *Next = Pattern->getInstantiatedFromMemberFunction();
+    if (!Next)
+      if (FunctionTemplateDecl *FTD = Pattern->getDescribedFunctionTemplate())
+        if (FunctionTemplateDecl *From = FTD->getInstantiatedFromMemberTemplate())
+          Next = From->getTemplatedDecl();
+    Pattern = Next;
   }
   return nullptr;
 }
 
 ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
-  if (auto *CSD = getContracts())
+  if (auto *CSD = getContractsInEffect())
     return CSD->contracts();
   return {};
 }

@@ -109,8 +109,8 @@ int macro_body(int x) PRE_POSITIVE(x);
 int macro_body2(const int x) PRE_POST(x);
 void macro_body3(int x) { MY_ASSERT_NOT_ZERO(x); }
 
-// The text is preserved by template instantiation, and when the contracts of
-// the first declaration are attached to a definition which omits them.
+// The text is preserved by template instantiation. A definition which omits
+// the contracts refers to those of the first declaration.
 // DUMP-LABEL: FunctionTemplateDecl {{.*}} templ
 // DUMP: ContractStmt {{.*}} pre enforce "x > T{}"
 // DUMP: ContractStmt {{.*}} post enforce "r : r == x"
@@ -125,9 +125,14 @@ template <class T> T templ(const T x) pre(x > T{}) post(r : r == x) {
 }
 int use_templ = templ(2);
 
-// DUMP-LABEL: CXXMethodDecl {{.*}} prev {{.*}} redecl 'int (int)'
-// DUMP: ContractStmt {{.*}} pre enforce "x > m"
+// DUMP-LABEL: CXXMethodDecl {{.*}} redecl 'int (int)'
+// DUMP-NEXT: ParmVarDecl
+// DUMP-NEXT: ContractSpecifierDecl [[CSD:0x[0-9a-f]+]]
+// DUMP-NEXT: ContractStmt {{.*}} pre enforce "x > m"
 // DUMP: ContractStmt {{.*}} post enforce "r : r > m"
+// DUMP: CXXMethodDecl {{.*}} prev {{.*}} redecl 'int (int)' contracts [[CSD]]
+// DUMP-NEXT: ParmVarDecl
+// DUMP-NEXT: CompoundStmt
 struct S {
   int m;
   int redecl(int x) pre(x > m) post(r : r > m);

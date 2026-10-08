@@ -41,8 +41,7 @@ struct HasIt { bool nonexistent () const { return true; } };
 // from mark_used, on the odr-use itself; a compiler that instantiates contracts
 // only when it instantiates a definition accepts this program silently.
 // --------------------------------------------------------------------------
-// (Moved to OpenBugs/contracts-needed-on-odr-use.cpp: this Clang does not
-// instantiate the contracts of a declared-only template on odr-use.)
+// (The cell is in contracts-needed-on-odr-use.cpp.)
 
 // --------------------------------------------------------------------------
 // The one that matters most.  If an ill-formed contract predicate

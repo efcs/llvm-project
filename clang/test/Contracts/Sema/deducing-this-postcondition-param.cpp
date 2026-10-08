@@ -7,9 +7,8 @@
 // odr-uses a non-reference parameter of f, that parameter ... shall have
 // const type" governs it exactly as it governs any other by-value parameter.
 //
-// These are the NON-DEPENDENT shapes, which Clang gets right.  The dependent
-// ones are in deducing-this-postcondition-param-dependent.cpp, which is
-// XFAILed.
+// These are the NON-DEPENDENT shapes.  The dependent ones are in
+// deducing-this-postcondition-param-dependent.cpp.
 //
 // GCC mirror: g++.dg/contracts/cpp26/deducing-this-postcondition-param.C
 

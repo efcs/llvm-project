@@ -3603,10 +3603,11 @@ NamedDecl *ASTDeclReader::getAnonymousDeclForMerging(ASTReader &Reader,
   };
   if (PrimaryDC && needToNumberAnonymousDeclsWithin(cast<Decl>(PrimaryDC))) {
     numberAnonymousDeclsWithin(PrimaryDC, [&](NamedDecl *ND, unsigned Number) {
-      if (Previous.size() == Number)
-        Previous.push_back(cast<NamedDecl>(ND->getCanonicalDecl()));
-      else
-        Previous[Number] = cast<NamedDecl>(ND->getCanonicalDecl());
+      // The numbers of the declarations within a function need not start at
+      // zero (see getFirstAnonymousDeclarationNumber).
+      if (Previous.size() <= Number)
+        Previous.resize(Number + 1);
+      Previous[Number] = cast<NamedDecl>(ND->getCanonicalDecl());
     });
   }
 

@@ -71,11 +71,19 @@ bool isRedeclarableDeclKind(unsigned Kind);
 /// declaration number.
 bool needsAnonymousDeclarationNumber(const NamedDecl *D);
 
+/// For a declaration of a function, determine the number of the first
+/// anonymous declaration within it: the anonymous declarations within the
+/// function contract specifiers of the function, which belong to its first
+/// declaration, precede those within any other declaration of the function.
+unsigned getFirstAnonymousDeclarationNumber(const FunctionDecl *FD);
+
 /// Visit each declaration within \c DC that needs an anonymous
 /// declaration number and call \p Visit with the declaration and its number.
 template<typename Fn> void numberAnonymousDeclsWithin(const DeclContext *DC,
                                                       Fn Visit) {
   unsigned Index = 0;
+  if (const auto *FD = dyn_cast<FunctionDecl>(DC))
+    Index = getFirstAnonymousDeclarationNumber(FD);
   for (Decl *LexicalD : DC->decls()) {
     // For a friend decl, we care about the declaration within it, if any.
     if (auto *FD = dyn_cast<FriendDecl>(LexicalD))

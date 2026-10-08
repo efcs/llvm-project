@@ -2732,6 +2732,12 @@ public:
   /// function which runs the user-written body (and hence the contracts).
   bool shouldEmitFunctionContracts(GlobalDecl GD);
 
+  /// Make the parameters of the declaration which introduces the function
+  /// contract assertions of \p FD, which the predicates refer to, denote the
+  /// parameters of \p FD (the definition being emitted). Must be called after
+  /// the function prologue and before any contract assertion is emitted.
+  void MapContractParameters(const FunctionDecl *FD);
+
   /// Emit the precondition assertions of \p FD.
   void EmitPreconditions(const FunctionDecl *FD);
 

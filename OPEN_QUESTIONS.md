@@ -183,18 +183,16 @@ Found while implementing the spec (`specification-proposal.rst`, branch
 
 ## 3. Implementation decisions pending
 
-- **Ownership of contracts.** Today each redeclaration carries its own
-  `ContractSpecifierDecl` and a definition that omits the contracts gets a
-  TreeTransform copy (wrong source locations, duplicate diagnostics, lambdas
-  cloned into new closure types, several OpenBugs). Planned: the first declaration
-  owns the contracts, parameters are bound by function-scope index, CodeGen aliases
-  the first declaration's parameters and the result name. Prerequisite for
-  caller-side checks and P3097.
-- **Template contracts are instantiated only with the definition.**
-  [dcl.contract.func]/9 requires them when the function is odr-used; a
-  declared-only specialization with an ill-formed predicate is accepted
-  (OpenBugs/contracts-needed-on-odr-use.cpp and two siblings). Planned: on-demand
-  instantiation like exception specifications.
+- **Ownership of contracts (done).** The first declaration owns the
+  `ContractSpecifierDecl` (`FunctionDecl::getContractsInEffect()`); a definition
+  that omits the contracts has no copy, and CodeGen, the constant evaluators and
+  the analyzer map the owner's parameters onto the definition's by function-scope
+  index. The contracts of a template specialization are instantiated on demand
+  (`Sema::InstantiateFunctionContracts`): on odr-use and when the definition is
+  instantiated. Open: the closure types of a redeclaration that repeats the
+  contracts are kept for diagnostics only and are not numbered; the ABI's
+  "corresponding closure types" rule is met by numbering the first declaration's
+  closure types before the definition's.
 - **Evaluation semantic lives in `LangOptions`.** Not a `LANGOPT`, so not part of
   the PCH/module compatibility check; a PCH built with `ignore` bakes constant
   evaluation results an `enforce` consumer reuses. Planned: runtime semantic and

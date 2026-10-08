@@ -2525,6 +2525,19 @@ void TextNodeDumper::VisitFunctionDecl(const FunctionDecl *D) {
       }
     }
   }
+
+  // The function contract specifiers of the function are those of its first
+  // declaration; a declaration which omits them refers to them. Those of a
+  // template specialization are instantiated on demand.
+  if (!D->getContracts()) {
+    if (const ContractSpecifierDecl *CSD = D->getContractsInEffect()) {
+      OS << " contracts";
+      dumpPointer(CSD);
+    } else if (D->hasUninstantiatedContracts()) {
+      OS << " contracts-uninstantiated";
+    }
+  }
+
   if (const auto *MD = dyn_cast<CXXMethodDecl>(D)) {
     if (MD->size_overridden_methods() != 0) {
       auto dumpOverride = [=](const CXXMethodDecl *D) {

@@ -6376,8 +6376,7 @@ bool Compiler<Emitter>::VisitCallExpr(const CallExpr *E) {
   // contracts is called instead, so that its contract assertions are checked
   // around the copy (see visitFunc).
   auto HasContracts = [](const FunctionDecl *FD) {
-    const FunctionDecl *Def = FD->getDefinition();
-    return FD->hasContracts() || (Def && Def->hasContracts());
+    return FD->getContractsInEffect() != nullptr;
   };
   if (isTrivialMemoryOperation(dyn_cast_if_present<CXXMethodDecl>(FuncDecl)) &&
       !HasContracts(FuncDecl)) {
@@ -7947,8 +7946,19 @@ bool Compiler<Emitter>::visitFunc(const FunctionDecl *F) {
 
   this->CompilingFunction = F;
 
-  if (!F->hasContracts())
+  const ContractSpecifierDecl *CSD = F->getContractsInEffect();
+  if (!CSD)
     return this->visitFuncBody(F);
+
+  // The predicates of the function contract assertions refer to the
+  // parameters of the declaration that introduces the contracts, which need
+  // not be this definition. Make them denote the parameters of the definition.
+  if (const auto *Owner = dyn_cast<FunctionDecl>(CSD->getDeclContext());
+      Owner && Owner != F && Owner->getNumParams() == F->getNumParams())
+    for (unsigned I = 0, N = F->getNumParams(); I != N; ++I)
+      if (auto It = this->Params.find(F->getParamDecl(I));
+          It != this->Params.end())
+        this->Params.insert({Owner->getParamDecl(I), It->second});
 
   // The scope of the returned value, which the postcondition assertions can
   // refer to.
@@ -7970,7 +7980,7 @@ bool Compiler<Emitter>::visitFunc(const FunctionDecl *F) {
   PostconditionLabel = this->getLabel();
   if (ReturnType) {
     const ValueDecl *ResultDecl = F;
-    if (const ResultNameDecl *RND = F->getContracts()->getCanonicalResultName())
+    if (const ResultNameDecl *RND = CSD->getCanonicalResultName())
       ResultDecl = RND;
     ResultLocal = this->allocateLocalPrimitive(ResultDecl, *ReturnType,
                                                /*IsConst=*/false);
