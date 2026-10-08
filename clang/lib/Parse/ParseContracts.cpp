@@ -205,6 +205,19 @@ void Parser::LateParseOrDiagnoseFunctionContractSpecifierSeq(
     Declarator &D, const ParsedTemplateInfo *TemplateInfo) {
   assert(isFunctionContractKeyword(Tok) && "Not in a contract");
 
+  // [temp.explicit]: an explicit instantiation declares a specialization
+  // which is not a first declaration; its function-contract-specifier-seq
+  // could only repeat that of the template, which is dependent.
+  if (TemplateInfo &&
+      TemplateInfo->Kind == ParsedTemplateKind::ExplicitInstantiation)
+    return DiagnoseAndSkipMisplacedContractSpecifiers(
+        diag::err_contract_on_declaration_kind, /*explicit instantiation*/ 1);
+
+  // [temp.deduct.guide]: a deduction-guide is not a function declaration.
+  if (D.getName().getKind() == UnqualifiedIdKind::IK_DeductionGuideName)
+    return DiagnoseAndSkipMisplacedContractSpecifiers(
+        diag::err_contract_on_declaration_kind, /*deduction guide*/ 0);
+
   if (!canHaveFunctionContracts(D))
     return DiagnoseAndSkipMisplacedContractSpecifiers(
         diag::err_contract_on_non_function);

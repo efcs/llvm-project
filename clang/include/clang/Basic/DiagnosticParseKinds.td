@@ -955,6 +955,9 @@ def err_virt_specifier_after_contracts : Error<
   "'%0' must appear before function contract specifiers">;
 def err_contract_on_non_function : Error<
   "function contract specifiers are only allowed on function declarations">;
+def err_contract_on_declaration_kind : Error<
+  "%select{a deduction guide|an explicit instantiation}0 cannot have "
+  "function contract specifiers">;
 def err_contract_on_parameter : Error<
   "function contract specifiers are not allowed on a parameter declaration">;
 def err_virt_specifier_outside_class : Error<
