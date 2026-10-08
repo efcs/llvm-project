@@ -107,3 +107,78 @@ struct S {
   S(int x) pre(x > 0) : m(x) {}
   int m;
 };
+
+// The postconditions of a coroutine are those of the function as seen by its
+// callers, evaluated when the ramp returns. The CFG models the coroutine as if
+// its body ran to completion before that: a co_return statement, like a
+// return statement, continues into the postconditions. (The entry block of
+// the postconditions of co1 is B1, which the block of the co_return, B2,
+// continues into.)
+namespace std {
+template <class R, class...> struct coroutine_traits {
+  using promise_type = typename R::promise_type;
+};
+template <class P = void> struct coroutine_handle {
+  coroutine_handle() = default;
+  template <class Q> coroutine_handle(coroutine_handle<Q>);
+  static coroutine_handle from_address(void *);
+};
+struct suspend_never {
+  bool await_ready() noexcept;
+  void await_suspend(coroutine_handle<>) noexcept;
+  void await_resume() noexcept;
+};
+} // namespace std
+struct Task {
+  struct promise_type {
+    Task get_return_object();
+    std::suspend_never initial_suspend();
+    std::suspend_never final_suspend() noexcept;
+    void return_value(int);
+    void unhandled_exception();
+  };
+  bool valid() const;
+};
+struct VoidTask {
+  struct promise_type {
+    VoidTask get_return_object();
+    std::suspend_never initial_suspend();
+    std::suspend_never final_suspend() noexcept;
+    void return_void();
+    void unhandled_exception();
+  };
+};
+// CHECK-LABEL: Task co1(const int x) pre(x > 0) post(r : r.valid())
+// CHECK: [B1]
+// CHECK-NEXT: 1: r
+// CHECK-NEXT: 2: [B1.1].valid
+// CHECK-NEXT: 3: [B1.2]()
+// CHECK-NEXT: 4: post(r : [B1.3])
+// CHECK-NEXT: Preds (1): B2
+// CHECK-NEXT: Succs (1): B0
+// CHECK: [B2]
+// CHECK: co_return [B2.{{[0-9]+}}];{{ *}}Preds (1): B3
+// CHECK-NEXT: Succs (1): B1
+// CHECK: [B3]
+// CHECK: 5: pre([B3.4])
+// CHECK: [B0 (EXIT)]
+// CHECK-NEXT: Preds (1): B1
+Task co1(const int x) pre(x > 0) post(r : r.valid()) {
+  co_return x;
+}
+// CHECK-LABEL: VoidTask co2(int x) post(gl > 0)
+// CHECK: [B1]
+// CHECK-NEXT: 1: gl
+// CHECK-NEXT: 2: [B1.1] (ImplicitCastExpr, LValueToRValue, int)
+// CHECK-NEXT: 3: 0
+// CHECK-NEXT: 4: [B1.2] > [B1.3]
+// CHECK-NEXT: 5: post([B1.4])
+// CHECK-NEXT: Preds (2): B2 B3
+// CHECK-NEXT: Succs (1): B0
+// CHECK: [B0 (EXIT)]
+// CHECK-NEXT: Preds (1): B1
+VoidTask co2(int x) post(gl > 0) {
+  if (x)
+    co_return;
+  gl = x;
+}
