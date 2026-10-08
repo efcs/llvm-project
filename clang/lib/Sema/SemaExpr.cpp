@@ -19543,6 +19543,17 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
   if (FPT && isUnresolvedExceptionSpec(FPT->getExceptionSpecType()))
     ResolveExceptionSpec(Loc, FPT);
 
+  // C++26 [dcl.contract.func]p9:
+  //   The function contract assertions of a function are considered to be
+  //   needed when the function is odr-used or the function is defined.
+  //
+  // The contracts of a template specialization are instantiated when its
+  // definition is; a specialization whose definition is not (or cannot be)
+  // instantiated needs them as well once it is odr-used.
+  if (getLangOpts().Contracts && OdrUse == OdrUseContext::Used &&
+      Func->hasUninstantiatedContracts())
+    InstantiateFunctionContracts(Loc, Func);
+
   // A callee could be called by a host function then by a device function.
   // If we only try recording once, we will miss recording the use on device
   // side. Therefore keep trying until it is recorded.

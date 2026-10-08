@@ -3383,16 +3383,19 @@ public:
   /// in the context of the function.
   void ActOnReenterFunctionParameterScope(Scope *S, FunctionDecl *FD);
 
-  /// Rebuild the contract specifier against another declaration of the function
-  /// (using the new functions parameters)
-  ContractSpecifierDecl *
-  RebuildContractSpecifierForDecl(FunctionDecl *FirstDecl,
-                                  FunctionDecl *Definition);
-
-  void InstantiateContractSpecifier(
-      SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
-      const FunctionDecl *Pattern,
-      const MultiLevelTemplateArgumentList &TemplateArgs);
+  /// Instantiate the function contract specifiers of the template
+  /// specialization \p Function (or member of a class template specialization,
+  /// or function declared locally in a function template) from its pattern,
+  /// if it has any that have not been instantiated yet
+  /// (FunctionDecl::hasUninstantiatedContracts()). They are attached to the
+  /// first declaration of \p Function, which owns them like the first
+  /// declaration of any function does, and refer to its parameters.
+  ///
+  /// The contracts are needed ([dcl.contract.func]p9) when the function is
+  /// odr-used (MarkFunctionReferenced) or when its definition is instantiated
+  /// (InstantiateFunctionDefinition).
+  void InstantiateFunctionContracts(SourceLocation PointOfInstantiation,
+                                    FunctionDecl *Function);
 
   ///@}
 
@@ -13478,6 +13481,7 @@ public:
       Template,
       DefaultArgument,
       ExceptionSpec,
+      FunctionContracts,
     };
 
     RecursiveInstGuard(Sema &S, Decl *D, Kind Kind)

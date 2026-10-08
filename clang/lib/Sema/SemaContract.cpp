@@ -10,8 +10,6 @@
 //
 //===----------------------------------------------------------------------===//
 
-#include "TreeTransform.h"
-#include "TypeLocBuilder.h"
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/ASTDiagnostic.h"
 #include "clang/AST/ASTLambda.h"
@@ -44,6 +42,7 @@
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/MapVector.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/STLForwardCompat.h"
 #include "llvm/ADT/ScopeExit.h"
@@ -325,7 +324,7 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     return false;
 
   // For explicit specializations, we need to find the first declaration of the
-  // explicit specialization itself that has spelled contracts, not the implicit
+  // explicit specialization itself that has contracts, not the implicit
   // instantiation that may be in the redeclaration chain. The implicit
   // instantiation won't have contracts per [temp.expl.spec]p12.
   FunctionDecl *OrigDecl = nullptr;
@@ -335,22 +334,20 @@ bool Sema::CheckEquivalentContractSequence(FunctionDecl *OldDecl,
     if (OldDecl->getTemplateSpecializationKind() != TSK_ExplicitSpecialization)
       return false;
 
-    // Find the first explicit specialization declaration that has spelled
-    // contracts (i.e., contracts whose DeclContext matches the declaration).
+    // Find the first explicit specialization declaration that has contracts.
     // Skip the implicit instantiation which won't have contracts.
     for (auto *Redecl : OldDecl->redecls()) {
       // The new declaration may already be part of the redeclaration chain.
       if (Redecl == NewDecl)
         continue;
       if (Redecl->getTemplateSpecializationKind() == TSK_ExplicitSpecialization &&
-          Redecl->hasContracts() &&
-          Redecl->getContracts()->getDeclContext() == Redecl) {
+          Redecl->hasContracts()) {
         OrigDecl = Redecl;
         break;
       }
     }
-    // If we couldn't find an explicit specialization with spelled contracts,
-    // NewDecl is the first one - nothing to compare.
+    // If we couldn't find an explicit specialization with contracts, NewDecl
+    // is the first one - nothing to compare.
     if (!OrigDecl)
       return false;
   } else {
@@ -620,30 +617,43 @@ static void diagnoseParamTypes(Sema &S, FunctionDecl *FD,
     Checker.TraverseContractStmt(CS);
 }
 
+namespace {
+/// Collects the parameters of the function \p FD which are odr-used by the
+/// predicates visited, by their function scope index, and the first
+/// id-expression that names each of them.
+struct OdrUsedParamCollector : RecursiveASTVisitor<OdrUsedParamCollector> {
+  const FunctionDecl *FD;
+  llvm::SmallMapVector<unsigned, const DeclRefExpr *, 4> Uses;
+
+  explicit OdrUsedParamCollector(const FunctionDecl *FD) : FD(FD) {}
+
+  bool VisitDeclRefExpr(DeclRefExpr *E) {
+    auto *PVD = dyn_cast<ParmVarDecl>(E->getDecl());
+    if (PVD && E->isNonOdrUse() == NOUR_None &&
+        PVD->getFunctionScopeIndex() < FD->getNumParams() &&
+        FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD)
+      Uses.try_emplace(PVD->getFunctionScopeIndex(), E);
+    return true;
+  }
+};
+} // namespace
+
 /// Diagnose parameters of the redeclaration \p Redecl which are not const, but
-/// which are odr-used by a postcondition of the first declaration \p First.
-static void diagnoseNonConstParamsOnRedeclaration(Sema &S, FunctionDecl *First,
+/// which are odr-used by a postcondition of the declaration \p Owner that
+/// introduces the contracts of the function.
+static void diagnoseNonConstParamsOnRedeclaration(Sema &S,
+                                                  const FunctionDecl *Owner,
                                                   FunctionDecl *Redecl) {
-  if (First->getNumParams() != Redecl->getNumParams())
+  // The parameters of the owning declaration were diagnosed with it.
+  if (Owner->getNumParams() != Redecl->getNumParams() ||
+      Owner->getContracts()->isInvalidDecl())
     return;
 
-  struct Collector : RecursiveASTVisitor<Collector> {
-    const FunctionDecl *FD;
-    llvm::SmallSetVector<unsigned, 4> Indices;
-    bool VisitDeclRefExpr(DeclRefExpr *E) {
-      auto *PVD = dyn_cast<ParmVarDecl>(E->getDecl());
-      if (PVD && E->isNonOdrUse() == NOUR_None &&
-          PVD->getFunctionScopeIndex() < FD->getNumParams() &&
-          FD->getParamDecl(PVD->getFunctionScopeIndex()) == PVD)
-        Indices.insert(PVD->getFunctionScopeIndex());
-      return true;
-    }
-  } C;
-  C.FD = First;
-  for (ContractStmt *CS : First->postconditions())
+  OdrUsedParamCollector C(Owner);
+  for (ContractStmt *CS : Owner->postconditions())
     C.TraverseStmt(CS->getCond());
 
-  for (unsigned Idx : C.Indices) {
+  for (auto [Idx, Use] : C.Uses) {
     ParmVarDecl *PVD = Redecl->getParamDecl(Idx);
     QualType T = PVD->getType();
     if (T->isDependentType() || T->isReferenceType() || T.isConstQualified())
@@ -655,7 +665,7 @@ static void diagnoseNonConstParamsOnRedeclaration(Sema &S, FunctionDecl *First,
     S.Diag(PVD->getLocation(),
            diag::err_contract_postcondition_redecl_param_not_const)
         << PVD << T;
-    S.Diag(First->getParamDecl(Idx)->getLocation(),
+    S.Diag(Owner->getParamDecl(Idx)->getLocation(),
            diag::note_contract_postcondition_param_first_decl);
   }
 }
@@ -666,82 +676,169 @@ void Sema::CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition, bool IsIn
   diagnoseParamTypes(*this, FD, FD->getContracts());
 }
 
-/// Find the declaration whose spelled contracts should be instantiated for an
-/// instantiation of \p Pattern. Instantiated member declarations don't share
-/// the contracts of their pattern, so walk back through the member
-/// instantiation chain, and through the redeclarations of the pattern (the
-/// contracts may only appear on the first declaration).
-static const FunctionDecl *findContractPattern(const FunctionDecl *Pattern) {
-  while (Pattern) {
-    if (Pattern->hasContracts())
-      return Pattern;
-    for (const FunctionDecl *Redecl : Pattern->redecls())
-      if (Redecl->hasContracts())
-        return Redecl;
+/// [dcl.contract.func]p7: a non-reference parameter which is odr-used by a
+/// postcondition of a function shall be const on all declarations of the
+/// function. For a template specialization \p Owner (whose contracts were
+/// just instantiated), the parameter types of all declarations of the pattern
+/// are checked after substitution: the specialization only has the parameters
+/// of one of them.
+static void diagnoseNonConstParamsOnPatternRedecls(
+    Sema &S, FunctionDecl *Owner, const FunctionDecl *PatternOwner,
+    const MultiLevelTemplateArgumentList &TemplateArgs) {
+  OdrUsedParamCollector C(Owner);
+  for (ContractStmt *CS : Owner->postconditions())
+    C.TraverseStmt(CS->getCond());
+  if (C.Uses.empty())
+    return;
 
-    const FunctionDecl *Next = Pattern->getInstantiatedFromMemberFunction();
-    if (!Next)
-      if (FunctionTemplateDecl *FTD = Pattern->getDescribedFunctionTemplate())
-        if (FunctionTemplateDecl *From = FTD->getInstantiatedFromMemberTemplate())
-          Next = From->getTemplatedDecl();
-    Pattern = Next;
+  for (const FunctionDecl *Redecl : PatternOwner->redecls()) {
+    if (Redecl->getNumParams() != Owner->getNumParams())
+      continue;
+    for (auto [Idx, Use] : C.Uses) {
+      const ParmVarDecl *PatternParam = Redecl->getParamDecl(Idx);
+      ParmVarDecl *Param = Owner->getParamDecl(Idx);
+      // The parameters of the specialization were instantiated from (and
+      // diagnosed with the type of) the declaration they share a location
+      // with; skip parameter packs.
+      if (PatternParam->getLocation() == Param->getLocation() ||
+          PatternParam->isParameterPack() ||
+          Param->getType()->isReferenceType())
+        continue;
+      QualType T = S.SubstType(PatternParam->getType(), TemplateArgs,
+                               PatternParam->getLocation(),
+                               PatternParam->getDeclName());
+      if (T.isNull() || T->isDependentType() || T->isReferenceType() ||
+          T.isConstQualified())
+        continue;
+      S.Diag(Use->getLocation(),
+             diag::err_contract_postcondition_parameter_type_invalid)
+          << Param->getIdentifier() << /*must be declared const*/ 2
+          << Use->getSourceRange();
+      S.Diag(PatternParam->getTypeSpecStartLoc(), diag::note_parameter_type)
+          << T << PatternParam->getSourceRange();
+      Owner->getContracts()->setInvalidDecl(true);
+    }
   }
-  return nullptr;
 }
 
-void Sema::InstantiateContractSpecifier(
-    SourceLocation PointOfInstantiation, FunctionDecl *Instantiation,
-    const FunctionDecl *Pattern,
-    const MultiLevelTemplateArgumentList &TemplateArgs) {
-
-  const FunctionDecl *ContractPattern = findContractPattern(Pattern);
-  if (!ContractPattern)
+void Sema::InstantiateFunctionContracts(SourceLocation PointOfInstantiation,
+                                        FunctionDecl *Function) {
+  if (Function->isInvalidDecl() || !Function->hasUninstantiatedContracts())
     return;
-  ContractSpecifierDecl *PatternCSD = ContractPattern->getContracts();
+
+  // The first declaration of the specialization owns its contracts, like the
+  // first declaration of any function does.
+  FunctionDecl *Owner = Function->getCanonicalDecl();
+  const FunctionDecl *PatternOwner = Function->getContractInstantiationPattern();
+  ContractSpecifierDecl *PatternCSD = PatternOwner->getContracts();
+  assert(PatternCSD && PatternCSD->getDeclContext() == PatternOwner);
+
+  // A result binding has the return type of the function. If that is yet to
+  // be deduced, the contracts are instantiated once the definition has been
+  // (see InstantiateFunctionDefinition).
+  if (Owner->getReturnType()->isUndeducedType() &&
+      PatternCSD->hasCanonicalResultName())
+    return;
+
+  RecursiveInstGuard AlreadyInstantiating(
+      *this, Owner, RecursiveInstGuard::Kind::FunctionContracts);
+  if (AlreadyInstantiating)
+    return;
+
+  // The contracts are not part of the immediate context of a substitution.
+  NonSFINAEContext _(*this);
+
+  // Attribute the instantiation to the function, unless its definition is
+  // being instantiated (which already does).
+  std::optional<InstantiatingTemplate> Inst;
+  if (CodeSynthesisContexts.empty() ||
+      CodeSynthesisContexts.back().Kind !=
+          CodeSynthesisContext::TemplateInstantiation ||
+      CodeSynthesisContexts.back().Entity != Function) {
+    Inst.emplace(*this, PointOfInstantiation, Owner);
+    if (Inst->isInvalid())
+      return;
+  }
+
+  // Enter the context of the owning declaration, and push a function scope so
+  // that lambda-expressions within the predicates can capture its parameters.
+  ContextRAII SavedContext(*this, Owner);
+  EnterExpressionEvaluationContext EvalContext(
+      *this, ExpressionEvaluationContext::PotentiallyEvaluated);
+  LocalInstantiationScope Scope(*this);
+  MultiLevelTemplateArgumentList TemplateArgs = getTemplateInstantiationArgs(
+      Owner, Owner->getLexicalDeclContext(), /*Final=*/false,
+      /*Innermost=*/std::nullopt, /*RelativeToPrimary=*/true);
+
+  std::optional<FunctionScopeRAII> FnScope;
+  if (!isLambdaCallOperator(Owner)) {
+    FnScope.emplace(*this);
+    PushFunctionScope();
+  }
+  // The predicates could reference any lambda captures.
+  LambdaScopeForCallOperatorInstantiationRAII PushLambdaCaptures(
+      *this, Owner, TemplateArgs, Scope);
+
+  std::optional<CXXThisScopeRAII> ThisScope;
+  if (auto *MD = dyn_cast<CXXMethodDecl>(Owner);
+      MD && MD->isImplicitObjectMemberFunction())
+    ThisScope.emplace(*this, MD->getParent(), MD->getMethodQualifiers(),
+                      /*Enabled=*/true);
+
+  // Map the parameters of the declaration which introduces the contracts to
+  // those of the specialization, expanding parameter packs. The names and
+  // types of the latter are left alone: they were instantiated from one of
+  // the declarations of the pattern, which need not be this one.
   bool IsInvalid = PatternCSD->isInvalidDecl();
-
-  // The contracts are instantiated along with the definition of the function,
-  // in its context and function scope (so that lambda-expressions within the
-  // contracts can capture the parameters).
-  assert(CurContext == Instantiation && getCurFunction() &&
-         "contracts are instantiated with the definition of the function");
-
-  LocalInstantiationScope Scope(*this, /*CombineWithOuterScope=*/true);
-
-  // If the contracts were spelled on a different declaration than the
-  // pattern definition, its parameters need to be mapped too.
-  if (ContractPattern != Pattern &&
-      ContractPattern->getNumParams() == Instantiation->getNumParams()) {
-    for (unsigned I = 0, N = ContractPattern->getNumParams(); I != N; ++I) {
-      const ParmVarDecl *PatternParam = ContractPattern->getParamDecl(I);
-      if (PatternParam->isParameterPack())
-        continue;
-      Scope.InstantiatedLocal(PatternParam, Instantiation->getParamDecl(I));
+  unsigned ParamIdx = 0;
+  for (const ParmVarDecl *PatternParam : PatternOwner->parameters()) {
+    if (!PatternParam->isParameterPack()) {
+      if (ParamIdx >= Owner->getNumParams()) {
+        IsInvalid = true;
+        break;
+      }
+      Scope.InstantiatedLocal(PatternParam, Owner->getParamDecl(ParamIdx++));
+      continue;
+    }
+    Scope.MakeInstantiatedLocalArgPack(PatternParam);
+    UnsignedOrNone NumExpansions =
+        getNumArgumentsInExpansion(PatternParam->getType(), TemplateArgs);
+    for (unsigned I = 0, N = NumExpansions.value_or(0); I != N; ++I) {
+      if (ParamIdx >= Owner->getNumParams()) {
+        IsInvalid = true;
+        break;
+      }
+      Scope.InstantiatedLocalPackArg(PatternParam,
+                                     Owner->getParamDecl(ParamIdx++));
     }
   }
 
   SmallVector<ContractStmt *> NewContracts;
-  for (auto *CS : PatternCSD->contracts()) {
-    StmtResult NewStmt = SubstStmt(CS, TemplateArgs);
-    if (NewStmt.isInvalid())
-      IsInvalid = true;
-    else
-      NewContracts.push_back(NewStmt.getAs<ContractStmt>());
+  if (!IsInvalid) {
+    for (ContractStmt *CS : PatternCSD->contracts()) {
+      StmtResult NewStmt = SubstStmt(CS, TemplateArgs);
+      if (NewStmt.isInvalid())
+        IsInvalid = true;
+      else
+        NewContracts.push_back(NewStmt.getAs<ContractStmt>());
+    }
   }
 
   ContractSpecifierDecl *NewCSD = BuildContractSpecifierDecl(
-      NewContracts, Instantiation, PatternCSD->getLocation(), IsInvalid);
-  assert(NewCSD);
+      NewContracts, Owner, PatternCSD->getLocation(), IsInvalid);
+  Owner->setContracts(NewCSD);
 
-  Instantiation->setContracts(NewCSD);
-  if (!Instantiation->isDependentContext()) {
+  if (!Owner->isDependentContext()) {
     // A function which became virtual by overriding a function of a
     // dependent base can only be diagnosed now.
-    auto *PatternMD = dyn_cast<CXXMethodDecl>(ContractPattern);
+    auto *PatternMD = dyn_cast<CXXMethodDecl>(PatternOwner);
     if (!PatternMD || !PatternMD->isVirtual())
-      CheckFunctionContractPlacement(Instantiation);
-    CheckFunctionContracts(Instantiation, /*IsDefinition=*/false,
+      CheckFunctionContractPlacement(Owner);
+    CheckFunctionContracts(Owner, /*IsDefinition=*/false,
                            /*IsInstantiation=*/true);
+    if (!NewCSD->isInvalidDecl())
+      diagnoseNonConstParamsOnPatternRedecls(*this, Owner, PatternOwner,
+                                             TemplateArgs);
   }
 }
 
@@ -767,66 +864,42 @@ Sema::ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> Contracts,
   return BuildContractSpecifierDecl(Contracts, CurContext, Loc, IsInvalid);
 }
 
-void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *D,
+void Sema::ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD,
                                               bool IsDefinition) {
+  // A declaration which omits the function-contract-specifier-seq: the
+  // contracts introduced by the first declaration apply to it
+  // ([dcl.contract.func]p3, p4), referring to the parameters of that
+  // declaration. Nothing is copied onto this one.
+  if (!FD->hasContracts()) {
+    // The contracts of a function declared by instantiating a template are
+    // needed when the function is defined ([dcl.contract.func]p9).
+    if (IsDefinition && FD->hasUninstantiatedContracts())
+      InstantiateFunctionContracts(FD->getLocation(), FD);
 
-  FunctionDecl *FD;
-  if (FunctionTemplateDecl *FunTmpl = dyn_cast<FunctionTemplateDecl>(D))
-    FD = FunTmpl->getTemplatedDecl();
-  else
-    FD = D;
+    ContractSpecifierDecl *CSD = FD->getContractsInEffect();
+    if (!CSD)
+      return;
+    const auto *Owner = cast<FunctionDecl>(CSD->getDeclContext());
+    if (Owner == FD)
+      return;
 
-  // [temp.expl.spec]p12
-  // ... and function-contract-specifier appearing in the declaration of a
-  // template have no effect on an explicit specialization of
-  // that template.
-  const bool IsTemplateSpecialization = FD->getTemplateSpecializationKind() == TSK_ExplicitSpecialization;
+    // [dcl.contract.func]p7: If a postcondition odr-uses a non-reference
+    // parameter, that parameter shall have const type on all declarations,
+    // including those that do not repeat the postconditions.
+    diagnoseNonConstParamsOnRedeclaration(*this, Owner, FD);
 
-  auto *First = FD->getFirstDecl();
-
-  // If the new declaration/definition doesn't have contracts, and it's previous declarations didn't have
-  // contracts or it's a specialiazation which doesn't inherit the contracts, then there's nothing to do.
-
-  if (!FD->hasContracts() && !First->hasContracts()) {
+    // The parameters that the predicates name are used by this declaration of
+    // the function as well.
+    if (IsDefinition && Owner->getNumParams() == FD->getNumParams())
+      for (unsigned I = 0, N = FD->getNumParams(); I != N; ++I)
+        if (Owner->getParamDecl(I)->isReferenced())
+          FD->getParamDecl(I)->setReferenced();
     return;
   }
-
-
-
-  // If the definition has omitted the contracts, but the first declaration has
-  // them, we need to rebuild the contracts to refer to the parameters of the
-  // definition.
-  //
-  // For function templates, we'll create a copy when we instantiate the definition.
-  if (First->hasContracts() && !FD->hasContracts() && IsDefinition &&
-      !FD->isTemplateInstantiation() && !IsTemplateSpecialization) {
-    // Note: This case is mutually exclusive with the NonDependentPlaceholders
-    // case, since we can't have a placeholder return type on a declaration that
-    // isn't a definition.
-
-    // TODO: I don't think we should be rebuilding for
-    assert(FD->getTemplatedKind() != FunctionDecl::TK_FunctionTemplateSpecialization);
-    assert(FD->getTemplatedKind() != FunctionDecl::TK_MemberSpecialization);
-
-    ContractSpecifierDecl *NewCSD = RebuildContractSpecifierForDecl(First, FD);
-    NewCSD->setOwningFunction(FD);
-    FD->setContracts(NewCSD);
-  }
-
-  // [dcl.contract.func]p7: If a postcondition odr-uses a non-reference
-  // parameter, that parameter shall have const type on all declarations,
-  // including those that do not repeat the postconditions.
-  if (!FD->hasContracts() && First != FD && First->hasContracts())
-    diagnoseNonConstParamsOnRedeclaration(*this, First, FD);
-
-  if (!FD->hasContracts())
-    return;
-
-  assert(FD->hasContracts());
 
   ContractSpecifierDecl *CSD = FD->getContracts();
 
-  if (!D->isTemplateInstantiation()) {
+  if (!FD->isTemplateInstantiation()) {
     // Note: IsInstantiation here means whether we're calling during the instantiation of the contract specifier,
     // rather than whether the FD declares a function instantiation.
     CheckFunctionContracts(FD, IsDefinition, /*IsInstantiation=*/false);
@@ -898,103 +971,44 @@ void Sema::ActOnFinishLateParsedFunctionContracts(FunctionDecl *FD,
 }
 
 namespace {
-
-// There's got to be a better way to do this.
-struct RebuildFunctionContracts
-    : public TreeTransform<RebuildFunctionContracts> {
-
-  using Inherited = TreeTransform<RebuildFunctionContracts>;
-  bool IsAlwaysRebuild = false;
-  bool AlwaysRebuild() const { return IsAlwaysRebuild; }
-
-  RebuildFunctionContracts(Sema &S, bool Rebuild = false)
-      : TreeTransform<RebuildFunctionContracts>(S), IsAlwaysRebuild(Rebuild) {}
-};
-
-} // namespace
-
-/// Rebuild the contract specifier written on one declaration in the context of
-/// the definition. This rebinds parameters and result names as needed.
-ContractSpecifierDecl *
-Sema::RebuildContractSpecifierForDecl(FunctionDecl *First, FunctionDecl *Def) {
-
-  assert(Def->getContracts() == First->getContracts() || !Def->hasContracts());
-  Def->setContracts(nullptr);
-  Sema::ContextRAII SavedContext(*this, Def);
-  assert(FunctionScopes.empty());
-
-  FunctionScopeRAII SavedFunctionContext(*this);
-  PushFunctionScope();
-
-  std::optional<Sema::CXXThisScopeRAII> ThisScope;
-  if (auto *CXXMethod = dyn_cast<CXXMethodDecl>(Def);
-      CXXMethod && CXXMethod->isImplicitObjectMemberFunction()) {
-    ThisScope.emplace(*this, CXXMethod->getParent(),
-                      CXXMethod->getMethodQualifiers(), /*Enabled=*/true);
-  }
-  RebuildFunctionContracts Rebuilder(*this, true);
-  for (unsigned I = 0; I < First->getNumParams(); ++I) {
-    Rebuilder.transformedLocalDecl(First->getParamDecl(I),
-                                   Def->getParamDecl(I));
-  }
-  for (auto *RND : First->getContracts()->result_names()) {
-    QualType Replacement = Def->getReturnType();
-    auto *NewRND =
-        ActOnResultNameDeclarator(ContractKind::Post, nullptr, Replacement,
-                                  RND->getLocation(), RND->getIdentifier(),
-                                  RND->getFunctionScopeDepth());
-    Rebuilder.transformedLocalDecl(RND, NewRND);
-  }
-  SmallVector<ContractStmt *> NewContracts;
-  bool IsInvalid = false;
-  for (auto *CS : First->contracts()) {
-    StmtResult NewStmt = Rebuilder.TransformContractStmt(CS);
-    if (NewStmt.isInvalid())
-      IsInvalid = true;
-    else
-      NewContracts.push_back(NewStmt.getAs<ContractStmt>());
-  }
-
-  auto *CSD = BuildContractSpecifierDecl(
-      NewContracts, Def, First->getContracts()->getLocation(), IsInvalid);
-  Def->setContracts(CSD);
-
-  if (CSD->isInvalidDecl())
-    Def->setInvalidDecl();
-  return CSD;
-}
-
-namespace {
 /// Diagnose odr-uses of non-reference parameters in the postconditions of a
 /// coroutine.
 struct CoroutineParamUseChecker
     : RecursiveASTVisitor<CoroutineParamUseChecker> {
   Sema &S;
-  const FunctionDecl *FD;
+  /// The declaration that introduces the contracts, whose parameters the
+  /// predicates refer to, and the definition of the coroutine.
+  const FunctionDecl *Owner, *Def;
   DenseSet<const ParmVarDecl *> Diagnosed;
 
-  CoroutineParamUseChecker(Sema &S, const FunctionDecl *FD) : S(S), FD(FD) {}
+  CoroutineParamUseChecker(Sema &S, const FunctionDecl *Owner,
+                           const FunctionDecl *Def)
+      : S(S), Owner(Owner), Def(Def) {}
 
   bool VisitDeclRefExpr(DeclRefExpr *E) {
     auto *PVD = dyn_cast<ParmVarDecl>(E->getDecl());
     if (!PVD || E->isNonOdrUse() != NOUR_None ||
         PVD->getType()->isReferenceType() ||
-        PVD->getFunctionScopeIndex() >= FD->getNumParams() ||
-        FD->getParamDecl(PVD->getFunctionScopeIndex()) != PVD ||
+        PVD->getFunctionScopeIndex() >= Owner->getNumParams() ||
+        Owner->getParamDecl(PVD->getFunctionScopeIndex()) != PVD ||
         !Diagnosed.insert(PVD).second)
       return true;
     S.Diag(E->getLocation(), diag::err_coroutine_postcondition_uses_param)
         << PVD << E->getSourceRange();
-    S.Diag(FD->getLocation(), diag::note_coroutine_postcondition_function)
-        << FD;
+    S.Diag(Def->getLocation(), diag::note_coroutine_postcondition_function)
+        << Def;
     return true;
   }
 };
 } // namespace
 
-static void diagnoseCoroutinePostconditionParams(Sema &S, FunctionDecl *FD) {
-  CoroutineParamUseChecker Checker(S, FD);
-  for (ContractStmt *CS : FD->postconditions())
+static void diagnoseCoroutinePostconditionParams(Sema &S, FunctionDecl *Def) {
+  const ContractSpecifierDecl *CSD = Def->getContractsInEffect();
+  if (!CSD)
+    return;
+  CoroutineParamUseChecker Checker(S, cast<FunctionDecl>(CSD->getDeclContext()),
+                                   Def);
+  for (ContractStmt *CS : CSD->postconditions())
     Checker.TraverseStmt(CS->getCond());
 }
 
@@ -1014,8 +1028,7 @@ void Sema::ActOnContractsOnFinishFunctionBody(FunctionDecl *Def) {
   // [dcl.fct.def.coroutine]: A coroutine behaves as if the top-level
   // cv-qualifiers were removed from its parameters, so a postcondition of a
   // coroutine may not odr-use a non-reference parameter.
-  if (Def->hasContracts() && getCurFunction() &&
-      getCurFunction()->isCoroutine())
+  if (getCurFunction() && getCurFunction()->isCoroutine())
     diagnoseCoroutinePostconditionParams(*this, Def);
 }
 

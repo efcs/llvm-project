@@ -1,17 +1,10 @@
 // RUN: %clang_cc1 -std=c++26 -fsyntax-only -verify %s -fcontracts
-// XFAIL: *
 //
-// OPEN BUG (sema-templates): the function contract assertions of a function
-// template that is DECLARED BUT NEVER DEFINED are not instantiated when the
-// specialization is odr-used, so [dcl.contract.func]/7 (a non-reference
-// parameter odr-used by a postcondition shall have const type) is never
-// checked for a dependent parameter type.
-//   Expected (P2900R14 [dcl.contract.func]/9, /7): "parameter 'self'/'t'
-//     referenced in contract postcondition must be declared const" at each
-//     odr-use below (DeducedByValue, deduced_ordinary, InClassTemplate,
-//     ExplicitObjectInClassTemplate).
-//   Actual: no diagnostic at all; the same templates WITH bodies are diagnosed.
-// See also OpenBugs/contracts-needed-on-odr-use.cpp (same root cause).
+// The function contract assertions of a function template that is DECLARED
+// BUT NEVER DEFINED are instantiated when the specialization is odr-used, so
+// [dcl.contract.func]/7 (a non-reference parameter odr-used by a postcondition
+// shall have const type) is checked for a dependent parameter type.
+// See also contracts-needed-on-odr-use.cpp.
 
 // [dcl.contract.func]/7 applied to a DEPENDENT parameter type.
 //

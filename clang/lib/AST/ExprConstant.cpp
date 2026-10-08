@@ -5975,7 +5975,7 @@ static bool EvaluatePostconditions(EvalInfo &Info, const FunctionDecl *Callee,
   BlockScopeRAII Scope(Info);
   LValue ResultObject;
   APValue *ResultCopy = nullptr;
-  if (Callee->getContracts()->hasCanonicalResultName() &&
+  if (Callee->getContractsInEffect()->hasCanonicalResultName() &&
       !Info.checkingPotentialConstantExpression()) {
     QualType RetTy = Callee->getReturnType();
     assert(!RetTy->isVoidType() && "result name for a void function");
@@ -9751,9 +9751,27 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   return Error(E);
 }
 
+/// If \p VD is a parameter of a declaration of the function being evaluated
+/// in \p Frame other than the callee of the frame, return the corresponding
+/// parameter of the callee. The predicates of the function contract assertions
+/// refer to the parameters of the declaration that introduces the contracts
+/// ([dcl.contract.func]), which need not be the definition.
+static const VarDecl *getFrameParameter(const CallStackFrame *Frame,
+                                        const VarDecl *VD) {
+  const auto *PVD = dyn_cast<ParmVarDecl>(VD);
+  if (!PVD || !Frame->Callee)
+    return VD;
+  const auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+  if (!FD || FD == Frame->Callee || !declaresSameEntity(FD, Frame->Callee) ||
+      PVD->getFunctionScopeIndex() >= Frame->Callee->getNumParams())
+    return VD;
+  return Frame->Callee->getParamDecl(PVD->getFunctionScopeIndex());
+}
+
 bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
   CallStackFrame *Frame = nullptr;
   unsigned Version = 0;
+  VD = getFrameParameter(Info.CurrentCall, VD);
   if (VD->hasLocalStorage()) {
     // Only if a local variable was declared in the function currently being
     // evaluated, do we expect to be able to find its value in the current

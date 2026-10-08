@@ -3044,14 +3044,11 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
     return nullptr;
 
 
-  // For function template specializations, don't copy the pattern's contracts.
-  // If this becomes an implicit instantiation, InstantiateContractSpecifier
-  // will properly instantiate them later. For explicit specializations,
-  // the user provides their own contracts per [temp.expl.spec]p12.
-  //
   // The contracts of the instantiated declaration are never shared with the
   // pattern; they are instantiated lazily from the pattern (see
-  // InstantiateContractSpecifier) when the definition is instantiated.
+  // InstantiateFunctionContracts) when they are needed. For explicit
+  // specializations, the user provides their own contracts per
+  // [temp.expl.spec]p12.
   ContractSpecifierDecl *Contracts = nullptr;
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
@@ -3494,16 +3491,11 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
 
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
-  // For function template specializations, don't copy the pattern's contracts.
-  // If this becomes an implicit instantiation, InstantiateContractSpecifier
-  // will properly instantiate them later. For explicit specializations,
-  // the user provides their own contracts per [temp.expl.spec]p12.
-  // Note: when TemplateParams is set, we're creating a member function template
-  // (not a specialization), so contracts should still be copied.
-  //
   // The contracts of the instantiated declaration are never shared with the
   // pattern; they are instantiated lazily from the pattern (see
-  // InstantiateContractSpecifier) when the definition is instantiated.
+  // InstantiateFunctionContracts) when they are needed. For explicit
+  // specializations, the user provides their own contracts per
+  // [temp.expl.spec]p12.
   ContractSpecifierDecl *Contracts = nullptr;
 
   DeclarationNameInfo NameInfo
@@ -6314,6 +6306,23 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
     // of the) lexical context of the pattern?
     SubstQualifier(*this, PatternDecl, Function, TemplateArgs);
 
+    // [dcl.contract.func]p9: The function contract assertions are needed
+    // when the function is defined. Instantiate them before the body, so that
+    // the closure types of lambda-expressions within the predicates are
+    // numbered before those within the body, as they are for a non-template
+    // function. If a postcondition names the result and the return type is
+    // yet to be deduced from the body, this has to wait until the body has
+    // been instantiated.
+    bool ContractsAfterBody = false;
+    if (Function->hasUninstantiatedContracts()) {
+      const ContractSpecifierDecl *PatternCSD =
+          Function->getContractInstantiationPattern()->getContracts();
+      ContractsAfterBody = Function->getReturnType()->isUndeducedType() &&
+                           PatternCSD->hasCanonicalResultName();
+      if (!ContractsAfterBody)
+        InstantiateFunctionContracts(PointOfInstantiation, Function);
+    }
+
     ActOnStartOfFunctionDef(nullptr, Function);
 
     // Enter the scope of this instantiation. We don't use
@@ -6352,12 +6361,13 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
 
       if (Body.isInvalid())
         Function->setInvalidDecl();
-      InstantiateContractSpecifier(PointOfInstantiation, Function,
-                                   PatternDecl, TemplateArgs);
     }
     // FIXME: finishing the function body while in an expression evaluation
     // context seems wrong. Investigate more.
     ActOnFinishFunctionBody(Function, Body.get(), /*IsInstantiation=*/true);
+
+    if (ContractsAfterBody)
+      InstantiateFunctionContracts(PointOfInstantiation, Function);
 
     inferLifetimeBoundAttribute(Function);
 

@@ -1,13 +1,9 @@
 // RUN: %clang_cc1 -std=c++26 -fcontracts -verify-ignore-unexpected=note -fsyntax-only -verify %s
-// XFAIL: *
 //
-// OPEN BUG (sema-templates): a declared-only function template is odr-used, so
-// its contracts are needed ([dcl.contract.func]/9) and the predicate must be
-// substituted -- here it cannot be, which is a hard error.
-//   Expected (P2900R14 [dcl.contract.func]/9): an error for `t.nonexistent()`
-//     when f<int> is odr-used.
-//   Actual: accepted silently; contracts are only instantiated together with
-//     a definition.  (Cell moved here from matrix-sfinae-errors.cpp.)
+// A declared-only function template is odr-used, so its contracts are needed
+// ([dcl.contract.func]/9) and the predicate must be substituted -- here it
+// cannot be, which is a hard error. (Cell moved here from
+// matrix-sfinae-errors.cpp.)
 
 struct HasIt { bool nonexistent () const { return true; } };
 
