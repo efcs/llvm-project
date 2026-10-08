@@ -1170,10 +1170,14 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   // [dcl.contract.func]p4: First declarations of a function in different
   // translation units shall specify the same function-contract-specifier-seq.
   // If this is such a declaration and it was merged with another declaration,
-  // compare them once we're done deserializing.
+  // compare them once we're done deserializing. Only functions with contracts
+  // on either declaration need to be looked at.
   if (Reader.getContext().getLangOpts().Contracts && Redecl.isKeyDecl() &&
-      !Redecl.getKnownMergeTarget() && FD->getCanonicalDecl() != FD)
-    Reader.PendingFunctionContractChecks.push_back(FD);
+      !Redecl.getKnownMergeTarget()) {
+    FunctionDecl *Canon = FD->getCanonicalDecl();
+    if (Canon != FD && (HasContracts || Canon->hasContracts()))
+      Reader.PendingFunctionContractChecks.push_back(FD);
+  }
 
   // If the declaration is a SYCL kernel entry point function as indicated by
   // the presence of a sycl_kernel_entry_point attribute, register it so that
