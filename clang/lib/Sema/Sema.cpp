@@ -225,6 +225,11 @@ public:
       break;
     }
   }
+  void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override {
+    // Recorded for the text of contract predicates.
+    if (S && S->getLangOpts().Contracts)
+      S->recordSkippedSourceRange(Range);
+  }
   void PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
                         diag::Severity Mapping, StringRef Str) override {
     // The pragma changed diagnostic severities; drop any cached state

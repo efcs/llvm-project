@@ -84,9 +84,9 @@ for the terminate path.
 ### 1.10 Predicate text: as spelled vs. as expanded
 `comment()` and the diagnostics use the predicate as spelled in the source
 (`"GT(x, 0)"` for a macro-built predicate); GCC uses the expanded form
-(`"((a)>(b))"`). Both are implementation-defined. Keep "as spelled"? (Separately,
-preprocessor directive lines inside a multi-line predicate currently leak into
-the text — that is a bug, see round three.)
+(`"((a)>(b))"`). Both are implementation-defined. Keep "as spelled"? (The lines
+of preprocessing directives within a predicate, and the inactive branches of
+conditional inclusion, are not part of the text since round three.)
 
 ### 1.11 Static analyzer under `observe`
 `int f(int *p) pre(p != nullptr) { return *p; }` reports a null dereference under

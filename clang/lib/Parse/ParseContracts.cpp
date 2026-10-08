@@ -255,6 +255,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
       Actions, Sema::ExpressionEvaluationContext::PotentiallyEvaluated);
 
   ResultNameDecl *RND = nullptr;
+  SourceRange ResultNameAttrRange;
   // FIXME(EricWF): We allow parsing the result name declarator in `pre` so we
   // can diagnose it but we don't do the same for contract assert... Should we?
   //
@@ -284,6 +285,7 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
     // The attributes appertain to the result binding.
     ParsedAttributes ResultNameAttrs(AttrFactory);
     MaybeParseCXX11Attributes(ResultNameAttrs);
+    ResultNameAttrRange = ResultNameAttrs.Range;
 
     ExprLoc = ConsumeToken();
     QualType ReturnType;
@@ -334,7 +336,8 @@ StmtResult Parser::ParseFunctionContractSpecifierImpl(
 
   StmtResult Res = Actions.ActOnContractAssert(
       CK, KeywordLoc, Cond.get(), RND, CXX11Attrs, PredicateRange,
-      SourceRange(T.getOpenLocation(), T.getCloseLocation()));
+      SourceRange(T.getOpenLocation(), T.getCloseLocation()),
+      ResultNameAttrRange);
   if (Res.isInvalid())
     IsInvalid = true;
   return Res;
