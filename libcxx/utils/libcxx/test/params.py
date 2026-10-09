@@ -478,6 +478,18 @@ DEFAULT_PARAMETERS = [
         ]
     ),
     Parameter(
+        name="enable_contracts",
+        choices=[True, False],
+        type=bool,
+        default=False,
+        help="Whether to compile the test suite with C++26 contracts enabled (-fcontracts). "
+        "This requires a compiler that supports -fcontracts.",
+        actions=lambda enabled: [] if not enabled else [
+            AddCompileFlag("-fcontracts"),
+            AddFeature("contracts"),
+        ],
+    ),
+    Parameter(
         name='test_frozen_cxx03_headers',
         type=bool,
         default=False,

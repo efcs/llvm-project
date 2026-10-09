@@ -441,6 +441,8 @@ public:
   void VisitOpenACCRoutineDeclAttr(const OpenACCRoutineDeclAttr *A);
   void VisitOMPCaptureKindAttr(const OMPCaptureKindAttr *A);
   void VisitEmbedExpr(const EmbedExpr *S);
+  void VisitResultNameDecl(const ResultNameDecl *D);
+  void VisitContractStmt(const ContractStmt *S);
   void VisitAtomicExpr(const AtomicExpr *AE);
   void VisitConvertVectorExpr(const ConvertVectorExpr *S);
 };

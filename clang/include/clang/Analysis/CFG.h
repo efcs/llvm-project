@@ -1390,6 +1390,13 @@ public:
   CFGBlock *       getIndirectGotoBlock() { return IndirectGotoBlock; }
   const CFGBlock * getIndirectGotoBlock() const { return IndirectGotoBlock; }
 
+  /// The block which evaluates the postconditions of the function, if it
+  /// has any. Every return statement, and the end of the body, lead to this
+  /// block rather than to the exit block.
+  CFGBlock *getPostconditionsEntry() { return PostconditionsEntry; }
+  const CFGBlock *getPostconditionsEntry() const { return PostconditionsEntry; }
+  void setPostconditionsEntry(CFGBlock *B) { PostconditionsEntry = B; }
+
   using try_block_iterator = std::vector<const CFGBlock *>::const_iterator;
   using try_block_range = llvm::iterator_range<try_block_iterator>;
 
@@ -1502,6 +1509,9 @@ private:
 
   // Special block to contain collective dispatch for indirect gotos
   CFGBlock* IndirectGotoBlock = nullptr;
+
+  // The first block of the postconditions of the function, if it has any.
+  CFGBlock *PostconditionsEntry = nullptr;
 
   unsigned  NumBlockIDs = 0;
 

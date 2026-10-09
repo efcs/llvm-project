@@ -57,6 +57,7 @@ class ASTContext;
 class Attr;
 class CapturedDecl;
 class Decl;
+class DeclContext;
 class Expr;
 class AddrLabelExpr;
 class LabelDecl;
@@ -75,6 +76,7 @@ enum class CXXNewInitializationStyle;
 enum class PredefinedIdentKind;
 enum class SourceLocIdentKind;
 enum class StringLiteralKind;
+enum class ContractKind;
 
 //===----------------------------------------------------------------------===//
 // AST classes for statements.
@@ -449,6 +451,10 @@ protected:
     unsigned NonOdrUseReason : 2;
     LLVM_PREFERRED_TYPE(bool)
     unsigned IsImmediateEscalating : 1;
+    /// Whether the type of the expression is const because it names a result
+    /// binding or appears in the predicate of a contract assertion.
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned IsContractConstified : 1;
 
     /// The location of the declaration name itself.
     SourceLocation Loc;
@@ -903,6 +909,26 @@ protected:
     unsigned : NumExprBits;
 
     SourceLocation RParenLoc;
+  };
+
+  class ContractAssertBitfields {
+    friend class ASTStmtReader;
+    friend class ASTStmtWriter;
+    friend class ContractStmt;
+
+    LLVM_PREFERRED_TYPE(StmtBitfields)
+    unsigned : NumStmtBits;
+
+    LLVM_PREFERRED_TYPE(bool)
+    unsigned HasResultName : 1;
+
+    LLVM_PREFERRED_TYPE(ContractKind)
+    unsigned ContractKind : 2;
+
+    enum { NumContractAssertBits = 3 };
+
+    LLVM_PREFERRED_TYPE(unsigned)
+    unsigned NumAttrs : 32 - NumStmtBits - NumContractAssertBits;
   };
 
   class CXXNewExprBitfields {
@@ -1411,6 +1437,9 @@ protected:
     // C++ Coroutines expressions
     CoawaitExprBitfields CoawaitBits;
 
+    // C++ contracts
+    ContractAssertBitfields ContractAssertBits;
+
     // Obj-C Expressions
     ObjCObjectLiteralBitfields ObjCObjectLiteralBits;
     ObjCIndirectCopyRestoreExprBitfields ObjCIndirectCopyRestoreExprBits;
@@ -1625,6 +1654,29 @@ public:
   /// only be true when we try to merge two declarations within modules.
   void Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
                bool Canonical, bool ProfileLambdaExpr = false) const;
+
+  /// Produce a canonical representation of the predicate of a function
+  /// contract assertion, for determining whether two function contract
+  /// specifiers are the same ([dcl.contract.func]p5).
+  ///
+  /// This is the canonical profile of the statement, except that entities
+  /// declared within the predicate (the closure types of lambda-expressions
+  /// and their members, local variables, ...) are identified by their
+  /// structure and the position of their declaration rather than by their
+  /// identity. As a result, two predicates which consist of the same sequence
+  /// of tokens (modulo renaming of the function parameters, template
+  /// parameters and result binding) have the same profile even if they
+  /// contain lambda-expressions.
+  ///
+  /// \param PredicateContext the declaration context the predicate appears in;
+  /// that is, the function declaration the function contract specifier
+  /// appertains to.
+  ///
+  /// \returns true if a lambda-expression within the predicate was profiled
+  /// structurally.
+  bool ProfileContractPredicate(llvm::FoldingSetNodeID &ID,
+                                const ASTContext &Context,
+                                const DeclContext *PredicateContext) const;
 
   /// Calculate a unique representation for a statement that is
   /// stable across compiler invocations.

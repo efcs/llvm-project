@@ -125,6 +125,45 @@ public:
   }
 };
 
+TEST_F(RegistryTest, ContractMatchers) {
+  // The matchers for C++26 contracts are registered.
+  for (StringRef Name :
+       {"contractStmt", "contractSpecifierDecl", "resultNameDecl",
+        "hasContractSpecifier", "hasAnyContract", "forEachContract",
+        "hasResultName", "isPrecondition", "isPostcondition",
+        "isContractAssert", "hasFunctionContracts"})
+    EXPECT_TRUE(lookupMatcherCtor(Name)) << Name;
+
+  Matcher<Decl> HasPostcondition =
+      constructMatcher(
+          "functionDecl",
+          constructMatcher(
+              "hasContractSpecifier",
+              constructMatcher(
+                  "hasAnyContract",
+                  constructMatcher("contractStmt",
+                                   constructMatcher("isPostcondition")))))
+          .getTypedMatcher<Decl>();
+  Matcher<Stmt> IsAssert =
+      constructMatcher("contractStmt", constructMatcher("isContractAssert"))
+          .getTypedMatcher<Stmt>();
+  Matcher<Decl> ResultName =
+      constructMatcher("resultNameDecl",
+                       constructMatcher("hasName", StringRef("r")))
+          .getTypedMatcher<Decl>();
+
+  const std::string Code = "int f(int x) pre(x > 0) post(r : r > 0) {\n"
+                           "  contract_assert(x > 1);\n"
+                           "  return x;\n"
+                           "}\n";
+  std::vector<std::string> Args = {"-std=c++26", "-fcontracts"};
+  EXPECT_TRUE(matchesConditionally(Code, HasPostcondition, true, Args));
+  EXPECT_TRUE(matchesConditionally(Code, IsAssert, true, Args));
+  EXPECT_TRUE(matchesConditionally(Code, ResultName, true, Args));
+  EXPECT_FALSE(matchesConditionally("int g(int x) pre(x > 0) { return x; }",
+                                    HasPostcondition, true, Args));
+}
+
 TEST_F(RegistryTest, CanConstructNoArgs) {
   Matcher<Stmt> IsArrowValue = constructMatcher(
       "memberExpr", constructMatcher("isArrow")).getTypedMatcher<Stmt>();

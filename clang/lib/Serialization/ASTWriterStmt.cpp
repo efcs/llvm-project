@@ -501,6 +501,27 @@ void ASTStmtWriter::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
   Code = serialization::EXPR_DEPENDENT_COAWAIT;
 }
 
+void ASTStmtWriter::VisitContractStmt(ContractStmt *S) {
+  VisitStmt(S);
+
+  CurrentPackingBits.updateBits();
+  CurrentPackingBits.addBits(S->ContractAssertBits.ContractKind,
+                             /*BitsWidth=*/2);
+  CurrentPackingBits.addBit(S->ContractAssertBits.HasResultName);
+  Record.push_back(S->getAttrs().size());
+
+  Record.AddSourceLocation(S->getKeywordLoc());
+  Record.AddSourceLocation(S->getLParenLoc());
+  Record.AddSourceLocation(S->getRParenLoc());
+  Record.AddStmt(S->getCond());
+  if (S->hasResultName())
+    Record.AddStmt(S->getResultNameDeclStmt());
+  Record.AddAttributes(S->getAttrs());
+  Record.AddString(S->getPredicateText());
+
+  Code = serialization::STMT_CXX_CONTRACT;
+}
+
 static void
 addConstraintSatisfaction(ASTRecordWriter &Record,
                           const ASTConstraintSatisfaction &Satisfaction) {
@@ -744,6 +765,7 @@ void ASTStmtWriter::VisitDeclRefExpr(DeclRefExpr *E) {
   CurrentPackingBits.addBit(E->refersToEnclosingVariableOrCapture());
   CurrentPackingBits.addBits(E->isNonOdrUse(), /*Width=*/2);
   CurrentPackingBits.addBit(E->isImmediateEscalating());
+  CurrentPackingBits.addBit(E->isContractConstified());
   CurrentPackingBits.addBit(E->getDecl() != E->getFoundDecl());
   CurrentPackingBits.addBit(E->hasQualifier());
   CurrentPackingBits.addBit(E->hasTemplateKWAndArgsInfo());

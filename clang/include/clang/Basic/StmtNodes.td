@@ -64,6 +64,8 @@ def CoreturnStmt : StmtNode<Stmt>;
 def CXXExpansionStmtPattern : StmtNode<Stmt>;
 def CXXExpansionStmtInstantiation
     : StmtNode<Stmt>; // *Not* derived from CXXExpansionStmtPattern!
+// C++ contract statements
+def ContractStmt : StmtNode<Stmt>;
 
 // Expressions
 def Expr : StmtNode<ValueStmt, 1>;
