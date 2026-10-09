@@ -766,6 +766,11 @@ static void InitializeCPlusPlusFeatureTestMacros(const LangOptions &LangOpts,
   Builder.defineMacro("__cpp_variadic_friend", "202403L");
   Builder.defineMacro("__cpp_trivial_relocatability", "202502L");
 
+  // C++26 contracts (P2900R14). Only available with -fcontracts, which is
+  // accepted as an extension in C++11 and later.
+  if (LangOpts.Contracts)
+    Builder.defineMacro("__cpp_contracts", "202502L");
+
   if (LangOpts.Char8)
     Builder.defineMacro("__cpp_char8_t", "202207L");
   Builder.defineMacro("__cpp_impl_destroying_delete", "201806L");

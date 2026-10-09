@@ -474,6 +474,8 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   case Decl::OpenACCDeclare:
   case Decl::OpenACCRoutine:
   case Decl::CXXExpansionStmt:
+  case Decl::ResultName:
+  case Decl::ContractSpecifier:
     return false;
 
   // These indirectly derive from Redeclarable<T> but are not actually
@@ -485,6 +487,41 @@ bool serialization::isRedeclarableDeclKind(unsigned Kind) {
   }
 
   llvm_unreachable("Unhandled declaration kind");
+}
+
+/// Whether \p D is declared within a function-contract-specifier-seq that a
+/// declaration of a function repeats ([dcl.contract.func]p4). Such a sequence
+/// has no effect (the contracts of the function are those of its first
+/// declaration): the entities declared within it, the closure types of its
+/// lambda-expressions, are never emitted nor merged with anything, so they are
+/// not numbered. The numbers of the entities within the function must not
+/// depend on whether its definition repeats the contracts.
+static bool isInRepeatedFunctionContracts(const Decl *D) {
+  const auto *FD = dyn_cast<FunctionDecl>(D->getLexicalDeclContext());
+  const ContractSpecifierDecl *CSD = FD ? FD->getContracts() : nullptr;
+  if (!CSD || CSD == FD->getContractsInEffect())
+    return false;
+  SmallVector<const Decl *, 4> Decls;
+  CSD->getLocalDecls(Decls);
+  return llvm::is_contained(Decls, D);
+}
+
+unsigned serialization::getFirstAnonymousDeclarationNumber(
+    const FunctionDecl *FD) {
+  // The anonymous declarations within the function contract specifiers of the
+  // function are numbered within the declaration that introduces them; those
+  // within any other declaration of the function follow them.
+  const ContractSpecifierDecl *CSD = FD->getContractsInEffect();
+  if (!CSD || CSD->getDeclContext() == FD)
+    return 0;
+  SmallVector<const Decl *, 4> Decls;
+  CSD->getLocalDecls(Decls);
+  unsigned Index = 0;
+  for (const Decl *D : Decls)
+    if (const auto *ND = dyn_cast<NamedDecl>(D);
+        ND && needsAnonymousDeclarationNumber(ND))
+      ++Index;
+  return Index;
 }
 
 bool serialization::needsAnonymousDeclarationNumber(const NamedDecl *D) {
@@ -517,7 +554,7 @@ bool serialization::needsAnonymousDeclarationNumber(const NamedDecl *D) {
     if (auto *VD = dyn_cast<VarDecl>(D))
       return VD->isStaticLocal();
     // FIXME: What about CapturedDecls (and declarations nested within them)?
-    return isa<TagDecl>(D);
+    return isa<TagDecl>(D) && !isInRepeatedFunctionContracts(D);
   }
 
   // Otherwise, we only care about anonymous class members / block-scope decls.

@@ -14,6 +14,9 @@
 #include "clang/AST/ExprCXX.h"
 
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
+#include "clang/AST/DeclCXX.h"
+#include "llvm/ADT/StringExtras.h"
 
 using namespace clang;
 
@@ -287,4 +290,94 @@ SourceLocation CXXExpansionStmtInstantiation::getBeginLoc() const {
 
 SourceLocation CXXExpansionStmtInstantiation::getEndLoc() const {
   return Parent->getExpansionPattern()->getEndLoc();
+}
+
+ContractStmt *ContractStmt::CreateEmpty(const ASTContext &C, ContractKind Kind,
+                                        bool HasResultName, unsigned NumAttrs) {
+  void *Mem = C.Allocate(
+      totalSizeToAlloc<Stmt *, const Attr *>(1 + HasResultName, NumAttrs),
+      alignof(ContractStmt));
+  return new (Mem) ContractStmt(EmptyShell(), Kind, HasResultName, NumAttrs);
+}
+
+ContractStmt *ContractStmt::Create(const ASTContext &C, ContractKind Kind,
+                                   SourceLocation KeywordLoc, Expr *Condition,
+                                   DeclStmt *ResultNameDecl,
+                                   ArrayRef<const Attr *> Attrs,
+                                   StringRef PredicateText,
+                                   SourceLocation LParenLoc,
+                                   SourceLocation RParenLoc) {
+  assert((ResultNameDecl == nullptr || Kind == ContractKind::Post) &&
+         "Only a postcondition can have a result name declaration");
+  void *Mem = C.Allocate(totalSizeToAlloc<Stmt *, const Attr *>(
+                             1 + (ResultNameDecl != nullptr), Attrs.size()),
+                         alignof(ContractStmt));
+  auto *CS = new (Mem)
+      ContractStmt(Kind, KeywordLoc, Condition, ResultNameDecl, Attrs);
+  CS->setPredicateText(C, PredicateText);
+  CS->setParenLocs(LParenLoc, RParenLoc);
+  return CS;
+}
+
+void ContractStmt::setPredicateText(const ASTContext &Ctx, StringRef Text) {
+  PredicateText = Text.empty() ? StringRef() : Text.copy(Ctx.getAllocator());
+}
+
+ResultNameDecl *ContractStmt::getResultName() const {
+  if (!hasResultName())
+    return nullptr;
+  DeclStmt* D = getResultNameDeclStmt();
+  assert(D);
+  return cast<ResultNameDecl>(D->getSingleDecl());
+}
+
+std::string ContractStmt::getMessage(const clang::ASTContext &Ctx) const {
+  if (auto *A = getAttrAs<ContractMessageAttr>()) {
+    if (A->getIncludeSourceText()) {
+      return llvm::join_items("", getSourceText(Ctx), ": \"", A->getMessage(),
+                              '"');
+    }
+    return llvm::join_items("", '"', A->getMessage(), '"');
+  }
+  return getSourceText(Ctx);
+}
+
+std::string ContractStmt::getSourceText(const ASTContext &Ctx) const {
+  // The text was recorded when the contract assertion was parsed. Don't try to
+  // recover it from the source here: the source may not be available (e.g. if
+  // the contract assertion was loaded from a module or a precompiled header).
+  return getPredicateText().str();
+}
+
+StringRef ContractStmt::ContractKindAsString(ContractKind K) {
+  switch (K) {
+  case ContractKind::Assert:
+    return "contract_assert";
+  case ContractKind::Pre:
+    return "pre";
+  case ContractKind::Post:
+    return "post";
+  }
+  llvm_unreachable("Unknown contract kind");
+}
+
+StringRef ContractStmt::SemanticAsString(ContractEvaluationSemantic Sem) {
+  switch (Sem) {
+  case ContractEvaluationSemantic::Ignore:
+    return "ignore";
+  case ContractEvaluationSemantic::Observe:
+    return "observe";
+  case ContractEvaluationSemantic::Enforce:
+    return "enforce";
+  case ContractEvaluationSemantic::QuickEnforce:
+    return "quick_enforce";
+  }
+  llvm_unreachable("Unknown contract kind");
+}
+
+ContractEvaluationSemantic
+ContractStmt::getSemantic(const ASTContext &Ctx) const {
+  if (auto *A = getAttrAs<ContractGroupAttr>(); A)
+    return Ctx.getLangOpts().ContractOpts.getSemanticForGroup(A->getGroup());
+  return Ctx.getLangOpts().ContractOpts.DefaultSemantic;
 }

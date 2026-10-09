@@ -652,6 +652,27 @@ public:
     /// Location where we spot ptr to int cast or null subobject while
     /// evaluating constant expression in MS compatibility mode.
     SmallVectorImpl<PartialDiagnosticAt> *ExtendedDiag = nullptr;
+    /// Whether the evaluation failed because a contract assertion evaluated
+    /// with a terminating semantic (enforce or quick-enforce) was violated in
+    /// a manifestly constant-evaluated context. In this case the program is
+    /// ill-formed ([basic.contract.eval]p8); the expression is not merely a
+    /// non-constant expression.
+    bool HasContractViolation = false;
+
+    /// Whether the evaluation reached a contract assertion with a checking
+    /// semantic that was not checked, because the evaluation was asked to
+    /// treat all contract assertions as having the ignore semantic.
+    bool HasIgnoredContractAssertion = false;
+
+    /// ContractDiag - If this is non-null, it will be filled in with the
+    /// diagnostics for the contract violations of contract assertions that
+    /// are evaluated with the observe semantic in a manifestly
+    /// constant-evaluated context: a warning followed by its notes for each
+    /// such violation ([intro.compliance.general]p2.3.4). An observed
+    /// contract violation does not prevent the evaluation from succeeding;
+    /// the diagnostics should be emitted iff the evaluation is the one that
+    /// determines the value of the manifestly constant-evaluated expression.
+    SmallVectorImpl<PartialDiagnosticAt> *ContractDiag = nullptr;
 
     EvalStatus() = default;
 
@@ -753,9 +774,15 @@ public:
   /// initializer of the given declaration. Returns true if the initializer
   /// can be folded to a constant, and produces any relevant notes. In C++11,
   /// notes will be produced if the expression is not a constant expression.
+  ///
+  /// If \p IgnoreContracts is true, all contract assertions are evaluated
+  /// with the ignore semantic regardless of their actual evaluation semantic.
+  /// This is how C++26 [expr.const.init]p4 determines whether a variable is
+  /// constant-initializable. \p Result.HasIgnoredContractAssertion is set if
+  /// that made a difference.
   bool EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
-                             EvalResult &Result,
-                             bool IsConstantInitializer) const;
+                             EvalResult &Result, bool IsConstantInitializer,
+                             bool IgnoreContracts = false) const;
 
   /// EvaluateWithSubstitution - Evaluate an expression as if from the context
   /// of a call to the given function with the given arguments, inside an
@@ -1283,6 +1310,10 @@ public:
 ///   DeclRefExprBits.RefersToEnclosingVariableOrCapture
 ///       Specifies when this declaration reference expression (validly)
 ///       refers to an enclosed local or a captured variable.
+///   DeclRefExprBits.IsContractConstified
+///       Specifies when the type of this declaration reference expression is
+///       const because it names a result binding or because it appears in the
+///       predicate of a contract assertion ([expr.prim.id.unqual]).
 class DeclRefExpr final
     : public Expr,
       private llvm::TrailingObjects<DeclRefExpr, NestedNameSpecifierLoc,
@@ -1511,6 +1542,17 @@ public:
       bool Set, const ASTContext &Context) {
     DeclRefExprBits.CapturedByCopyInLambdaWithExplicitObjectParameter = Set;
     setDependence(computeDependence(this, Context));
+  }
+
+  /// Whether the type of this expression is const because it names a result
+  /// binding ([expr.prim.id.unqual]p6) or because it appears in the predicate
+  /// of a contract assertion and names a variable or structured binding
+  /// declared outside of it ([expr.prim.id.unqual]p7, [expr.prim.id.qual]p7).
+  bool isContractConstified() const {
+    return DeclRefExprBits.IsContractConstified;
+  }
+  void setIsContractConstified(bool Value) {
+    DeclRefExprBits.IsContractConstified = Value;
   }
 
   static bool classof(const Stmt *T) {
@@ -5063,10 +5105,13 @@ enum class SourceLocIdentKind {
   Column,
   SourceLocStruct
 };
+// We use 3 bits to represent this in the AST
+static_assert(static_cast<int>(SourceLocIdentKind::SourceLocStruct) < 8);
+
 
 /// Represents a function call to one of __builtin_LINE(), __builtin_COLUMN(),
 /// __builtin_FUNCTION(), __builtin_FUNCSIG(), __builtin_FILE(),
-/// __builtin_FILE_NAME() or __builtin_source_location().
+/// __builtin_FILE_NAME(), __builtin_source_location(), or __builtin_source_location()2.
 class SourceLocExpr final : public Expr {
   SourceLocation BuiltinLoc, RParenLoc;
   DeclContext *ParentContext;

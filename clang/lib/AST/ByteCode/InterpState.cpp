@@ -27,6 +27,7 @@ InterpState::InterpState(const EvalSettings &Settings, Program &P,
       Current(&BottomFrame), StepsLeft(Ctx.getLangOpts().ConstexprStepLimit),
       InfiniteSteps(StepsLeft == 0), EvalID(Ctx.getEvalID()) {
   InConstantContext = Settings.InConstantContext;
+  IgnoreContracts = Settings.IgnoreContracts;
   CheckingPotentialConstantExpression =
       Settings.CheckingPotentialConstantExpression;
   CheckingForUndefinedBehavior = Settings.CheckingForUndefinedBehavior;
@@ -41,6 +42,7 @@ InterpState::InterpState(const EvalSettings &Settings, Program &P,
       Current(&BottomFrame), StepsLeft(Ctx.getLangOpts().ConstexprStepLimit),
       InfiniteSteps(StepsLeft == 0), EvalID(Ctx.getEvalID()) {
   InConstantContext = Settings.InConstantContext;
+  IgnoreContracts = Settings.IgnoreContracts;
   CheckingPotentialConstantExpression =
       Settings.CheckingPotentialConstantExpression;
   CheckingForUndefinedBehavior = Settings.CheckingForUndefinedBehavior;

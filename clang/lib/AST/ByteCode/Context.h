@@ -215,6 +215,10 @@ private:
   std::unique_ptr<Program> P;
   /// ID identifying an evaluation.
   unsigned EvalID = 0;
+  /// The global that was created by the evaluation that determined whether a
+  /// variable is constant-initialized by ignoring contract assertions, until
+  /// its initializer has been evaluated with the contract assertions checked.
+  std::optional<std::pair<const VarDecl *, unsigned>> TrialGlobal;
   /// Cached widths (in bits) of common types, for a faster classify().
   unsigned ShortWidth;
   unsigned IntWidth;
