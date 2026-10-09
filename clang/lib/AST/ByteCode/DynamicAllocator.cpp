@@ -90,14 +90,15 @@ Block *DynamicAllocator::allocate(const Descriptor *D, unsigned EvalID,
     ID->LifeState =
         AllocForm == Form::Operator ? Lifetime::Ended : Lifetime::Started;
 
+  unsigned Index = NumAllocations++;
   if (auto It = AllocationSites.find(D->asExpr());
       It != AllocationSites.end()) {
-    It->second.Allocations.emplace_back(std::move(Memory));
+    It->second.Allocations.emplace_back(std::move(Memory), Index);
     B->setDynAllocId(It->second.NumAllocs);
     ++It->second.NumAllocs;
   } else {
     AllocationSites.insert(
-        {D->asExpr(), AllocationSite(std::move(Memory), AllocForm)});
+        {D->asExpr(), AllocationSite(std::move(Memory), Index, AllocForm)});
     B->setDynAllocId(0);
   }
   assert(B->isDynamic());
@@ -150,4 +151,30 @@ bool DynamicAllocator::deallocate(const Expr *Source,
     AllocationSites.erase(It);
 
   return true;
+}
+
+unsigned DynamicAllocator::deallocateSince(unsigned FirstAlloc, InterpState &S,
+                                           const Expr *&Source) {
+  struct LiveAllocation {
+    unsigned Index;
+    const Expr *Source;
+    const Block *B;
+  };
+  llvm::SmallVector<LiveAllocation, 4> ToDeallocate;
+  for (const auto &[AllocSource, Site] : AllocationSites)
+    for (const Allocation &A : Site.Allocations)
+      if (A.Index >= FirstAlloc)
+        ToDeallocate.push_back({A.Index, AllocSource, A.block()});
+  if (ToDeallocate.empty())
+    return 0;
+
+  // The allocation sites are not in a deterministic order.
+  llvm::sort(ToDeallocate,
+             [](const LiveAllocation &L, const LiveAllocation &R) {
+               return L.Index < R.Index;
+             });
+  Source = ToDeallocate.front().Source;
+  for (const LiveAllocation &A : ToDeallocate)
+    deallocate(A.Source, A.B);
+  return ToDeallocate.size();
 }

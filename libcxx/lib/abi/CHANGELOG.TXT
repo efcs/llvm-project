@@ -16,6 +16,102 @@ New entries should be added directly below the "Version" header.
 Version 24.0
 ------------
 
+* [libc++][Contracts] Implement the Itanium C++ Contracts ABI
+
+  The contract-violation runtime now follows the Itanium C++ Contracts ABI
+  (the P3850 specification): the entry points called by Clang-generated code
+  (__cxa_contract_violation and the __cxa_contract_violation_{kind}_{semantic}_
+  {mode}[_noexcept] family), the chain-walking __cxa_find_field and the default
+  handler __contract_invoke_default_handler are provided by libc++abi, and
+  std::contracts::contract_violation became a wrapper around the ABI's data
+  block chain. The previous entry point __handle_contract_violation_v3 is gone.
+
+  std::contracts is no longer declared in libc++'s versioning namespace, as the
+  ABI fixes the symbol names of contract_violation's member functions, so the
+  symbols below were renamed.
+
+  libc++ references the runtime's chain reader (__cxa_find_field) and default
+  handler (__contract_invoke_default_handler). On Apple platforms it re-exports
+  the runtime's symbols from libc++abi (libcxxabi/lib/contracts.exp), and on
+  Android, where libc++abi is merged into libc++, it defines them, including
+  the weak reference through which the runtime calls the program's handler
+  (__handle_contract_violation). The ABI list tooling now tracks the two
+  runtime symbols that are not named __cxa_* (libcxx/utils/libcxx/sym_check).
+  When libc++ is built on an ABI library other than libc++abi, it hosts the
+  runtime itself and defines these symbols; there is no ABI list for such
+  configurations.
+
+  All platforms
+  -------------
+  Symbol removed: _Z25handle_contract_violationRKNSt3__19contracts18contract_violationE
+  Symbol removed: _ZNKSt3__19contracts18contract_violation14detection_modeEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation14is_terminatingEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation20evaluation_exceptionEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation4kindEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation7commentEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation8locationEv
+  Symbol removed: _ZNKSt3__19contracts18contract_violation8semanticEv
+  Symbol removed: _ZNSt3__19contracts41invoke_default_contract_violation_handlerERKNS0_18contract_violationE
+  Symbol added: _Z25handle_contract_violationRKNSt9contracts18contract_violationE
+  Symbol added: _ZNKSt9contracts18contract_violation14detection_modeEv
+  Symbol added: _ZNKSt9contracts18contract_violation14is_terminatingEv
+  Symbol added: _ZNKSt9contracts18contract_violation20evaluation_exceptionEv
+  Symbol added: _ZNKSt9contracts18contract_violation4kindEv
+  Symbol added: _ZNKSt9contracts18contract_violation7commentEv
+  Symbol added: _ZNKSt9contracts18contract_violation8locationEv
+  Symbol added: _ZNKSt9contracts18contract_violation8semanticEv
+  Symbol added: _ZNSt9contracts41invoke_default_contract_violation_handlerERKNS_18contract_violationE
+
+  x86_64-unknown-linux-gnu, x86_64-unknown-freebsd, powerpc-ibm-aix, powerpc64-ibm-aix
+  -----------------------------------------------------------------------------------
+  Symbol added (undefined): __cxa_find_field
+  Symbol added (undefined): __contract_invoke_default_handler
+
+  <arch>-apple-darwin
+  -------------------
+  Symbol added (undefined): ___cxa_find_field
+  Symbol added (undefined): ___contract_invoke_default_handler
+  Symbol added (re-exported from libc++abi): ___cxa_find_field
+  Symbol added (re-exported from libc++abi): ___contract_invoke_default_handler
+  Symbol added (re-exported from libc++abi): ___handle_contract_violation
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_noexcept
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}
+  Symbol added (re-exported from libc++abi): ___cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}_noexcept
+
+  <arch>-linux-android23
+  ----------------------
+  Symbol added: __cxa_find_field
+  Symbol added: __contract_invoke_default_handler
+  Symbol added: __cxa_contract_violation
+  Symbol added: __cxa_contract_violation_noexcept
+  Symbol added: __cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}
+  Symbol added: __cxa_contract_violation_{pre,post,assert,post_capture,implicit}_{observe,enforce}_{pf,ex}_noexcept
+  Symbol added (undefined, weak): __handle_contract_violation
+
+* [libc++][Contracts] Add the C++26 contracts runtime (P2900R14)
+
+  This adds the out-of-line members of std::contracts::contract_violation,
+  std::contracts::invoke_default_contract_violation_handler, the default
+  (weak, replaceable) contract-violation handler ::handle_contract_violation,
+  and __handle_contract_violation_v3, the entry point called by Clang-generated
+  code when a contract assertion is violated.
+
+  __handle_contract_violation_v3 is an extern "C" symbol and is therefore not
+  tracked in the ABI lists, which only contain C++ (and C++ ABI) symbols.
+
+  All platforms
+  -------------
+  Symbol added: _Z25handle_contract_violationRKNSt3__19contracts18contract_violationE
+  Symbol added: _ZNKSt3__19contracts18contract_violation14detection_modeEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation14is_terminatingEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation20evaluation_exceptionEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation4kindEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation7commentEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation8locationEv
+  Symbol added: _ZNKSt3__19contracts18contract_violation8semanticEv
+  Symbol added: _ZNSt3__19contracts41invoke_default_contract_violation_handlerERKNS0_18contract_violationE
+
 * [libc++] Remove locale::id::__next_id from the ABI
 
   `__next_id` is only ever used inside the dylib, so we can avoid making it public.

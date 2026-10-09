@@ -237,11 +237,76 @@ ExprEngine::ExprEngine(cross_tu::CrossTranslationUnitContext &CTU,
     // Enable eager node reclamation when constructing the ExplodedGraph.
     G.enableNodeReclamation(TrimInterval);
   }
+
+  const LangOptions &LO = getContext().getLangOpts();
+  MayIgnoreContracts =
+      LO.Contracts &&
+      (LO.ContractOpts.DefaultSemantic == ContractEvaluationSemantic::Ignore ||
+       llvm::any_of(LO.ContractOpts.SemanticsByGroup, [](const auto &Entry) {
+         return Entry.second == ContractEvaluationSemantic::Ignore;
+       }));
 }
 
-//===----------------------------------------------------------------------===//
-// Utility methods.
-//===----------------------------------------------------------------------===//
+bool ExprEngine::isInIgnoredContractPredicate(const Stmt *S,
+                                              const StackFrame *SF) const {
+  if (!MayIgnoreContracts)
+    return false;
+  // The predicate is an expression, so walk up through the expressions
+  // enclosing S until a contract assertion (or a statement) is reached.
+  const ParentMap &PM = SF->getParentMap();
+  for (const Stmt *P = PM.getParent(S); P; P = PM.getParent(P)) {
+    if (const auto *CS = dyn_cast<ContractStmt>(P))
+      return CS->getSemantic(getContext()) ==
+             ContractEvaluationSemantic::Ignore;
+    if (!isa<Expr>(P))
+      return false;
+  }
+  return false;
+}
+
+// The return statement whose postconditions are being evaluated, if any (see
+// CFGBuilder::VisitReturnStmt). It is set by the return statement and
+// consumed at the end of the function.
+REGISTER_TRAIT_WITH_PROGRAMSTATE(PendingReturnStmt, const ReturnStmt *)
+
+static bool hasPostconditions(const StackFrame *SF) {
+  const auto *FD = dyn_cast_or_null<FunctionDecl>(SF->getDecl());
+  if (!FD)
+    return false;
+  const ContractSpecifierDecl *Contracts = FD->getContractsInEffect();
+  return Contracts && !Contracts->postconditions().empty();
+}
+
+ProgramStateRef ExprEngine::setPendingReturnStmt(ProgramStateRef State,
+                                                 const ReturnStmt *RS,
+                                                 const StackFrame *SF) {
+  if (!hasPostconditions(SF))
+    return State;
+  return State->set<PendingReturnStmt>(RS);
+}
+
+const ReturnStmt *
+ExprEngine::getPendingReturnStmt(ProgramStateRef State) const {
+  return State->get<PendingReturnStmt>();
+}
+
+ProgramStateRef
+ExprEngine::clearPendingReturnStmt(ProgramStateRef State) const {
+  if (!State->get<PendingReturnStmt>())
+    return State;
+  return State->remove<PendingReturnStmt>();
+}
+
+/// Determine whether \p S is a postcondition or part of its predicate.
+static bool isInPostcondition(const Stmt *S, const ParentMap &PM) {
+  for (const Stmt *P = S; P; P = PM.getParent(P)) {
+    if (const auto *CS = dyn_cast<ContractStmt>(P))
+      return CS->getContractKind() == ContractKind::Post;
+    if (!isa<Expr>(P))
+      return false;
+  }
+  return false;
+}
 
 ProgramStateRef ExprEngine::getInitialState(const StackFrame *InitSF) {
   ProgramStateRef state = StateMgr.getInitialState(InitSF);
@@ -993,6 +1058,13 @@ static bool shouldRemoveDeadBindings(AnalysisManager &AMgr, const Stmt *S,
                                      const StackFrame *SF) {
   // Are we never purging state values?
   if (AMgr.options.AnalysisPurgeOpt == PurgeNone)
+    return false;
+
+  // The postconditions of a function are evaluated after its return statement,
+  // whose return value is still needed (by the result name, and at the call
+  // exit) although it is no longer live according to the CFG.
+  if (AMgr.getASTContext().getLangOpts().Contracts &&
+      isInPostcondition(S, SF->getAnalysisDeclContext()->getParentMap()))
     return false;
 
   // Is this the beginning of a basic block?
@@ -1972,6 +2044,15 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
 
   assert(!isa<Expr>(S) || S == cast<Expr>(S)->IgnoreParens());
 
+  // The predicate of a contract assertion with the 'ignore' evaluation
+  // semantic is not evaluated at run time ([basic.contract.eval]), but it is
+  // part of the CFG like any other predicate (see
+  // CFGBuilder::VisitContractStmt) so skip it here.
+  if (isInIgnoredContractPredicate(S, Pred->getStackFrame())) {
+    Dst.insert(Engine.makePostStmtNode(S, Pred->getState(), Pred));
+    return;
+  }
+
   switch (S->getStmtClass()) {
     // C++, OpenMP and ARC stuff we don't support yet.
     case Stmt::CXXDependentScopeMemberExprClass:
@@ -2354,6 +2435,34 @@ void ExprEngine::Visit(const Stmt *S, ExplodedNode *Pred,
     case Stmt::UserDefinedLiteralClass:
       VisitCallExpr(cast<CallExpr>(S), Pred, Dst);
       break;
+
+    case Stmt::ContractStmtClass: {
+      // The predicate has already been evaluated as part of the CFG (unless
+      // the semantic is 'ignore', in which case its evaluation was skipped
+      // above and the predicate has no value). Under the 'enforce' and
+      // 'quick_enforce' semantics a violation terminates the program, so
+      // execution only continues when the predicate holds. Under 'observe'
+      // execution continues either way.
+      const auto *CS = cast<ContractStmt>(S);
+      ContractEvaluationSemantic Sem = CS->getSemantic(getContext());
+      bool AssumeHolds = Sem == ContractEvaluationSemantic::Enforce ||
+                         Sem == ContractEvaluationSemantic::QuickEnforce;
+      ProgramStateRef State = Pred->getState();
+      if (AssumeHolds) {
+        SVal Cond = State->getSVal(CS->getCond(), Pred->getStackFrame());
+        if (auto DCond = Cond.getAs<DefinedOrUnknownSVal>()) {
+          ProgramStateRef Holds = State->assume(*DCond, true);
+          if (!Holds) {
+            // The contract is definitely violated; the program terminates.
+            Engine.makePostStmtNode(S, State, Pred, /*MarkAsSink=*/true);
+            break;
+          }
+          State = Holds;
+        }
+      }
+      Dst.insert(Engine.makePostStmtNode(S, State, Pred));
+      break;
+    }
 
     case Stmt::CXXCatchStmtClass:
       VisitCXXCatchStmt(cast<CXXCatchStmt>(S), Pred, Dst);
@@ -3044,6 +3153,12 @@ void ExprEngine::processEndOfFunction(ExplodedNode *Pred,
                                       const ReturnStmt *RS) {
   ProgramStateRef State = Pred->getState();
 
+  // If the function has postconditions, the exit block is entered from the
+  // block which evaluates them rather than from the return statement. (The
+  // call exit consumes the pending return statement.)
+  if (!RS)
+    RS = State->get<PendingReturnStmt>();
+
   if (!Pred->getStackFrame()->inTopFrame())
     State = finishArgumentConstruction(
         State, *getStateManager().getCallEventManager().getCaller(
@@ -3296,6 +3411,31 @@ void ExprEngine::VisitCommonDeclRefExpr(const Expr *Ex, const NamedDecl *D,
     assert(!Ex->isGLValue());
     SVal V = svalBuilder.makeIntVal(ED->getInitVal());
     Dst.insert(Engine.makeNodeWithBinding(Pred, Ex, V));
+    return;
+  }
+  if (const auto *RND = dyn_cast<ResultNameDecl>(D)) {
+    // A result binding refers to the result object of the function. The
+    // postcondition is evaluated after the return statement which initializes
+    // the result object (see CFGBuilder::VisitReturnStmt), so the value is
+    // that of its operand. Give it a region of its own, unless the function
+    // returns a reference, in which case the result binding refers to the
+    // referenced object.
+    SVal V = UnknownVal();
+    if (const ReturnStmt *RS = state->get<PendingReturnStmt>()) {
+      if (const Expr *RetE = RS->getRetValue()) {
+        SVal RetV = state->getSVal(RetE, SF);
+        if (RND->getType()->isReferenceType()) {
+          if (RetV.getAs<Loc>())
+            V = RetV;
+        } else if (!RetV.isUnknownOrUndef()) {
+          const MemRegion *R = MRMgr.getCXXTempObjectRegion(RetE, SF);
+          state = state->bindLoc(loc::MemRegionVal(R), RetV, SF);
+          V = loc::MemRegionVal(R);
+        }
+      }
+    }
+    Dst.insert(Engine.makeNodeWithBinding(Pred, Ex, V, state,
+                                          ProgramPoint::PostLValueKind));
     return;
   }
   if (const auto *FD = dyn_cast<FunctionDecl>(D)) {

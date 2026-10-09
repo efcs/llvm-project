@@ -107,6 +107,7 @@ void CodeGenFunction::EmitDecl(const Decl &D, bool EvaluateConditionDecl) {
   case Decl::Binding:
   case Decl::UnresolvedUsingIfExists:
   case Decl::HLSLBuffer:
+  case Decl::ContractSpecifier:
   case Decl::HLSLRootSignature:
     llvm_unreachable("Declaration should not be in declstmts!");
   case Decl::Record:    // struct/union/class X;
@@ -150,6 +151,9 @@ void CodeGenFunction::EmitDecl(const Decl &D, bool EvaluateConditionDecl) {
     EmitStmt(ESD->getInstantiations());
     return;
   }
+  case Decl::ResultName: // FIXME(EricWF): This should be removed.
+    llvm_unreachable("result name in function");
+    return;
 
   case Decl::NamespaceAlias:
     if (CGDebugInfo *DI = getDebugInfo())

@@ -1210,6 +1210,72 @@ void CodeGenFunction::WasmEmitFallthroughRethrow(
   EmitNoreturnRuntimeCallOrInvoke(RethrowInCatchFn, {});
 }
 
+void CodeGenFunction::EnterCatchAllScope() {
+  EHCatchScope *CatchScope = EHStack.pushCatch(1);
+  CatchScope->setHandler(0, CGM.getCXXABI().getCatchAllTypeInfo(),
+                         createBasicBlock("catch"));
+}
+
+void CodeGenFunction::ExitCatchAllScope(
+    SourceLocation Loc, llvm::BasicBlock *ContBB,
+    llvm::function_ref<void()> EmitHandlerBody) {
+  EHCatchScope &CatchScope = cast<EHCatchScope>(*EHStack.begin());
+  assert(CatchScope.getNumHandlers() == 1 &&
+         CatchScope.getHandler(0).isCatchAll() && "not a catch-all scope");
+
+  // If nothing can throw into the handler, there is nothing to emit.
+  if (!CatchScope.hasEHBranches()) {
+    CatchScope.clearHandlerBlocks();
+    EHStack.popCatch();
+    if (HaveInsertPoint())
+      Builder.CreateBr(ContBB);
+    Builder.ClearInsertionPoint();
+    return;
+  }
+
+  // Emit the structure of the EH dispatch for this catch.
+  emitCatchDispatchBlock(*this, CatchScope);
+  llvm::BasicBlock *DispatchBlock = CatchScope.getCachedEHDispatchBlock();
+  llvm::BasicBlock *HandlerBlock = CatchScope.getHandler(0).Block;
+  EHStack.popCatch();
+
+  // Leave the normal path.
+  if (HaveInsertPoint())
+    Builder.CreateBr(ContBB);
+
+  // Wasm merges all catch clauses into one catchpad, which is the funclet pad
+  // of the handler.
+  SaveAndRestore RestoreCurrentFuncletPad(CurrentFuncletPad);
+  if (getEHPersonality(*this).isWasmPersonality()) {
+    auto *CatchSwitch =
+        cast<llvm::CatchSwitchInst>(DispatchBlock->getFirstNonPHIIt());
+    llvm::BasicBlock *CatchStartBlock = CatchSwitch->hasUnwindDest()
+                                            ? CatchSwitch->getSuccessor(1)
+                                            : CatchSwitch->getSuccessor(0);
+    CurrentFuncletPad =
+        cast<llvm::CatchPadInst>(CatchStartBlock->getFirstNonPHIIt());
+  }
+
+  EmitBlockAfterUses(HandlerBlock);
+
+  // A catch-all handler without an exception declaration; the ABI only needs
+  // it to know that there is no exception variable to initialize.
+  CXXCatchStmt CatchAll(Loc, /*exDecl=*/nullptr, /*handlerBlock=*/nullptr);
+
+  // Enter a cleanup scope for the end-catch, catch the exception and emit the
+  // body of the handler.
+  RunCleanupsScope HandlerScope(*this);
+  SaveAndRestore RestoreHandlerFuncletPad(CurrentFuncletPad);
+  CGM.getCXXABI().emitBeginCatch(*this, &CatchAll);
+  EmitHandlerBody();
+
+  // Fall out through the catch cleanups.
+  HandlerScope.ForceCleanup();
+  if (HaveInsertPoint())
+    Builder.CreateBr(ContBB);
+  Builder.ClearInsertionPoint();
+}
+
 void CodeGenFunction::ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock) {
   unsigned NumHandlers = S.getNumHandlers();
   EHCatchScope &CatchScope = cast<EHCatchScope>(*EHStack.begin());

@@ -2274,6 +2274,7 @@ Decl *TemplateDeclInstantiator::VisitFriendDecl(FriendDecl *D) {
   return FD;
 }
 
+
 Decl *TemplateDeclInstantiator::VisitStaticAssertDecl(StaticAssertDecl *D) {
   Expr *AssertExpr = D->getAssertExpr();
 
@@ -3042,6 +3043,13 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
                                    /*TPLs=*/{}, /*IsInstantiation=*/true))
     return nullptr;
 
+
+  // The contracts of the instantiated declaration are never shared with the
+  // pattern; they are instantiated lazily from the pattern (see
+  // InstantiateFunctionContracts) when they are needed. For explicit
+  // specializations, the user provides their own contracts per
+  // [temp.expl.spec]p12.
+  ContractSpecifierDecl *Contracts = nullptr;
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
 
   // If we're instantiating a local function declaration, put the result
@@ -3082,7 +3090,7 @@ Decl *TemplateDeclInstantiator::VisitFunctionDecl(
         SemaRef.Context, DC, D->getInnerLocStart(), NameInfo, T, TInfo,
         D->getCanonicalDecl()->getStorageClass(), D->UsesFPIntrin(),
         D->isInlineSpecified(), D->hasWrittenPrototype(), D->getConstexprKind(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Function->setFriendConstraintRefersToEnclosingTemplate(
         D->FriendConstraintRefersToEnclosingTemplate());
     Function->setRangeEnd(D->getSourceRange().getEnd());
@@ -3480,7 +3488,15 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
   }
 
   CXXRecordDecl *Record = cast<CXXRecordDecl>(DC);
+
   AssociatedConstraint TrailingRequiresClause = D->getTrailingRequiresClause();
+
+  // The contracts of the instantiated declaration are never shared with the
+  // pattern; they are instantiated lazily from the pattern (see
+  // InstantiateFunctionContracts) when they are needed. For explicit
+  // specializations, the user provides their own contracts per
+  // [temp.expl.spec]p12.
+  ContractSpecifierDecl *Contracts = nullptr;
 
   DeclarationNameInfo NameInfo
     = SemaRef.SubstDeclarationNameInfo(D->getNameInfo(), TemplateArgs);
@@ -3503,13 +3519,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         InstantiatedExplicitSpecifier, Constructor->UsesFPIntrin(),
         Constructor->isInlineSpecified(), false,
         Constructor->getConstexprKind(), InheritedConstructor(),
-        TrailingRequiresClause);
+        TrailingRequiresClause, Contracts);
     Method->setRangeEnd(Constructor->getEndLoc());
   } else if (CXXDestructorDecl *Destructor = dyn_cast<CXXDestructorDecl>(D)) {
     Method = CXXDestructorDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Destructor->UsesFPIntrin(), Destructor->isInlineSpecified(), false,
-        Destructor->getConstexprKind(), TrailingRequiresClause);
+        Destructor->getConstexprKind(), TrailingRequiresClause, Contracts);
     Method->setIneligibleOrNotSelected(true);
     Method->setRangeEnd(Destructor->getEndLoc());
     Method->setDeclName(SemaRef.Context.DeclarationNames.getCXXDestructorName(
@@ -3520,13 +3536,13 @@ Decl *TemplateDeclInstantiator::VisitCXXMethodDecl(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo,
         Conversion->UsesFPIntrin(), Conversion->isInlineSpecified(),
         InstantiatedExplicitSpecifier, Conversion->getConstexprKind(),
-        Conversion->getEndLoc(), TrailingRequiresClause);
+        Conversion->getEndLoc(), TrailingRequiresClause, Contracts);
   } else {
     StorageClass SC = D->isStatic() ? SC_Static : SC_None;
     Method = CXXMethodDecl::Create(
         SemaRef.Context, Record, StartLoc, NameInfo, T, TInfo, SC,
         D->UsesFPIntrin(), D->isInlineSpecified(), D->getConstexprKind(),
-        D->getEndLoc(), TrailingRequiresClause);
+        D->getEndLoc(), TrailingRequiresClause, Contracts);
   }
 
   if (D->isInlined())
@@ -4759,6 +4775,34 @@ Decl *TemplateDeclInstantiator::VisitRecordDecl(RecordDecl *D) {
   llvm_unreachable("There are only CXXRecordDecls in C++");
 }
 
+Decl *TemplateDeclInstantiator::VisitResultNameDecl(ResultNameDecl *D) {
+  // The type of a result binding is the return type of its function
+  // ([dcl.contract.res]). Use the return type of the function it is being
+  // instantiated for, which has been deduced by now if it could be.
+  //
+  // The function contract specifiers are instantiated after the body of the
+  // function, so if the return type has not been deduced by now the function
+  // doesn't return a value.
+  QualType NewType;
+  if (const auto *FD = dyn_cast<FunctionDecl>(Owner)) {
+    NewType = FD->getReturnType();
+    if (NewType->isUndeducedType() && !FD->isDependentContext())
+      NewType = SemaRef.Context.VoidTy;
+  } else {
+    NewType = SemaRef.SubstType(D->getType(), TemplateArgs, D->getLocation(),
+                                D->getDeclName());
+  }
+  if (NewType.isNull())
+    NewType = D->getType();
+
+  ResultNameDecl *NewRND =
+      SemaRef.ActOnResultNameDeclarator(ContractKind::Post, nullptr, NewType,
+                                        D->getLocation(), D->getIdentifier(), D->getFunctionScopeDepth());
+  NewRND->setDeclContext(Owner);
+
+  return NewRND;
+}
+
 Decl *
 TemplateDeclInstantiator::VisitClassTemplateSpecializationDecl(
     ClassTemplateSpecializationDecl *D) {
@@ -5535,6 +5579,7 @@ TypeSourceInfo *TemplateDeclInstantiator::SubstFunctionType(
   return NewTInfo;
 }
 
+
 void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
                                            const FunctionDecl *PatternDecl,
                                            LocalInstantiationScope &Scope) {
@@ -5561,6 +5606,17 @@ void Sema::addInstantiatedLocalVarsToScope(FunctionDecl *Function,
                     /*isNested=*/false, VD->getLocation(), SourceLocation(),
                     VD->getType(), /*Invalid=*/false);
   }
+
+  // The result bindings of the postconditions of the function are local
+  // entities of the function too ([dcl.contract.res]), which a
+  // lambda-expression within a postcondition can refer to or capture. They
+  // are mapped to those of the instantiated contracts, if any.
+  const ContractSpecifierDecl *PatternCSD = PatternDecl->getContracts();
+  const ContractSpecifierDecl *CSD = Function->getContracts();
+  if (PatternCSD && CSD && PatternCSD != CSD)
+    for (auto [PatternRND, RND] :
+         llvm::zip(PatternCSD->result_names(), CSD->result_names()))
+      Scope.InstantiatedLocal(PatternRND, RND);
 }
 
 bool Sema::addInstantiatedParametersToScope(
@@ -6260,6 +6316,23 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
     // of the) lexical context of the pattern?
     SubstQualifier(*this, PatternDecl, Function, TemplateArgs);
 
+    // [dcl.contract.func]p9: The function contract assertions are needed
+    // when the function is defined. Instantiate them before the body, so that
+    // the closure types of lambda-expressions within the predicates are
+    // numbered before those within the body, as they are for a non-template
+    // function. If a postcondition names the result and the return type is
+    // yet to be deduced from the body, this has to wait until the body has
+    // been instantiated.
+    bool ContractsAfterBody = false;
+    if (Function->hasUninstantiatedContracts()) {
+      const ContractSpecifierDecl *PatternCSD =
+          Function->getContractInstantiationPattern()->getContracts();
+      ContractsAfterBody = Function->getReturnType()->isUndeducedType() &&
+                           PatternCSD->hasCanonicalResultName();
+      if (!ContractsAfterBody)
+        InstantiateFunctionContracts(PointOfInstantiation, Function);
+    }
+
     ActOnStartOfFunctionDef(nullptr, Function);
 
     // Enter the scope of this instantiation. We don't use
@@ -6302,6 +6375,9 @@ void Sema::InstantiateFunctionDefinition(SourceLocation PointOfInstantiation,
     // FIXME: finishing the function body while in an expression evaluation
     // context seems wrong. Investigate more.
     ActOnFinishFunctionBody(Function, Body.get(), /*IsInstantiation=*/true);
+
+    if (ContractsAfterBody)
+      InstantiateFunctionContracts(PointOfInstantiation, Function);
 
     inferLifetimeBoundAttribute(Function);
 
@@ -7256,8 +7332,16 @@ NamedDecl *Sema::FindInstantiatedDecl(SourceLocation Loc, NamedDecl *D,
   if (isa<ParmVarDecl>(D) && !ParentDependsOnArgs &&
       !cast<ParmVarDecl>(D)->getType()->isInstantiationDependentType())
     return D;
+  // Likewise, a result binding ([dcl.contract.res]) of a function whose
+  // context is not dependent is referred to by a lambda-expression within a
+  // postcondition of the function whose generic call operator is being
+  // instantiated; it is not instantiated itself.
+  if (isa<ResultNameDecl>(D) && !ParentDependsOnArgs &&
+      !cast<ResultNameDecl>(D)->getType()->isInstantiationDependentType())
+    return D;
   if (isa<ParmVarDecl>(D) || isa<NonTypeTemplateParmDecl>(D) ||
-      isa<TemplateTypeParmDecl>(D) || isa<TemplateTemplateParmDecl>(D) ||
+      isa<ResultNameDecl>(D) || isa<TemplateTypeParmDecl>(D) ||
+      isa<TemplateTemplateParmDecl>(D) ||
       (ParentDependsOnArgs && (ParentDC->isFunctionOrMethod() ||
                                isa<OMPDeclareReductionDecl>(ParentDC) ||
                                isa<OMPDeclareMapperDecl>(ParentDC))) ||

@@ -262,12 +262,14 @@ public:
   visitCXXExpansionStmtInstantiation(const CXXExpansionStmtInstantiation *S);
 
   bool registerRedecl(const VarDecl *VD, const APValue &V);
+  bool visitContractStmt(const ContractStmt *S);
 
 protected:
   bool visitStmt(const Stmt *S);
   bool visitExpr(const Expr *E, bool DestroyToplevelScope) override;
   bool visitLValueExpr(const Expr *E, bool DestroyToplevelScope) override;
   bool visitFunc(const FunctionDecl *F) override;
+  bool visitContractPredicate(const ContractStmt *S) override;
 
   bool visitDeclAndReturn(const VarDecl *VD, const Expr *Init,
                           bool ConstantContext) override;
@@ -442,6 +444,11 @@ private:
   unsigned collectBaseOffset(const QualType BaseType,
                              const QualType DerivedType);
   bool emitLambdaStaticInvokerBody(const CXXMethodDecl *MD);
+  bool visitFuncBody(const FunctionDecl *F);
+  /// Emit the return from the function being compiled. A returned primitive
+  /// value is expected on the stack. If the function has postcondition
+  /// assertions, this jumps to the code that evaluates them first.
+  bool emitFunctionReturn(SourceInfo SI);
   bool emitBuiltinBitCast(const CastExpr *E);
 
   bool emitHLSLAggregateSplat(PrimType SrcT, unsigned SrcOffset,
@@ -511,6 +518,14 @@ protected:
 
   /// Type of the expression returned by the function.
   OptPrimType ReturnType;
+
+  /// If the function being compiled has postcondition assertions, the label
+  /// of the code that evaluates them before the function returns.
+  std::optional<LabelTy> PostconditionLabel;
+  /// The local that holds the returned value while the postcondition
+  /// assertions are evaluated, if it is of primitive type. This is what a
+  /// result name refers to.
+  std::optional<unsigned> ResultLocal;
 
   /// Switch case mapping.
   CaseMap CaseLabels;

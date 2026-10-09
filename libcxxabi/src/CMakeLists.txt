@@ -2,6 +2,7 @@
 set(LIBCXXABI_SOURCES
   # C++ABI files
   cxa_aux_runtime.cpp
+  cxa_contracts.cpp
   cxa_default_handlers.cpp
   cxa_demangle.cpp
   cxa_exception_storage.cpp
@@ -248,6 +249,7 @@ if (LIBCXXABI_SUPPORTS_SHARED_LIBRARY)
 
   export_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/symbols-not-reexported.exp")
   reexport_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/cxxabiv1.exp")
+reexport_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/contracts.exp")
   reexport_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/fundamental-types.exp")
   reexport_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/itanium-base.exp")
   reexport_symbols("${CMAKE_CURRENT_SOURCE_DIR}/../lib/std-misc.exp")

@@ -12,6 +12,7 @@
 #include "clang/AST/Decl.h"
 #include "clang/AST/DeclTemplate.h"
 #include "clang/AST/DeclVisitor.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/Index/IndexDataConsumer.h"
 #include "clang/Index/IndexSymbol.h"
 
@@ -134,6 +135,12 @@ public:
     }
     if (const AssociatedConstraint &C = D->getTrailingRequiresClause())
       IndexCtx.indexBody(C.ConstraintExpr, Parent);
+
+    // The function contract specifiers (preconditions and postconditions).
+    if (const auto *FD = dyn_cast<FunctionDecl>(D))
+      if (const ContractSpecifierDecl *Contracts = FD->getContracts())
+        for (const ContractStmt *CS : Contracts->contracts())
+          IndexCtx.indexBody(CS, Parent);
   }
 
   bool handleObjCMethod(const ObjCMethodDecl *D,
@@ -315,6 +322,11 @@ public:
     for (const auto *Binding : D->bindings())
       TRY_DECL(Binding, IndexCtx.handleDecl(Binding));
     return Base::VisitDecompositionDecl(D);
+  }
+
+  bool VisitResultNameDecl(const ResultNameDecl *D) {
+    TRY_DECL(D, IndexCtx.handleDecl(D));
+    return true;
   }
 
   bool VisitFieldDecl(const FieldDecl *D) {

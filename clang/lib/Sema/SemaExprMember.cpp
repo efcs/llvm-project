@@ -1928,6 +1928,11 @@ Sema::BuildImplicitMemberExpr(const CXXScopeSpec &SS,
     SourceLocation Loc = R.getNameLoc();
     if (SS.getRange().isValid())
       Loc = SS.getRange().getBegin();
+    // The object under construction or destruction cannot be accessed in a
+    // precondition of a constructor or a postcondition of a destructor. The
+    // expression is still built, to avoid follow-on diagnostics.
+    if (getLangOpts().Contracts)
+      DiagnoseImplicitMemberAccessInContract(R.getLookupNameInfo());
     baseExpr = BuildCXXThisExpr(loc, ThisTy, /*IsImplicit=*/true);
   }
 

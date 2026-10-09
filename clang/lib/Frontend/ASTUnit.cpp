@@ -517,7 +517,13 @@ public:
   bool ReadLanguageOptions(const LangOptions &NewLangOpts,
                            StringRef ModuleFilename, bool Complain,
                            bool AllowCompatibleDifferences) override {
+    // The evaluation semantics of contract assertions are a property of the
+    // translation unit which evaluates them, not of the AST file they were
+    // read from (they are not serialized). Keep the ones of this invocation
+    // when compiling an AST file, e.g. '-c m.pcm'.
+    ContractOptions ContractOpts = LangOpts.ContractOpts;
     LangOpts = NewLangOpts;
+    LangOpts.ContractOpts = std::move(ContractOpts);
     return false;
   }
 

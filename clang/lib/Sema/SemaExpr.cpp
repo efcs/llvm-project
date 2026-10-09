@@ -2501,8 +2501,9 @@ Sema::BuildDeclRefExpr(ValueDecl *D, QualType Ty, ExprValueKind VK,
                        NestedNameSpecifierLoc NNS, NamedDecl *FoundD,
                        SourceLocation TemplateKWLoc,
                        const TemplateArgumentListInfo *TemplateArgs) {
-  bool RefersToCapturedVariable = isa<VarDecl, BindingDecl>(D) &&
-                                  NeedToCaptureVariable(D, NameInfo.getLoc());
+  bool RefersToCapturedVariable =
+      isa<VarDecl, BindingDecl, ResultNameDecl>(D) &&
+      NeedToCaptureVariable(D, NameInfo.getLoc());
 
   DeclRefExpr *E = DeclRefExpr::Create(
       Context, NNS, TemplateKWLoc, D, RefersToCapturedVariable, NameInfo, Ty,
@@ -3433,10 +3434,11 @@ ExprResult Sema::BuildDeclarationNameExpr(const CXXScopeSpec &SS,
   return ULE;
 }
 
+
 ExprResult Sema::BuildDeclarationNameExpr(
     const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
     NamedDecl *FoundD, const TemplateArgumentListInfo *TemplateArgs,
-    bool AcceptInvalidDecl) {
+    bool AcceptInvalidDecl, std::optional<bool> ContractConstified) {
   assert(D && "Cannot refer to a NULL declaration");
   assert(!isa<FunctionTemplateDecl>(D) &&
          "Cannot refer unambiguously to a function template");
@@ -3572,6 +3574,7 @@ ExprResult Sema::BuildDeclarationNameExpr(
     }
     [[fallthrough]];
 
+
   case Decl::ImplicitParam:
   case Decl::ParmVar: {
     // These are always l-values.
@@ -3583,6 +3586,19 @@ ExprResult Sema::BuildDeclarationNameExpr(
     // captured in an unevaluated context, it seems that the answer is no.
     if (!isUnevaluatedContext()) {
       QualType CapturedType = getCapturedDeclRefType(cast<ValueDecl>(VD), Loc);
+      if (!CapturedType.isNull())
+        type = CapturedType;
+    }
+    break;
+  }
+
+  case Decl::ResultName: {
+    // [expr.prim.id.unqual]p12: An id-expression naming a result binding is
+    // an lvalue. A result binding is a local entity which can be captured.
+    valueKind = VK_LValue;
+    type = type.getNonReferenceType();
+    if (!isUnevaluatedContext()) {
+      QualType CapturedType = getCapturedDeclRefType(VD, Loc);
       if (!CapturedType.isNull())
         type = CapturedType;
     }
@@ -3669,9 +3685,26 @@ ExprResult Sema::BuildDeclarationNameExpr(
     break;
   }
 
+  // [expr.prim.id.unqual]p6-7, [expr.prim.id.qual]p7: An id-expression which
+  // names a result binding, or which appears in the predicate of a contract
+  // assertion and names a variable or structured binding declared outside of
+  // it, is const. When rebuilding an id-expression, whether this applies is
+  // determined by the original expression rather than by the context in which
+  // it is rebuilt.
+  bool IsContractConstified = false;
+  if (valueKind == VK_LValue && type->isObjectType() &&
+      (getLangOpts().Contracts || isa<ResultNameDecl>(VD))) {
+    IsContractConstified =
+        ContractConstified ? *ContractConstified : isContractConstified(VD);
+    if (IsContractConstified)
+      type = type.withConst();
+  }
+
   auto *E =
       BuildDeclRefExpr(VD, type, valueKind, NameInfo, &SS, FoundD,
                        /*FIXME: TemplateKWLoc*/ SourceLocation(), TemplateArgs);
+  E->setIsContractConstified(IsContractConstified);
+
   // Clang AST consumers assume a DeclRefExpr refers to a valid decl. We
   // wrap a DeclRefExpr referring to an invalid decl with a dependent-type
   // RecoveryExpr to avoid follow-up semantic analysis (thus prevent bogus
@@ -14267,14 +14300,37 @@ static NonConstCaptureKind isReferenceToNonConstCapture(Sema &S, Expr *E) {
 
   ValueDecl *Value = DRE->getDecl();
 
+  // If the expression is const because it appears in the predicate of a
+  // contract assertion, it is only const because of how it was captured if it
+  // names the copy of the entity made by a non-mutable lambda-expression
+  // which encloses the contract assertion.
+  if (DRE->isContractConstified()) {
+    for (FunctionScopeInfo *FSI : llvm::reverse(S.FunctionScopes)) {
+      auto *CSI = dyn_cast<CapturingScopeInfo>(FSI);
+      if (!CSI)
+        break;
+      if (!CSI->isCaptured(Value))
+        continue;
+      const Capture &Cap = CSI->getCapture(Value);
+      auto *LSI = dyn_cast<LambdaScopeInfo>(CSI);
+      if (LSI && Cap.isCopyCapture())
+        return LSI->CallOperator && LSI->CallOperator->isConst() ? NCCK_Lambda
+                                                                 : NCCK_None;
+      // A reference capture of an enclosing capture refers to that capture.
+      if (!Cap.isReferenceCapture() || !Cap.isNested())
+        break;
+    }
+    return NCCK_None;
+  }
+
   // The declaration must be a value which is not declared 'const'.
   if (Value->getType().isConstQualified())
     return NCCK_None;
 
-  BindingDecl *Binding = dyn_cast<BindingDecl>(Value);
-  if (Binding) {
+  // Structured bindings and result bindings can only be captured by lambdas.
+  if (isa<BindingDecl, ResultNameDecl>(Value)) {
     assert(S.getLangOpts().CPlusPlus && "BindingDecl outside of C++?");
-    assert(!isa<BlockDecl>(Binding->getDeclContext()));
+    assert(!isa<BlockDecl>(Value->getDeclContext()));
     return NCCK_Lambda;
   }
 
@@ -14324,6 +14380,14 @@ enum {
   ConstUnknown, // Keep as last element
 };
 
+// Update err_typecheck_assign_constified when this enum is changed.
+enum {
+  ConstifiedVariable,
+  ConstifiedMember,
+  ConstifiedResultName,
+  ConstifiedBinding,
+};
+
 /// Emit the "read-only variable not assignable" error and print notes to give
 /// more information about why the variable is not assignable, such as pointing
 /// to the declaration of a const variable, showing that a method is const, or
@@ -14355,7 +14419,6 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           assert(DiagnosticEmitted && "Expected diagnostic not emitted.");
           break;
         }
-
         if (!IsTypeModifiable(Field->getType(), IsDereference)) {
           if (!DiagnosticEmitted) {
             S.Diag(Loc, diag::err_typecheck_assign_const)
@@ -14422,6 +14485,15 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
         }
         S.Diag(VD->getLocation(), diag::note_typecheck_assign_const)
             << ConstVariable << VD << VD->getType() << VD->getSourceRange();
+      } else if (DRE->isContractConstified()) {
+        S.Diag(Loc, diag::err_typecheck_assign_constified)
+            << ExprRange
+            << (isa<ResultNameDecl>(VD)
+                    ? ConstifiedResultName
+                    : isa<BindingDecl>(VD) ? ConstifiedBinding
+                                           : ConstifiedVariable)
+            << VD;
+        DiagnosticEmitted = true;
       }
     }
   } else if (isa<CXXThisExpr>(E)) {
@@ -14435,6 +14507,16 @@ static void DiagnoseConstAssignment(Sema &S, const Expr *E,
           }
           S.Diag(MD->getLocation(), diag::note_typecheck_assign_const_method)
               << MD << MD->getSourceRange();
+        } else if (QualType ThisTy = S.getCurrentThisType(
+                       /*ApplyContractConstification=*/false);
+                   E->getType()->getPointeeType().isConstQualified() &&
+                   !ThisTy.isNull() &&
+                   !ThisTy->getPointeeType().isConstQualified()) {
+          // 'this' is only a pointer to const because it appears in the
+          // predicate of a contract assertion.
+          S.Diag(Loc, diag::err_typecheck_assign_constified)
+              << ExprRange << ConstifiedMember;
+          DiagnosticEmitted = true;
         }
       }
     }
@@ -15374,7 +15456,7 @@ QualType Sema::CheckAddressOfOperand(ExprResult &OrigOp, SourceLocation OpLoc) {
       }
     } else if (!isa<FunctionDecl, TemplateParamObjectDecl,
                     NonTypeTemplateParmDecl, BindingDecl, MSGuidDecl,
-                    UnnamedGlobalConstantDecl>(dcl))
+                    UnnamedGlobalConstantDecl, ResultNameDecl>(dcl))
       llvm_unreachable("Unknown/unexpected decl type");
   }
 
@@ -17674,6 +17756,7 @@ ExprResult Sema::ActOnGNUNullExpr(SourceLocation TokenLoc) {
   return new (Context) GNUNullExpr(Ty, TokenLoc);
 }
 
+
 static CXXRecordDecl *LookupStdSourceLocationImpl(Sema &S, SourceLocation Loc) {
   CXXRecordDecl *ImplDecl = nullptr;
 
@@ -17759,7 +17842,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
   case SourceLocIdentKind::Column:
     ResultTy = Context.UnsignedIntTy;
     break;
-  case SourceLocIdentKind::SourceLocStruct:
+  case SourceLocIdentKind::SourceLocStruct: {
     if (!StdSourceLocationImplDecl) {
       StdSourceLocationImplDecl =
           LookupStdSourceLocationImpl(*this, BuiltinLoc);
@@ -17769,6 +17852,7 @@ ExprResult Sema::ActOnSourceLocExpr(SourceLocIdentKind Kind,
     ResultTy = Context.getPointerType(
         Context.getCanonicalTagType(StdSourceLocationImplDecl).withConst());
     break;
+  }
   }
 
   return BuildSourceLocExpr(Kind, ResultTy, BuiltinLoc, RPLoc, CurContext);
@@ -18184,6 +18268,103 @@ Sema::VerifyICEDiagnoser::diagnoseFold(Sema &S, SourceLocation Loc) {
   return S.Diag(Loc, diag::ext_expr_not_ice) << S.LangOpts.CPlusPlus;
 }
 
+/// Emit the diagnostics for a contract violation that occurred during constant
+/// evaluation. A contract violation is diagnosed even in a SFINAE context: it
+/// doesn't make the evaluated expression non-constant, so it is not a
+/// substitution failure, and the diagnostic is required.
+static void EmitContractViolationNotes(Sema &S,
+                                       ArrayRef<PartialDiagnosticAt> Notes) {
+  bool InSFINAEContext = S.isSFINAEContext();
+  for (const PartialDiagnosticAt &Note : Notes) {
+    unsigned DiagID = Note.second.getDiagID();
+    // Notes are always suppressed in a SFINAE context; emit them directly.
+    if (InSFINAEContext && S.Diags.getDiagnosticIDs()->isNote(DiagID))
+      Note.second.Emit(S.Diags.Report(Note.first, DiagID));
+    else
+      S.Diag(Note.first, Note.second);
+  }
+}
+
+/// Hash the diagnostics for a contract violation (the diagnostic itself, if
+/// \p Loc is valid, followed by its notes), to recognize a violation that has
+/// been diagnosed identically already. The same expression can be evaluated
+/// more than once: once per substitution into the declaration of a function
+/// template for a call, once per candidate for the template arguments of a
+/// call to an overloaded function template, for the definition and for the
+/// instantiations of a template, ...
+static llvm::hash_code
+hashContractViolationDiagnostics(Sema &S, SourceLocation Loc,
+                                 ArrayRef<PartialDiagnosticAt> Notes) {
+  llvm::hash_code Hash = llvm::hash_combine(Loc.getRawEncoding(), Notes.size());
+  for (const PartialDiagnosticAt &Note : Notes) {
+    SmallString<256> Message;
+    Note.second.EmitToString(S.Diags, Message);
+    Hash = llvm::hash_combine(Hash, Note.first.getRawEncoding(),
+                              Note.second.getDiagID(), StringRef(Message));
+  }
+  return Hash;
+}
+
+void Sema::DiagnoseConstantEvaluatedContractViolations(
+    ArrayRef<PartialDiagnosticAt> ContractNotes) {
+  // C++26 [intro.compliance.general]p2.3.4: A diagnostic is required for a
+  // contract assertion evaluated with a checking semantic in a manifestly
+  // constant-evaluated context resulting in a contract violation.
+  //
+  // The notes consist of groups: a warning followed by the notes describing
+  // the violation. Skip the groups that an earlier evaluation has produced
+  // already. Within this evaluation, every violation is diagnosed, even if a
+  // contract assertion was violated several times with the same diagnostics
+  // (e.g. in a loop).
+  SmallVector<std::pair<ArrayRef<PartialDiagnosticAt>, llvm::hash_code>, 4>
+      Groups;
+  for (size_t I = 0, N = ContractNotes.size(); I != N;) {
+    size_t End = I + 1;
+    while (End != N && Diags.getDiagnosticIDs()->isNote(
+                           ContractNotes[End].second.getDiagID()))
+      ++End;
+    ArrayRef<PartialDiagnosticAt> Group = ContractNotes.slice(I, End - I);
+    I = End;
+    Groups.emplace_back(
+        Group, hashContractViolationDiagnostics(*this, SourceLocation(), Group));
+  }
+  for (const auto &[Group, Hash] : Groups)
+    if (!DiagnosedContractViolations.contains(Hash))
+      EmitContractViolationNotes(*this, Group);
+  for (const auto &[Group, Hash] : Groups)
+    DiagnosedContractViolations.insert(Hash);
+}
+
+bool Sema::DiagnoseContractViolation(const Expr *E,
+                                     const Expr::EvalStatus &Status) {
+  if (!Status.HasContractViolation)
+    return false;
+
+  // C++26 [basic.contract.eval]p8:
+  //   If a contract violation occurs in a context that is manifestly
+  //   constant-evaluated, and the evaluation semantic is a terminating
+  //   semantic, the program is ill-formed.
+  ArrayRef<PartialDiagnosticAt> Notes;
+  if (Status.Diag)
+    Notes = *Status.Diag;
+  if (DiagnosedContractViolations
+          .insert(hashContractViolationDiagnostics(*this, E->getBeginLoc(),
+                                                   Notes))
+          .second) {
+    Diag(E->getBeginLoc(), diag::err_constexpr_contract_violation)
+        << E->getSourceRange();
+    EmitContractViolationNotes(*this, Notes);
+  }
+  return true;
+}
+
+bool Sema::DiagnoseContractViolationInSFINAEContext(
+    const Expr *E, const Expr::EvalStatus &Status) {
+  if (!isSFINAEContext())
+    return false;
+  return DiagnoseContractViolation(E, Status);
+}
+
 ExprResult
 Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
                                       VerifyICEDiagnoser &Diagnoser,
@@ -18311,8 +18492,10 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
   Expr::EvalResult EvalResult;
   SmallVector<PartialDiagnosticAt, 8> Notes;
   SmallVector<PartialDiagnosticAt> MSWarning;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   EvalResult.Diag = &Notes;
   EvalResult.ExtendedDiag = &MSWarning;
+  EvalResult.ContractDiag = &ContractNotes;
 
   // Try to evaluate the expression, and produce diagnostics explaining why it's
   // not a constant expression as a side-effect.
@@ -18320,6 +18503,13 @@ Sema::VerifyIntegerConstantExpression(Expr *E, llvm::APSInt *Result,
       E->EvaluateAsRValue(EvalResult, Context, /*isConstantContext*/ true) &&
       EvalResult.Val.isInt() && !EvalResult.HasSideEffects &&
       (!getLangOpts().CPlusPlus || !EvalResult.HasUndefinedBehavior);
+
+  DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  // A contract violation makes the program ill-formed; the expression must
+  // not be folded or treated as a non-constant expression (e.g. as the bound
+  // of a variable length array) instead.
+  if (DiagnoseContractViolation(E, EvalResult))
+    return ExprError();
 
   if (!isa<ConstantExpr>(E))
     E = ConstantExpr::Create(Context, E, EvalResult.Val);
@@ -18629,14 +18819,22 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
   // immediate invocation.
   APValue Cached;
   auto CheckConstantExpressionAndKeepResult = [&]() {
+    llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
     Expr::EvalResult Eval;
+    Eval.ContractDiag = &ContractNotes;
     bool Res = E.get()->EvaluateAsConstantExpr(
         Eval, getASTContext(), ConstantExprKind::ImmediateInvocation);
     if (Res && !Eval.DiagEmitted) {
+      // The value is kept, so this is the evaluation of the immediate
+      // invocation.
+      DiagnoseConstantEvaluatedContractViolations(ContractNotes);
       Cached = std::move(Eval.Val);
       return true;
     }
-    return false;
+    // A contract violation doesn't make an expression non-constant, so it
+    // doesn't make the immediate invocation immediate-escalating either.
+    // The violation is diagnosed when the immediate invocation is evaluated.
+    return Eval.HasContractViolation;
   };
 
   if (!E.get()->isValueDependent() &&
@@ -18680,29 +18878,74 @@ ExprResult Sema::CheckForImmediateInvocation(ExprResult E, FunctionDecl *Decl) {
   return Res;
 }
 
+/// The immediate function called by the immediate invocation \p CE.
+static FunctionDecl *getImmediateFunction(ConstantExpr *CE) {
+  Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
+  if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
+    InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
+  FunctionDecl *FD = nullptr;
+  if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
+    FD = cast<FunctionDecl>(Call->getCalleeDecl());
+  else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
+    FD = Call->getConstructor();
+  else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
+    FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
+
+  assert(FD && FD->isImmediateFunction() &&
+         "could not find an immediate function in this expression");
+  return FD;
+}
+
+bool Sema::DiagnoseContractViolatingImmediateInvocations(Expr *Init) {
+  struct Finder : DynamicRecursiveASTVisitor {
+    SmallVector<ConstantExpr *, 2> Found;
+    bool VisitConstantExpr(ConstantExpr *E) override {
+      if (E->isImmediateInvocation())
+        Found.push_back(E);
+      return true;
+    }
+  } Finder;
+  Finder.TraverseStmt(Init);
+
+  bool Diagnosed = false;
+  for (ConstantExpr *CE : Finder.Found) {
+    llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+    llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
+    Expr::EvalResult Eval;
+    Eval.Diag = &Notes;
+    Eval.ContractDiag = &ContractNotes;
+    bool Result = CE->EvaluateAsConstantExpr(
+        Eval, getASTContext(), ConstantExprKind::ImmediateInvocation);
+    DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+    if (Result || !Eval.HasContractViolation)
+      continue;
+    FailedImmediateInvocations.insert(CE);
+    Diagnosed = true;
+    FunctionDecl *FD = getImmediateFunction(CE);
+    if (FD->isInvalidDecl())
+      continue;
+    Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)
+        << FD << FD->isConsteval();
+    for (const PartialDiagnosticAt &Note : Notes)
+      Diag(Note.first, Note.second);
+  }
+  return Diagnosed;
+}
+
 static void EvaluateAndDiagnoseImmediateInvocation(
     Sema &SemaRef, Sema::ImmediateInvocationCandidate Candidate) {
   llvm::SmallVector<PartialDiagnosticAt, 8> Notes;
+  llvm::SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Expr::EvalResult Eval;
   Eval.Diag = &Notes;
+  Eval.ContractDiag = &ContractNotes;
   ConstantExpr *CE = Candidate.getPointer();
   bool Result = CE->EvaluateAsConstantExpr(
       Eval, SemaRef.getASTContext(), ConstantExprKind::ImmediateInvocation);
+  SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
   if (!Result || !Notes.empty()) {
     SemaRef.FailedImmediateInvocations.insert(CE);
-    Expr *InnerExpr = CE->getSubExpr()->IgnoreImplicit();
-    if (auto *FunctionalCast = dyn_cast<CXXFunctionalCastExpr>(InnerExpr))
-      InnerExpr = FunctionalCast->getSubExpr()->IgnoreImplicit();
-    FunctionDecl *FD = nullptr;
-    if (auto *Call = dyn_cast<CallExpr>(InnerExpr))
-      FD = cast<FunctionDecl>(Call->getCalleeDecl());
-    else if (auto *Call = dyn_cast<CXXConstructExpr>(InnerExpr))
-      FD = Call->getConstructor();
-    else if (auto *Cast = dyn_cast<CastExpr>(InnerExpr))
-      FD = dyn_cast_or_null<FunctionDecl>(Cast->getConversionFunction());
-
-    assert(FD && FD->isImmediateFunction() &&
-           "could not find an immediate function in this expression");
+    FunctionDecl *FD = getImmediateFunction(CE);
     if (FD->isInvalidDecl())
       return;
     SemaRef.Diag(CE->getBeginLoc(), diag::err_invalid_consteval_call)
@@ -19419,6 +19662,17 @@ void Sema::MarkFunctionReferenced(SourceLocation Loc, FunctionDecl *Func,
   if (FPT && isUnresolvedExceptionSpec(FPT->getExceptionSpecType()))
     ResolveExceptionSpec(Loc, FPT);
 
+  // C++26 [dcl.contract.func]p9:
+  //   The function contract assertions of a function are considered to be
+  //   needed when the function is odr-used or the function is defined.
+  //
+  // The contracts of a template specialization are instantiated when its
+  // definition is; a specialization whose definition is not (or cannot be)
+  // instantiated needs them as well once it is odr-used.
+  if (getLangOpts().Contracts && OdrUse == OdrUseContext::Used &&
+      Func->hasUninstantiatedContracts())
+    InstantiateFunctionContracts(Loc, Func);
+
   // A callee could be called by a host function then by a device function.
   // If we only try recording once, we will miss recording the use on device
   // side. Therefore keep trying until it is recorded.
@@ -19552,6 +19806,16 @@ MarkVarDeclODRUsed(ValueDecl *V, SourceLocation Loc, Sema &SemaRef,
 void Sema::MarkCaptureUsedInEnclosingContext(ValueDecl *Capture,
                                              SourceLocation Loc,
                                              unsigned CapturingScopeIndex) {
+  // A result binding has no corresponding variable; just capture it.
+  if (isa<ResultNameDecl>(Capture)) {
+    QualType CaptureType, DeclRefType;
+    tryCaptureVariable(Capture, Loc, TryCaptureKind::Implicit,
+                       /*EllipsisLoc=*/SourceLocation(),
+                       /*BuildAndDiagnose=*/true, CaptureType, DeclRefType,
+                       &CapturingScopeIndex);
+    Capture->markUsed(Context);
+    return;
+  }
   MarkVarDeclODRUsed(Capture, Loc, *this, &CapturingScopeIndex);
 }
 
@@ -19578,7 +19842,9 @@ static void diagnoseUncapturableValueReferenceOrBinding(Sema &S,
   if (!S.getLangOpts().CPlusPlus && !S.CurContext->isFunctionOrMethod())
     return;
 
-  unsigned ValueKind = isa<BindingDecl>(var) ? 1 : 0;
+  unsigned ValueKind = isa<BindingDecl>(var)      ? 1
+                       : isa<ResultNameDecl>(var) ? 2
+                                                  : 0;
   unsigned ContextKind = 3; // unknown
   if (isa<CXXMethodDecl>(VarDC) &&
       cast<CXXRecordDecl>(VarDC->getParent())->isLambda()) {
@@ -19643,11 +19909,12 @@ static DeclContext *getParentOfCapturingContextOrNull(DeclContext *DC,
   if (isa<BlockDecl>(DC) || isa<CapturedDecl>(DC) || isLambdaCallOperator(DC))
     return getLambdaAwareParentOfDeclContext(DC);
 
+  // A result binding is a local entity.
   VarDecl *Underlying = Var->getPotentiallyDecomposedVarDecl();
-  if (Underlying) {
-    if (Underlying->hasLocalStorage() && Diagnose)
-      diagnoseUncapturableValueReferenceOrBinding(S, Loc, Var);
-  }
+  if ((isa<ResultNameDecl>(Var) ||
+       (Underlying && Underlying->hasLocalStorage())) &&
+      Diagnose)
+    diagnoseUncapturableValueReferenceOrBinding(S, Loc, Var);
   return nullptr;
 }
 
@@ -19657,9 +19924,9 @@ static DeclContext *getParentOfCapturingContextOrNull(DeclContext *DC,
 static bool isVariableCapturable(CapturingScopeInfo *CSI, ValueDecl *Var,
                                  SourceLocation Loc, const bool Diagnose,
                                  Sema &S) {
-
-  assert((isa<VarDecl, BindingDecl>(Var)) &&
-         "Only variables and structured bindings can be captured");
+  assert((isa<VarDecl, BindingDecl, ResultNameDecl>(Var)) &&
+         "Only variables, structured bindings and result bindings can be "
+         "captured");
 
   bool IsBlock = isa<BlockScopeInfo>(CSI);
   bool IsLambda = isa<LambdaScopeInfo>(CSI);
@@ -19721,6 +19988,13 @@ static bool isVariableCapturable(CapturingScopeInfo *CSI, ValueDecl *Var,
       Var->getType()->isBlockPointerType()) {
     if (Diagnose)
       S.Diag(Loc, diag::err_opencl_block_ref_block);
+    return false;
+  }
+
+  // Result bindings can only be captured by lambdas.
+  if (isa<ResultNameDecl>(Var) && !IsLambda) {
+    if (Diagnose)
+      diagnoseUncapturableValueReferenceOrBinding(S, Loc, Var);
     return false;
   }
 
@@ -20134,7 +20408,9 @@ bool Sema::tryCaptureVariable(
   } else {
     VD = Var->getPotentiallyDecomposedVarDecl();
   }
-  assert(VD && "Cannot capture a null variable");
+  // A result binding ([dcl.contract.res]) is a local entity with no
+  // corresponding variable.
+  assert((VD || isa<ResultNameDecl>(Var)) && "Cannot capture a null variable");
 
   const unsigned MaxFunctionScopesIndex = FunctionScopeIndexToStopAt
       ? *FunctionScopeIndexToStopAt : FunctionScopes.size() - 1;
@@ -20160,7 +20436,7 @@ bool Sema::tryCaptureVariable(
 
   // Capture global variables if it is required to use private copy of this
   // variable.
-  bool IsGlobal = !VD->hasLocalStorage();
+  bool IsGlobal = VD && !VD->hasLocalStorage();
   if (IsGlobal && !(LangOpts.OpenMP &&
                     OpenMP().isOpenMPCapturedDecl(Var, /*CheckScopeInfo=*/true,
                                                   MaxFunctionScopesIndex)))
@@ -20247,7 +20523,8 @@ bool Sema::tryCaptureVariable(
       if (BuildAndDiagnose) {
         LambdaScopeInfo *LSI = cast<LambdaScopeInfo>(CSI);
         if (LSI->ImpCaptureStyle == CapturingScopeInfo::ImpCap_None) {
-          Diag(ExprLoc, diag::err_lambda_impcap) << Var;
+          Diag(ExprLoc, diag::err_lambda_impcap)
+              << Var << isa<ResultNameDecl>(Var);
           Diag(Var->getLocation(), diag::note_previous_decl) << Var;
           Diag(LSI->Lambda->getBeginLoc(), diag::note_lambda_decl);
           buildLambdaCaptureFixit(*this, LSI, Var);
@@ -20329,7 +20606,8 @@ bool Sema::tryCaptureVariable(
       // No capture-default, and this is not an explicit capture
       // so cannot capture this variable.
       if (BuildAndDiagnose) {
-        Diag(ExprLoc, diag::err_lambda_impcap) << Var;
+        Diag(ExprLoc, diag::err_lambda_impcap)
+            << Var << isa<ResultNameDecl>(Var);
         Diag(Var->getLocation(), diag::note_previous_decl) << Var;
         auto *LSI = cast<LambdaScopeInfo>(CSI);
         if (LSI->Lambda) {
@@ -20355,6 +20633,7 @@ bool Sema::tryCaptureVariable(
     if (IsInScopeDeclarationContext)
       DC = ParentDC;
   } while (!VarDC->Equals(DC));
+
 
   // Walk back down the scope stack, (e.g. from outer lambda to inner lambda)
   // computing the type of the capture at each step, checking type-specific
@@ -20399,6 +20678,9 @@ bool Sema::tryCaptureVariable(
     if (Invalid && !BuildAndDiagnose)
       return true;
   }
+
+  if (BuildAndDiagnose)
+    noteCaptureReference(Var);
   return Invalid;
 }
 
@@ -20569,11 +20851,13 @@ static ExprResult rebuildPotentialResultsAsNonOdrUsed(Sema &S, Expr *E,
 
     // Rebuild as a non-odr-use DeclRefExpr.
     MarkNotOdrUsed();
-    return DeclRefExpr::Create(
+    auto *NewDRE = DeclRefExpr::Create(
         S.Context, DRE->getQualifierLoc(), DRE->getTemplateKeywordLoc(),
         DRE->getDecl(), DRE->refersToEnclosingVariableOrCapture(),
         DRE->getNameInfo(), DRE->getType(), DRE->getValueKind(),
         DRE->getFoundDecl(), CopiedTemplateArgs(DRE), NOUR);
+    NewDRE->setIsContractConstified(DRE->isContractConstified());
+    return NewDRE;
   }
 
   case Expr::FunctionParmPackExprClass: {
@@ -20867,12 +21151,14 @@ void Sema::CleanupVarDeclMarking() {
 static void DoMarkPotentialCapture(Sema &SemaRef, SourceLocation Loc,
                                    ValueDecl *Var, Expr *E) {
   VarDecl *VD = Var->getPotentiallyDecomposedVarDecl();
-  if (!VD)
+  if (!VD && !isa<ResultNameDecl>(Var))
     return;
 
+  // A result binding is a local entity declared in its function.
+  const DeclContext *VarDC = VD ? VD->getDeclContext() : Var->getDeclContext();
   const bool RefersToEnclosingScope =
-      (SemaRef.CurContext != VD->getDeclContext() &&
-       VD->getDeclContext()->isFunctionOrMethod() && VD->hasLocalStorage());
+      (SemaRef.CurContext != VarDC && VarDC->isFunctionOrMethod() &&
+       (!VD || VD->hasLocalStorage()));
   if (RefersToEnclosingScope) {
     LambdaScopeInfo *const LSI =
         SemaRef.getCurLambda(/*IgnoreNonLambdaCapturingScope=*/true);
@@ -20889,7 +21175,7 @@ static void DoMarkPotentialCapture(Sema &SemaRef, SourceLocation Loc,
       //
       // FIXME: We can simplify this a lot after implementing P0588R1.
       assert(E && "Capture variable should be used in an expression.");
-      if (!Var->getType()->isReferenceType() ||
+      if (!VD || !Var->getType()->isReferenceType() ||
           !VD->isUsableInConstantExpressions(SemaRef.Context))
         LSI->addPotentialCapture(E->IgnoreParens());
     }
@@ -21083,8 +21369,11 @@ static void DoMarkVarDeclReferenced(
   }
 }
 
+/// Mark a structured binding or result binding as referenced, capturing it
+/// if necessary.
 static void DoMarkBindingDeclReferenced(Sema &SemaRef, SourceLocation Loc,
-                                        BindingDecl *BD, Expr *E) {
+                                        ValueDecl *BD, Expr *E) {
+  assert((isa<BindingDecl, ResultNameDecl>(BD)) && "unexpected declaration");
   BD->setReferenced();
 
   if (BD->isInvalidDecl())
@@ -21175,7 +21464,8 @@ MarkExprReferenced(Sema &SemaRef, SourceLocation Loc, Decl *D, Expr *E,
     return;
   }
 
-  if (BindingDecl *Decl = dyn_cast<BindingDecl>(D)) {
+  if (isa<BindingDecl, ResultNameDecl>(D)) {
+    auto *Decl = cast<ValueDecl>(D);
     DoMarkBindingDeclReferenced(SemaRef, Loc, Decl, E);
     if (SemaRef.getLangOpts().CPlusPlus)
       FixDependencyOfIdExpressionsInLambdaWithDependentObjectParameter(SemaRef,

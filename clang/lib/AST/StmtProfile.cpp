@@ -11,6 +11,7 @@
 //
 //===----------------------------------------------------------------------===//
 #include "clang/AST/ASTContext.h"
+#include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
 #include "clang/AST/DeclObjC.h"
 #include "clang/AST/DeclTemplate.h"
@@ -21,7 +22,9 @@
 #include "clang/AST/ODRHash.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/AST/StmtVisitor.h"
+#include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/FoldingSet.h"
+#include "llvm/ADT/SmallPtrSet.h"
 using namespace clang;
 
 namespace {
@@ -56,6 +59,18 @@ namespace {
     /// or statement.
     virtual void VisitDecl(const Decl *D) = 0;
 
+    /// Visit a declaration that is declared by a declaration statement.
+    virtual void VisitLocalDecl(const Decl *D) { VisitDecl(D); }
+
+    /// Visit the exception declaration of a handler.
+    virtual void VisitExceptionDecl(const VarDecl *D) {}
+
+    /// Profile a lambda-expression by its structure, if that was requested.
+    /// Returns false if the lambda-expression was not profiled.
+    virtual bool VisitLambdaExprStructurally(const LambdaExpr *S) {
+      return false;
+    }
+
     /// Visit a type that is referenced within an expression or
     /// statement.
     virtual void VisitType(QualType T) = 0;
@@ -86,19 +101,534 @@ namespace {
   class StmtProfilerWithPointers : public StmtProfiler {
     const ASTContext &Context;
 
+    /// If non-null, the profile is that of the predicate of a function
+    /// contract assertion appearing in this declaration context. Entities
+    /// declared within the predicate are then profiled by their structure
+    /// and the order in which they are first encountered, rather than by
+    /// their identity, so that the same predicate written on two declarations
+    /// of a function has the same profile ([dcl.contract.func]p5).
+    const DeclContext *PredicateContext = nullptr;
+
+    /// The entities declared within the predicate that were encountered so
+    /// far, numbered in the order in which they were encountered.
+    llvm::DenseMap<const Decl *, unsigned> PredicateDecls;
+
+    /// The closure types declared within the predicate that were referenced,
+    /// and those whose lambda-expression was profiled.
+    llvm::SmallPtrSet<const CXXRecordDecl *, 4> ReferencedClosures;
+    llvm::SmallPtrSet<const CXXRecordDecl *, 4> ProfiledClosures;
+
+    /// How an entity that is profiled specially in a predicate is identified.
+    enum PredicateDeclKind {
+      PDK_Other,
+      PDK_Local,
+      PDK_ClosureMember,
+      PDK_Specialization,
+      PDK_TULocal
+    };
+
   public:
     StmtProfilerWithPointers(llvm::FoldingSetNodeID &ID,
                              const ASTContext &Context, bool Canonical,
-                             bool ProfileLambdaExpr)
-        : StmtProfiler(ID, Canonical, ProfileLambdaExpr), Context(Context) {}
+                             bool ProfileLambdaExpr,
+                             const DeclContext *PredicateContext = nullptr)
+        : StmtProfiler(ID, Canonical, ProfileLambdaExpr), Context(Context),
+          PredicateContext(PredicateContext) {}
+
+    /// Returns true if any lambda-expression was profiled structurally.
+    bool finishPredicateProfile() {
+      // A closure type whose lambda-expression was not visited (for example
+      // because it appears in an unevaluated operand of a type) was not
+      // profiled. Make sure it is not considered to be the same as any other
+      // closure type.
+      for (const CXXRecordDecl *Closure : ReferencedClosures)
+        if (!ProfiledClosures.count(Closure))
+          ID.AddPointer(Closure);
+      return !ProfiledClosures.empty();
+    }
 
   private:
     void HandleStmtClass(Stmt::StmtClass SC) override {
       ID.AddInteger(SC);
     }
 
+    unsigned getPredicateDeclIndex(const Decl *D) {
+      D = D->getCanonicalDecl();
+      return PredicateDecls.try_emplace(D, PredicateDecls.size()).first->second;
+    }
+
+    /// Determine whether \p DC is the context of the predicate being
+    /// profiled, or another declaration of that function. The latter can be
+    /// the context of an entity declared within the predicate if that entity
+    /// was merged with the corresponding entity of a declaration of the
+    /// function in another translation unit.
+    bool isPredicateContext(const DeclContext *DC) const {
+      if (DC == PredicateContext)
+        return true;
+      return isa<FunctionDecl>(DC) && isa<FunctionDecl>(PredicateContext) &&
+             declaresSameEntity(cast<FunctionDecl>(DC),
+                                cast<FunctionDecl>(PredicateContext));
+    }
+
+    /// Determine whether \p D is declared within the predicate being
+    /// profiled, as opposed to being declared outside of it (possibly as a
+    /// parameter, template parameter or result binding of the function the
+    /// predicate belongs to).
+    bool isDeclaredInPredicate(const Decl *D) const {
+      if (!PredicateContext)
+        return false;
+      const DeclContext *DC = D->getDeclContext();
+      if (!DC)
+        return false;
+      if (isPredicateContext(DC))
+        return !isa<ParmVarDecl, ResultNameDecl, ContractSpecifierDecl>(D) &&
+               !D->isTemplateParameter();
+      for (DC = DC->getParent(); DC; DC = DC->getParent())
+        if (isPredicateContext(DC))
+          return true;
+      return false;
+    }
+
+    static bool isClosureType(const DeclContext *DC) {
+      const auto *RD = dyn_cast_or_null<CXXRecordDecl>(DC);
+      return RD && RD->isLambda();
+    }
+
+    /// Determine whether \p D is an entity with internal or no linkage which
+    /// is declared at namespace or class scope outside of the predicate: an
+    /// entity in an unnamed namespace, a static function, a namespace-scope
+    /// constant, an unnamed enumeration, ... Each translation unit has its
+    /// own such entity, which is never merged with the corresponding entity
+    /// of another translation unit, so the same predicate written in two
+    /// translation units refers to different declarations ([basic.def.odr]
+    /// permits this). Such an entity is identified by its name (as it is
+    /// when computing the ODR hash of a definition) rather than by its
+    /// identity.
+    bool isTULocalEntity(const Decl *D) const {
+      const auto *ND = dyn_cast<NamedDecl>(D);
+      if (!ND || isa<ParmVarDecl, ResultNameDecl>(ND) ||
+          ND->isTemplateParameter() || ND->isExternallyVisible())
+        return false;
+      for (const DeclContext *DC = ND->getDeclContext(); DC;
+           DC = DC->getParent()) {
+        if (DC->isFunctionOrMethod() || isClosureType(DC))
+          return false;
+        if (DC->isFileContext())
+          return true;
+      }
+      return false;
+    }
+
+    /// Determine whether \p T (a canonical type) involves an entity with
+    /// internal or no linkage.
+    bool isTULocalType(QualType T) const {
+      if (!isExternallyVisible(T->getLinkage()))
+        return true;
+      // A dependent specialization of a template with internal linkage.
+      if (const auto *TST = dyn_cast<TemplateSpecializationType>(T))
+        if (const TemplateDecl *TD = TST->getTemplateName().getAsTemplateDecl())
+          return isTULocalEntity(TD);
+      return false;
+    }
+
+    /// Profile the kind and the name of \p ND, and the template arguments if
+    /// it is a class template specialization.
+    void VisitTULocalName(const NamedDecl *ND) {
+      ID.AddInteger(ND->getKind());
+      DeclarationName Name = ND->getDeclName();
+      if (const auto *TD = dyn_cast<TagDecl>(ND); TD && Name.isEmpty())
+        if (const TypedefNameDecl *Typedef = TD->getTypedefNameForAnonDecl())
+          Name = Typedef->getDeclName();
+      VisitName(Name, /*TreatAsDecl=*/true);
+      ArrayRef<TemplateArgument> Args;
+      if (const auto *Spec = dyn_cast<ClassTemplateSpecializationDecl>(ND))
+        Args = Spec->getTemplateArgs().asArray();
+      else if (const auto *Spec = dyn_cast<VarTemplateSpecializationDecl>(ND))
+        Args = Spec->getTemplateArgs().asArray();
+      ID.AddInteger(Args.size());
+      for (const TemplateArgument &Arg : Args)
+        VisitTemplateArgument(Arg);
+    }
+
+    /// Profile a TU-local entity by its qualified name: its own name and the
+    /// names of the namespaces and classes it is declared in.
+    void VisitTULocalEntity(const NamedDecl *ND) {
+      ID.AddInteger(PDK_TULocal);
+      VisitTULocalName(ND);
+      for (const DeclContext *DC = ND->getDeclContext();
+           DC && !DC->isTranslationUnit(); DC = DC->getParent())
+        if (const auto *Parent = dyn_cast<NamedDecl>(DC))
+          VisitTULocalName(Parent);
+      // Distinguish overloads of a function (and, in general, entities whose
+      // types involve other TU-local entities).
+      if (const auto *VD = dyn_cast<ValueDecl>(ND))
+        VisitType(VD->getType());
+    }
+
+    /// Profile a canonical type which involves a TU-local entity by its
+    /// structure, identifying the entities by their names.
+    void VisitTULocalType(QualType T) {
+      ID.AddInteger(PDK_TULocal);
+      ID.AddInteger(T.getQualifiers().getAsOpaqueValue());
+      const Type *Ty = T.getTypePtr();
+      ID.AddInteger(Ty->getTypeClass());
+      switch (Ty->getTypeClass()) {
+      case Type::Pointer:
+        return VisitType(cast<PointerType>(Ty)->getPointeeType());
+      case Type::LValueReference:
+      case Type::RValueReference:
+        return VisitType(cast<ReferenceType>(Ty)->getPointeeType());
+      case Type::MemberPointer: {
+        const auto *MPT = cast<MemberPointerType>(Ty);
+        VisitType(MPT->getPointeeType());
+        if (const CXXRecordDecl *Class = MPT->getMostRecentCXXRecordDecl())
+          VisitDecl(Class);
+        else
+          VisitNestedNameSpecifier(MPT->getQualifier());
+        return;
+      }
+      case Type::ConstantArray:
+        ID.AddInteger(cast<ConstantArrayType>(Ty)->getZExtSize());
+        return VisitType(cast<ArrayType>(Ty)->getElementType());
+      case Type::IncompleteArray:
+        return VisitType(cast<ArrayType>(Ty)->getElementType());
+      case Type::FunctionProto: {
+        const auto *FPT = cast<FunctionProtoType>(Ty);
+        VisitType(FPT->getReturnType());
+        ID.AddInteger(FPT->getNumParams());
+        for (QualType Param : FPT->getParamTypes())
+          VisitType(Param);
+        ID.AddBoolean(FPT->isVariadic());
+        ID.AddInteger(FPT->getMethodQuals().getAsOpaqueValue());
+        ID.AddInteger(FPT->getRefQualifier());
+        ID.AddInteger(FPT->getExceptionSpecType());
+        return;
+      }
+      case Type::Record:
+      case Type::Enum:
+      case Type::InjectedClassName:
+        return VisitDecl(cast<TagType>(Ty)->getDecl());
+      case Type::TemplateSpecialization: {
+        const auto *TST = cast<TemplateSpecializationType>(Ty);
+        VisitTemplateName(TST->getTemplateName());
+        ID.AddInteger(TST->template_arguments().size());
+        for (const TemplateArgument &Arg : TST->template_arguments())
+          VisitTemplateArgument(Arg);
+        return;
+      }
+      default:
+        ID.AddPointer(T.getAsOpaquePtr());
+        return;
+      }
+    }
+
+    /// Profile a reference to a member of a closure type declared within the
+    /// predicate. The members of a closure type are identified by the closure
+    /// type and their name.
+    void VisitClosureMember(const CXXRecordDecl *Closure, const NamedDecl *D) {
+      ID.AddInteger(PDK_ClosureMember);
+      ReferencedClosures.insert(Closure->getCanonicalDecl());
+      ID.AddInteger(getPredicateDeclIndex(Closure));
+
+      DeclarationName Name = D->getDeclName();
+      ID.AddInteger(Name.getNameKind());
+      switch (Name.getNameKind()) {
+      case DeclarationName::Identifier:
+        ID.AddPointer(Name.getAsIdentifierInfo());
+        break;
+      case DeclarationName::CXXOperatorName:
+        ID.AddInteger(Name.getCXXOverloadedOperator());
+        break;
+      case DeclarationName::CXXConversionFunctionName:
+        VisitType(Name.getCXXNameType());
+        break;
+      case DeclarationName::CXXConstructorName: {
+        // The constructors of a closure type are not named; distinguish them
+        // by their kind.
+        const auto *Ctor = dyn_cast<CXXConstructorDecl>(D);
+        ID.AddInteger(!Ctor                       ? 0
+                      : Ctor->isCopyConstructor() ? 1
+                      : Ctor->isMoveConstructor() ? 2
+                                                  : 3);
+        break;
+      }
+      default:
+        break;
+      }
+    }
+
+    /// Profile a reference to \p D if it has to be treated specially because
+    /// a predicate is being profiled. Returns false if it does not.
+    bool VisitPredicateDecl(const Decl *D) {
+      // A function template specialization is identified by its template and
+      // its template arguments, since the latter can involve closure types
+      // declared within the predicate.
+      if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+        const TemplateArgumentList *Args = FD->getTemplateSpecializationArgs();
+        const FunctionTemplateDecl *Primary = FD->getPrimaryTemplate();
+        if (Args && Primary) {
+          ID.AddInteger(PDK_Specialization);
+          VisitDecl(Primary);
+          ID.AddInteger(Args->size());
+          for (const TemplateArgument &Arg : Args->asArray())
+            VisitTemplateArgument(Arg);
+          return true;
+        }
+      }
+
+      if (!isDeclaredInPredicate(D)) {
+        if (!isTULocalEntity(D))
+          return false;
+        VisitTULocalEntity(cast<NamedDecl>(D));
+        return true;
+      }
+
+      if (isClosureType(D->getDeclContext()) && isa<NamedDecl>(D)) {
+        VisitClosureMember(cast<CXXRecordDecl>(D->getDeclContext()),
+                           cast<NamedDecl>(D));
+        return true;
+      }
+
+      // Entities which are profiled where they are declared.
+      const auto *RD = dyn_cast<CXXRecordDecl>(D);
+      if (RD && RD->isLambda())
+        ReferencedClosures.insert(RD->getCanonicalDecl());
+      if ((RD && RD->isLambda()) ||
+          isa<VarDecl, BindingDecl, LabelDecl, TypedefNameDecl>(D)) {
+        ID.AddInteger(PDK_Local);
+        ID.AddInteger(getPredicateDeclIndex(D));
+        return true;
+      }
+
+      // Anything else (for example a local class) is identified by its
+      // identity, and is therefore never the same as an entity declared
+      // within another predicate.
+      return false;
+    }
+
+    void VisitLocalDecl(const Decl *D) override {
+      if (!PredicateContext || !isDeclaredInPredicate(D))
+        return VisitDecl(D);
+
+      // Profile the declaration of a local entity. The profile of the
+      // initializer of a variable is part of that of the declaration
+      // statement.
+      if (const auto *TD = dyn_cast<TypedefNameDecl>(D)) {
+        VisitDecl(TD);
+        ID.AddPointer(TD->getIdentifier());
+        VisitType(TD->getUnderlyingType());
+        return;
+      }
+
+      const auto *VD = dyn_cast<VarDecl>(D);
+      if (!VD)
+        return VisitDecl(D);
+
+      VisitDecl(VD);
+      // The names of implicitly declared variables (e.g. of a range-based for
+      // statement) are not spelled in the source.
+      ID.AddPointer(VD->isImplicit() ? nullptr : VD->getIdentifier());
+      VisitType(VD->getType());
+      ID.AddInteger(VD->getStorageClass());
+      ID.AddInteger(VD->getTSCSpec());
+      ID.AddBoolean(VD->isConstexpr());
+      ID.AddBoolean(VD->hasInit());
+      ID.AddInteger(VD->getInitStyle());
+      if (const auto *DD = dyn_cast<DecompositionDecl>(VD)) {
+        ID.AddInteger(DD->bindings().size());
+        for (const BindingDecl *BD : DD->bindings()) {
+          VisitDecl(BD);
+          ID.AddPointer(BD->getIdentifier());
+        }
+      }
+    }
+
+    void VisitExceptionDecl(const VarDecl *D) override {
+      if (!PredicateContext)
+        return;
+      VisitDecl(D);
+      ID.AddPointer(D->getIdentifier());
+    }
+
+    void VisitTemplateParameterList(const TemplateParameterList *TPL) {
+      ID.AddInteger(TPL->size());
+      for (const NamedDecl *Param : *TPL) {
+        ID.AddInteger(Param->getKind());
+        ID.AddPointer(Param->isImplicit() ? nullptr : Param->getIdentifier());
+        ID.AddBoolean(Param->isParameterPack());
+        if (const auto *TTP = dyn_cast<TemplateTypeParmDecl>(Param)) {
+          const TypeConstraint *TC = TTP->getTypeConstraint();
+          const Expr *Constraint =
+              TC ? TC->getImmediatelyDeclaredConstraint() : nullptr;
+          ID.AddBoolean(Constraint);
+          if (Constraint)
+            Visit(Constraint);
+          ID.AddBoolean(TTP->hasDefaultArgument());
+          if (TTP->hasDefaultArgument())
+            VisitTemplateArgument(TTP->getDefaultArgument().getArgument());
+        } else if (const auto *NTTP =
+                       dyn_cast<NonTypeTemplateParmDecl>(Param)) {
+          VisitType(NTTP->getType());
+          ID.AddBoolean(NTTP->hasDefaultArgument());
+          if (NTTP->hasDefaultArgument())
+            VisitTemplateArgument(NTTP->getDefaultArgument().getArgument());
+        } else if (const auto *TTP =
+                       dyn_cast<TemplateTemplateParmDecl>(Param)) {
+          VisitTemplateParameterList(TTP->getTemplateParameters());
+          ID.AddBoolean(TTP->hasDefaultArgument());
+          if (TTP->hasDefaultArgument())
+            VisitTemplateArgument(TTP->getDefaultArgument().getArgument());
+        }
+      }
+      const Expr *Requires = TPL->getRequiresClause();
+      ID.AddBoolean(Requires);
+      if (Requires)
+        Visit(Requires);
+    }
+
+    /// Returns the call operator declared by the definition of \p Closure,
+    /// found among its own declarations. If the closure type was loaded from
+    /// an AST file and merged with the closure type of the corresponding
+    /// lambda-expression of another declaration of the function, the lookup
+    /// of the closure type (and therefore LambdaExpr::getCallOperator()) finds
+    /// the call operator of the closure type they were merged into, not the
+    /// one of this lambda-expression.
+    static const CXXMethodDecl *
+    getDeclaredCallOperator(const CXXRecordDecl *Closure) {
+      for (const Decl *D : Closure->decls()) {
+        if (const auto *FTD = dyn_cast<FunctionTemplateDecl>(D))
+          D = FTD->getTemplatedDecl();
+        if (const auto *MD = dyn_cast<CXXMethodDecl>(D);
+            MD && MD->getOverloadedOperator() == OO_Call)
+          return MD;
+      }
+      return nullptr;
+    }
+
+    bool VisitLambdaExprStructurally(const LambdaExpr *S) override {
+      if (!PredicateContext)
+        return false;
+
+      // Profile the lambda-expression as written with this declaration of the
+      // function, even if its closure type was merged with that of another
+      // translation unit (see getDeclaredCallOperator). The entities declared
+      // by it belong to this declaration of the function or, once merged, to
+      // the other one (see isPredicateContext).
+      const CXXRecordDecl *Closure = S->getLambdaClass();
+      if (!isDeclaredInPredicate(Closure))
+        return false;
+      // The closure type found through the type of the lambda-expression is
+      // its canonical declaration. If closure types were merged, find the
+      // declaration which was read with this lambda-expression: the one
+      // declared at its location.
+      for (const TagDecl *Redecl : Closure->redecls())
+        if (Redecl->getLocation() == S->getBeginLoc()) {
+          Closure = cast<CXXRecordDecl>(Redecl);
+          break;
+        }
+      const CXXMethodDecl *CallOp = getDeclaredCallOperator(Closure);
+      if (!CallOp)
+        return false;
+      // The body refers to the parameters of the declaration of the call
+      // operator which is its definition.
+      if (const FunctionDecl *Definition = CallOp->getDefinition())
+        CallOp = cast<CXXMethodDecl>(Definition);
+
+      VisitStmtNoChildren(S);
+      ProfiledClosures.insert(Closure->getCanonicalDecl());
+      ID.AddInteger(getPredicateDeclIndex(Closure));
+
+      // The lambda-introducer.
+      ID.AddInteger(S->getCaptureDefault());
+      ID.AddInteger(S->capture_size());
+      for (const LambdaCapture &Capture : S->captures()) {
+        ID.AddInteger(Capture.getCaptureKind());
+        ID.AddBoolean(Capture.isImplicit());
+        ID.AddBoolean(Capture.isPackExpansion());
+        if (!Capture.capturesVariable())
+          continue;
+        const ValueDecl *Var = Capture.getCapturedVar();
+        VisitDecl(Var);
+        if (const auto *VD = dyn_cast<VarDecl>(Var);
+            VD && VD->isInitCapture()) {
+          ID.AddPointer(VD->getIdentifier());
+          VisitType(VD->getType());
+          ID.AddInteger(VD->getInitStyle());
+        }
+      }
+      for (const Expr *Init : S->capture_inits()) {
+        ID.AddBoolean(Init);
+        if (Init)
+          Visit(Init);
+      }
+
+      // The template parameters, including those invented for parameters with
+      // a placeholder type.
+      const TemplateParameterList *TPL = nullptr;
+      if (const FunctionTemplateDecl *FTD =
+              CallOp->getDescribedFunctionTemplate())
+        TPL = FTD->getTemplateParameters();
+      ID.AddBoolean(TPL);
+      if (TPL)
+        VisitTemplateParameterList(TPL);
+
+      // The lambda-declarator.
+      ID.AddBoolean(S->hasExplicitParameters());
+      ID.AddBoolean(S->hasExplicitResultType());
+      ID.AddInteger(CallOp->getNumParams());
+      for (const ParmVarDecl *Param : CallOp->parameters()) {
+        ID.AddInteger(getPredicateDeclIndex(Param));
+        ID.AddPointer(Param->getIdentifier());
+        VisitType(Param->getType());
+        ID.AddBoolean(Param->isParameterPack());
+        ID.AddBoolean(Param->isExplicitObjectParameter());
+        const Expr *DefaultArg = nullptr;
+        if (Param->hasUninstantiatedDefaultArg())
+          DefaultArg = Param->getUninstantiatedDefaultArg();
+        else if (Param->hasDefaultArg() && !Param->hasUnparsedDefaultArg())
+          DefaultArg = Param->getDefaultArg();
+        ID.AddBoolean(Param->hasDefaultArg());
+        if (DefaultArg)
+          Visit(DefaultArg);
+      }
+      VisitType(CallOp->getReturnType());
+      ID.AddBoolean(CallOp->isVariadic());
+      ID.AddBoolean(CallOp->isStatic());
+      ID.AddBoolean(!CallOp->isConst());
+      ID.AddInteger(llvm::to_underlying(CallOp->getConstexprKind()));
+      if (const auto *FPT = CallOp->getType()->getAs<FunctionProtoType>()) {
+        ID.AddInteger(FPT->getExceptionSpecType());
+        const Expr *Noexcept = FPT->getNoexceptExpr();
+        ID.AddBoolean(Noexcept);
+        if (Noexcept)
+          Visit(Noexcept);
+      }
+      const Expr *Requires = CallOp->getTrailingRequiresClause().ConstraintExpr;
+      ID.AddBoolean(Requires);
+      if (Requires)
+        Visit(Requires);
+      const ContractSpecifierDecl *Contracts = CallOp->getContracts();
+      ID.AddInteger(Contracts ? Contracts->getNumContracts() : 0);
+      if (Contracts)
+        for (const ContractStmt *CS : Contracts->contracts())
+          Visit(CS);
+
+      // The compound-statement.
+      const Stmt *Body = CallOp->getBody();
+      ID.AddBoolean(Body);
+      if (Body)
+        Visit(Body);
+      return true;
+    }
+
     void VisitDecl(const Decl *D) override {
       ID.AddInteger(D ? D->getKind() : 0);
+
+      if (PredicateContext && D) {
+        if (VisitPredicateDecl(D))
+          return;
+        ID.AddInteger(PDK_Other);
+      }
 
       if (Canonical && D) {
         if (const NonTypeTemplateParmDecl *NTTP =
@@ -135,6 +665,16 @@ namespace {
           return;
         }
 
+        if (const auto *RND = dyn_cast<ResultNameDecl>(D)) {
+          // Pointer equality cannot be used on result names either, since the result name on different declarations
+          // should be considered equivalent.
+          // FIXME(EricWF): We may need to compare more than just the type and identifier, consider
+          //
+          VisitType(RND->getType());
+          ID.AddInteger(RND->getFunctionScopeDepth());
+          return;
+        }
+
         if (const TemplateTypeParmDecl *TTP =
                 dyn_cast<TemplateTypeParmDecl>(D)) {
           ID.AddInteger(TTP->getDepth());
@@ -159,6 +699,33 @@ namespace {
       if (Canonical && !T.isNull())
         T = Context.getCanonicalType(T);
 
+      if (PredicateContext && !T.isNull()) {
+        // Look through pointers, references and qualifiers for a closure type
+        // declared within the predicate.
+        QualType Inner = T;
+        unsigned Depth = 0;
+        while (Inner->isPointerType() || Inner->isReferenceType()) {
+          Inner = Inner->getPointeeType();
+          ++Depth;
+        }
+        const CXXRecordDecl *RD = Inner->getAsCXXRecordDecl();
+        if (RD && RD->isLambda() && isDeclaredInPredicate(RD)) {
+          ID.AddInteger(PDK_Local);
+          for (Inner = T; Depth; --Depth) {
+            ID.AddInteger(Inner->getTypeClass());
+            ID.AddInteger(Inner.getLocalFastQualifiers());
+            Inner = Inner->getPointeeType();
+          }
+          ID.AddInteger(Inner.getLocalFastQualifiers());
+          ReferencedClosures.insert(RD->getCanonicalDecl());
+          ID.AddInteger(getPredicateDeclIndex(RD));
+          return;
+        }
+        if (isTULocalType(T))
+          return VisitTULocalType(T);
+        ID.AddInteger(PDK_Other);
+      }
+
       ID.AddPointer(T.getAsOpaquePtr());
     }
 
@@ -179,6 +746,11 @@ namespace {
     void VisitTemplateName(TemplateName Name) override {
       if (Canonical)
         Name = Context.getCanonicalTemplateName(Name);
+
+      if (PredicateContext)
+        if (const TemplateDecl *TD = Name.getAsTemplateDecl();
+            TD && isTULocalEntity(TD))
+          return VisitTULocalEntity(TD);
 
       Name.Profile(ID);
     }
@@ -253,7 +825,7 @@ void StmtProfiler::VisitStmt(const Stmt *S) {
 void StmtProfiler::VisitDeclStmt(const DeclStmt *S) {
   VisitStmt(S);
   for (const auto *D : S->decls())
-    VisitDecl(D);
+    VisitLocalDecl(D);
 }
 
 void StmtProfiler::VisitNullStmt(const NullStmt *S) {
@@ -359,6 +931,8 @@ void StmtProfiler::VisitMSAsmStmt(const MSAsmStmt *S) {
 void StmtProfiler::VisitCXXCatchStmt(const CXXCatchStmt *S) {
   VisitStmt(S);
   VisitType(S->getCaughtType());
+  if (const VarDecl *ExceptionDecl = S->getExceptionDecl())
+    VisitExceptionDecl(ExceptionDecl);
 }
 
 void StmtProfiler::VisitCXXTryStmt(const CXXTryStmt *S) {
@@ -2222,6 +2796,9 @@ StmtProfiler::VisitCXXTemporaryObjectExpr(const CXXTemporaryObjectExpr *S) {
 
 void
 StmtProfiler::VisitLambdaExpr(const LambdaExpr *S) {
+  if (VisitLambdaExprStructurally(S))
+    return;
+
   if (!ProfileLambdaExpr) {
     // Do not recursively visit the children of this expression. Profiling the
     // body would result in unnecessary work, and is not safe to do during
@@ -2534,6 +3111,21 @@ void StmtProfiler::VisitDependentCoawaitExpr(const DependentCoawaitExpr *S) {
 
 void StmtProfiler::VisitCoyieldExpr(const CoyieldExpr *S) {
   VisitExpr(S);
+}
+
+void StmtProfiler::VisitContractStmt(const ContractStmt *S) {
+  VisitStmt(S);
+  ID.AddInteger(llvm::to_underlying(S->getContractKind()));
+  ID.AddInteger(S->getAttrs().size());
+  for (const Attr *A : S->getAttrs()) {
+    ID.AddInteger(A->getKind());
+    if (const auto *G = dyn_cast<ContractGroupAttr>(A)) {
+      ID.AddString(G->getGroup());
+    } else if (const auto *M = dyn_cast<ContractMessageAttr>(A)) {
+      ID.AddString(M->getMessage());
+      ID.AddBoolean(M->getIncludeSourceText());
+    }
+  }
 }
 
 void StmtProfiler::VisitOpaqueValueExpr(const OpaqueValueExpr *E) {
@@ -3067,6 +3659,17 @@ void Stmt::Profile(llvm::FoldingSetNodeID &ID, const ASTContext &Context,
                    bool Canonical, bool ProfileLambdaExpr) const {
   StmtProfilerWithPointers Profiler(ID, Context, Canonical, ProfileLambdaExpr);
   Profiler.Visit(this);
+}
+
+bool Stmt::ProfileContractPredicate(llvm::FoldingSetNodeID &ID,
+                                    const ASTContext &Context,
+                                    const DeclContext *PredicateContext) const {
+  assert(PredicateContext && "no context for the predicate");
+  StmtProfilerWithPointers Profiler(ID, Context, /*Canonical=*/true,
+                                    /*ProfileLambdaExpr=*/false,
+                                    PredicateContext);
+  Profiler.Visit(this);
+  return Profiler.finishPredicateProfile();
 }
 
 void Stmt::ProcessODRHash(llvm::FoldingSetNodeID &ID,

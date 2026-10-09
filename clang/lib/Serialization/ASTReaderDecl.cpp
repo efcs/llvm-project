@@ -455,6 +455,9 @@ public:
   void VisitOMPDeclareMapperDecl(OMPDeclareMapperDecl *D);
   void VisitOMPRequiresDecl(OMPRequiresDecl *D);
   void VisitOMPCapturedExprDecl(OMPCapturedExprDecl *D);
+  void VisitResultNameDecl(ResultNameDecl *RND);
+  void VisitContractSpecifierDecl(ContractSpecifierDecl *CSD);
+
 };
 } // namespace clang
 
@@ -893,6 +896,15 @@ void ASTDeclReader::VisitValueDecl(ValueDecl *VD) {
     VD->setType(Record.readType());
 }
 
+void ASTDeclReader::VisitResultNameDecl(ResultNameDecl *VD) {
+  VisitValueDecl(VD);
+  VD->setFunctionScopeDepth(Record.readInt());
+  bool IsCanonical = Record.readInt();
+  if (!IsCanonical) {
+    VD->setCanonicalResultName(readDeclAs<ResultNameDecl>());
+  }
+}
+
 void ASTDeclReader::VisitEnumConstantDecl(EnumConstantDecl *ECD) {
   VisitValueDecl(ECD);
   if (Record.readInt())
@@ -904,7 +916,10 @@ void ASTDeclReader::VisitEnumConstantDecl(EnumConstantDecl *ECD) {
 void ASTDeclReader::VisitDeclaratorDecl(DeclaratorDecl *DD) {
   VisitValueDecl(DD);
   DD->setInnerLocStart(readSourceLocation());
-  if (Record.readInt()) { // hasExtInfo
+  BitsUnpacker DeclDeclBits(Record.readInt());
+  bool HaveExtInfo = DeclDeclBits.getNextBit();
+
+  if (HaveExtInfo) { // hasExtInfo
     auto *Info = new (Reader.getContext()) DeclaratorDecl::ExtInfo();
     Record.readQualifierInfo(*Info);
     Info->TrailingRequiresClause = AssociatedConstraint(
@@ -1077,6 +1092,7 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
   FD->setFriendConstraintRefersToEnclosingTemplate(
       FunctionDeclBits.getNextBit());
   FD->setUsesSEHTry(FunctionDeclBits.getNextBit());
+  bool HasContracts = FunctionDeclBits.getNextBit();
   FD->setIsDestroyingOperatorDelete(FunctionDeclBits.getNextBit());
   FD->setIsTypeAwareOperatorNewOrDelete(FunctionDeclBits.getNextBit());
 
@@ -1148,6 +1164,21 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
     Params.push_back(readDeclAs<ParmVarDecl>());
   FD->setParams(Reader.getContext(), Params);
 
+  if (HasContracts)
+    FD->setContracts(readDeclAs<ContractSpecifierDecl>());
+
+  // [dcl.contract.func]p4: First declarations of a function in different
+  // translation units shall specify the same function-contract-specifier-seq.
+  // If this is such a declaration and it was merged with another declaration,
+  // compare them once we're done deserializing. Only functions with contracts
+  // on either declaration need to be looked at.
+  if (Reader.getContext().getLangOpts().Contracts && Redecl.isKeyDecl() &&
+      !Redecl.getKnownMergeTarget()) {
+    FunctionDecl *Canon = FD->getCanonicalDecl();
+    if (Canon != FD && (HasContracts || Canon->hasContracts()))
+      Reader.PendingFunctionContractChecks.push_back(FD);
+  }
+
   // If the declaration is a SYCL kernel entry point function as indicated by
   // the presence of a sycl_kernel_entry_point attribute, register it so that
   // associated metadata is recreated.
@@ -1167,6 +1198,18 @@ void ASTDeclReader::VisitFunctionDecl(FunctionDecl *FD) {
       C.registerSYCLEntryPointFunction(FD);
     }
   }
+}
+
+void ASTDeclReader::VisitContractSpecifierDecl(ContractSpecifierDecl *CSD) {
+  // The number of contracts was already read when the declaration was
+  // created (see ReadDeclRecord).
+  VisitDecl(CSD);
+
+  SmallVector<ContractStmt *, 8> Contracts;
+  Contracts.reserve(CSD->NumContracts);
+  for (unsigned I = 0; I < CSD->NumContracts; ++I)
+    Contracts.push_back(cast<ContractStmt>(Record.readStmt()));
+  CSD->setContracts(Contracts);
 }
 
 void ASTDeclReader::VisitObjCMethodDecl(ObjCMethodDecl *MD) {
@@ -3564,10 +3607,11 @@ NamedDecl *ASTDeclReader::getAnonymousDeclForMerging(ASTReader &Reader,
   };
   if (PrimaryDC && needToNumberAnonymousDeclsWithin(cast<Decl>(PrimaryDC))) {
     numberAnonymousDeclsWithin(PrimaryDC, [&](NamedDecl *ND, unsigned Number) {
-      if (Previous.size() == Number)
-        Previous.push_back(cast<NamedDecl>(ND->getCanonicalDecl()));
-      else
-        Previous[Number] = cast<NamedDecl>(ND->getCanonicalDecl());
+      // The numbers of the declarations within a function need not start at
+      // zero (see getFirstAnonymousDeclarationNumber).
+      if (Previous.size() <= Number)
+        Previous.resize(Number + 1);
+      Previous[Number] = cast<NamedDecl>(ND->getCanonicalDecl());
     });
   }
 
@@ -4278,6 +4322,13 @@ Decl *ASTReader::ReadDeclRecord(GlobalDeclID ID) {
     break;
   case DECL_FILE_SCOPE_ASM:
     D = FileScopeAsmDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_RESULT_NAME:
+    D = ResultNameDecl::CreateDeserialized(Context, ID);
+    break;
+  case DECL_CONTRACT_SPECIFIER:
+    D = ContractSpecifierDecl::CreateDeserialized(Context, ID,
+                                                  Record.readInt());
     break;
   case DECL_TOP_LEVEL_STMT_DECL:
     D = TopLevelStmtDecl::CreateDeserialized(Context, ID);

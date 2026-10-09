@@ -41,8 +41,10 @@ public:
 private:
   struct Allocation {
     std::unique_ptr<std::byte[]> Memory;
-    Allocation(std::unique_ptr<std::byte[]> Memory)
-        : Memory(std::move(Memory)) {}
+    /// The number of allocations performed before this one.
+    unsigned Index;
+    Allocation(std::unique_ptr<std::byte[]> Memory, unsigned Index)
+        : Memory(std::move(Memory)), Index(Index) {}
     Block *block() const { return reinterpret_cast<Block *>(Memory.get()); }
   };
 
@@ -51,9 +53,10 @@ private:
     unsigned NumAllocs = 0;
     Form AllocForm;
 
-    AllocationSite(std::unique_ptr<std::byte[]> Memory, Form AllocForm)
+    AllocationSite(std::unique_ptr<std::byte[]> Memory, unsigned Index,
+                   Form AllocForm)
         : AllocForm(AllocForm) {
-      Allocations.push_back({std::move(Memory)});
+      Allocations.push_back({std::move(Memory), Index});
       ++NumAllocs;
     }
 
@@ -83,6 +86,16 @@ public:
   /// Returns \c true if anything has been deallocatd, \c false otherwise.
   bool deallocate(const Expr *Source, const Block *BlockToDelete);
 
+  /// The number of allocations performed so far.
+  unsigned getNumAllocations() const { return NumAllocations; }
+
+  /// Deallocate everything that is still allocated and was allocated after
+  /// \p FirstAlloc allocations had been performed. Returns the number of
+  /// allocations that were deallocated and sets \p Source to the source of
+  /// the oldest one.
+  unsigned deallocateSince(unsigned FirstAlloc, InterpState &S,
+                           const Expr *&Source);
+
   /// Checks whether the allocation done at the given source is an array
   /// allocation.
   std::optional<Form> getAllocationForm(const Expr *Source) const {
@@ -102,6 +115,7 @@ public:
 
 private:
   llvm::DenseMap<const Expr *, AllocationSite> AllocationSites;
+  unsigned NumAllocations = 0;
   // Allocations that have already been deallocated but had pointers
   // to them.
   llvm::SmallVector<Allocation> DeadAllocations;

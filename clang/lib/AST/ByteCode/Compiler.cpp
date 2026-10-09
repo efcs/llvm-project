@@ -319,6 +319,17 @@ private:
   const VarDecl *OldInitializingDecl;
 };
 
+/// Scope for the value returned by a function with postcondition assertions.
+template <class Emitter> class ResultScope final : public LocalScope<Emitter> {
+public:
+  ResultScope(Compiler<Emitter> *Ctx) : LocalScope<Emitter>(Ctx) {}
+
+  /// A return statement destroys the locals of all enclosing scopes, but the
+  /// returned value has to outlive the evaluation of the postcondition
+  /// assertions. It is destroyed along with the frame of the function.
+  bool destroyLocals(const Expr *E = nullptr) override { return true; }
+};
+
 /// Scope used to handle initialization methods.
 template <class Emitter> class OptionScope final {
 public:
@@ -6361,8 +6372,14 @@ bool Compiler<Emitter>::VisitCallExpr(const CallExpr *E) {
   ArrayRef<const Expr *> Args(E->getArgs(), E->getNumArgs());
   bool ActivateLHS = false;
 
-  // Emit a special op for trivial copy/move operators.
-  if (isTrivialMemoryOperation(dyn_cast_if_present<CXXMethodDecl>(FuncDecl))) {
+  // Emit a special op for trivial copy/move operators. An operator with
+  // contracts is called instead, so that its contract assertions are checked
+  // around the copy (see visitFunc).
+  auto HasContracts = [](const FunctionDecl *FD) {
+    return FD->getContractsInEffect() != nullptr;
+  };
+  if (isTrivialMemoryOperation(dyn_cast_if_present<CXXMethodDecl>(FuncDecl)) &&
+      !HasContracts(FuncDecl)) {
     const Function *Func = getFunction(FuncDecl);
     if (!Func)
       return false;
@@ -6751,6 +6768,8 @@ template <class Emitter> bool Compiler<Emitter>::visitStmt(const Stmt *S) {
     return visitAttributedStmt(cast<AttributedStmt>(S));
   case Stmt::CXXTryStmtClass:
     return visitCXXTryStmt(cast<CXXTryStmt>(S));
+  case Stmt::ContractStmtClass:
+    return visitContractStmt(cast<ContractStmt>(S));
   case Stmt::NullStmtClass:
     return true;
   // Always invalid statements.
@@ -6880,7 +6899,7 @@ bool Compiler<Emitter>::visitReturnStmt(const ReturnStmt *RS) {
       if (!this->visit(RE))
         return false;
       this->emitCleanup();
-      return this->emitRet(*ReturnType, RS);
+      return this->emitFunctionReturn(RS);
     }
 
     if (RE->getType()->isVoidType()) {
@@ -6898,13 +6917,13 @@ bool Compiler<Emitter>::visitReturnStmt(const ReturnStmt *RS) {
         return false;
 
       this->emitCleanup();
-      return this->emitRetVoid(RS);
+      return this->emitFunctionReturn(RS);
     }
   }
 
   // Void return.
   this->emitCleanup();
-  return this->emitRetVoid(RS);
+  return this->emitFunctionReturn(RS);
 }
 
 template <class Emitter> bool Compiler<Emitter>::visitIfStmt(const IfStmt *IS) {
@@ -7483,6 +7502,51 @@ bool Compiler<Emitter>::visitCXXExpansionStmtInstantiation(
 }
 
 template <class Emitter>
+bool Compiler<Emitter>::visitContractStmt(const ContractStmt *S) {
+  // Evaluating a contract assertion with the ignore semantic has no effect.
+  if (S->getSemantic(Ctx.getASTContext()) == ContractEvaluationSemantic::Ignore)
+    return true;
+
+  // The invalid predicate has been diagnosed already.
+  if (S->getCond()->containsErrors())
+    return this->emitError(S);
+
+  // The predicate is evaluated separately from the surrounding code, since
+  // whether it is a core constant expression does not affect whether the
+  // enclosing expression is one.
+  LabelTy EndLabel = this->getLabel();
+  unsigned FirstScope = this->Descriptors.size();
+  if (!this->checkContract(S, EndLabel))
+    return false;
+  this->fallthrough(EndLabel);
+  return this->emitEndContract(FirstScope, this->Descriptors.size(), S);
+}
+
+template <class Emitter>
+bool Compiler<Emitter>::visitContractPredicate(const ContractStmt *S) {
+  // The predicate is a full-expression. It might not be evaluated at all, so
+  // make sure that none of its locals end up in an enclosing scope, which
+  // would then be initialized by the code of the predicate.
+  LocalScope<Emitter> BlockScope(this, ScopeKind::Block);
+  LocalScope<Emitter> ExprScope(this, ScopeKind::FullExpression);
+  if (!this->visitBool(S->getCond()))
+    return false;
+  return ExprScope.destroyLocals() && BlockScope.destroyLocals();
+}
+
+template <class Emitter>
+bool Compiler<Emitter>::emitFunctionReturn(SourceInfo SI) {
+  if (PostconditionLabel) {
+    if (ReturnType && !this->emitSetLocal(*ReturnType, *ResultLocal, SI))
+      return false;
+    return this->jump(*PostconditionLabel, SI);
+  }
+  if (ReturnType)
+    return this->emitRet(*ReturnType, SI);
+  return this->emitRetVoid(SI);
+}
+
+template <class Emitter>
 bool Compiler<Emitter>::emitLambdaStaticInvokerBody(const CXXMethodDecl *MD) {
   assert(MD->isLambdaStaticInvoker());
   assert(MD->hasBody());
@@ -7637,7 +7701,7 @@ bool Compiler<Emitter>::compileConstructor(const CXXConstructorDecl *Ctor) {
       return false;
 
     return this->emitMemcpy(Ctor) && this->emitPopPtr(Ctor) &&
-           this->emitRetVoid(Ctor);
+           this->emitFunctionReturn(Ctor);
   }
 
   unsigned FieldInits = 0;
@@ -7786,7 +7850,7 @@ bool Compiler<Emitter>::compileConstructor(const CXXConstructorDecl *Ctor) {
       return false;
   }
 
-  return this->emitRetVoid(SourceInfo{});
+  return this->emitFunctionReturn(SourceInfo{});
 }
 
 template <class Emitter>
@@ -7857,7 +7921,7 @@ bool Compiler<Emitter>::compileDestructor(const CXXDestructorDecl *Dtor) {
   if (!this->emitMarkDestroyed(Dtor))
     return false;
 
-  return this->emitPopPtr(Dtor) && this->emitRetVoid(Dtor);
+  return this->emitPopPtr(Dtor) && this->emitFunctionReturn(Dtor);
 }
 
 template <class Emitter>
@@ -7869,7 +7933,7 @@ bool Compiler<Emitter>::compileUnionAssignmentOperator(
   if (!this->emitGetParam(PT_Ptr, /*ParamIndex=*/0, MD))
     return false;
 
-  return this->emitMemcpy(MD) && this->emitRet(PT_Ptr, MD);
+  return this->emitMemcpy(MD) && this->emitFunctionReturn(MD);
 }
 
 template <class Emitter>
@@ -7882,6 +7946,62 @@ bool Compiler<Emitter>::visitFunc(const FunctionDecl *F) {
 
   this->CompilingFunction = F;
 
+  const ContractSpecifierDecl *CSD = F->getContractsInEffect();
+  if (!CSD)
+    return this->visitFuncBody(F);
+
+  // The predicates of the function contract assertions refer to the
+  // parameters of the declaration that introduces the contracts, which need
+  // not be this definition. Make them denote the parameters of the definition.
+  if (const auto *Owner = dyn_cast<FunctionDecl>(CSD->getDeclContext());
+      Owner && Owner != F && Owner->getNumParams() == F->getNumParams())
+    for (unsigned I = 0, N = F->getNumParams(); I != N; ++I)
+      if (auto It = this->Params.find(F->getParamDecl(I));
+          It != this->Params.end())
+        this->Params.insert({Owner->getParamDecl(I), It->second});
+
+  // The scope of the returned value, which the postcondition assertions can
+  // refer to.
+  ResultScope<Emitter> Scope(this);
+
+  // The precondition assertions are evaluated before the function-body,
+  // which includes the ctor-initializer of a constructor.
+  for (const ContractStmt *S : F->preconditions())
+    if (!this->visitContractStmt(S))
+      return false;
+
+  auto Postconditions = F->postconditions();
+  if (Postconditions.begin() == Postconditions.end())
+    return this->visitFuncBody(F);
+
+  // The postcondition assertions are evaluated when the function returns
+  // normally. For a destructor, that is after the destruction of all members
+  // and base classes.
+  PostconditionLabel = this->getLabel();
+  if (ReturnType) {
+    const ValueDecl *ResultDecl = F;
+    if (const ResultNameDecl *RND = CSD->getCanonicalResultName())
+      ResultDecl = RND;
+    ResultLocal = this->allocateLocalPrimitive(ResultDecl, *ReturnType,
+                                               /*IsConst=*/false);
+  }
+
+  if (!this->visitFuncBody(F))
+    return false;
+
+  this->emitLabel(*PostconditionLabel);
+  for (const ContractStmt *S : Postconditions)
+    if (!this->visitContractStmt(S))
+      return false;
+
+  if (ReturnType)
+    return this->emitGetLocal(*ReturnType, *ResultLocal, SourceInfo{}) &&
+           this->emitRet(*ReturnType, SourceInfo{});
+  return this->emitRetVoid(SourceInfo{});
+}
+
+template <class Emitter>
+bool Compiler<Emitter>::visitFuncBody(const FunctionDecl *F) {
   if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(F))
     return this->compileConstructor(Ctor);
   if (const auto *Dtor = dyn_cast<CXXDestructorDecl>(F))
@@ -7906,7 +8026,7 @@ bool Compiler<Emitter>::visitFunc(const FunctionDecl *F) {
 
   // Emit a guard return to protect against a code path missing one.
   if (F->getReturnType()->isVoidType())
-    return this->emitRetVoid(SourceInfo{});
+    return this->emitFunctionReturn(SourceInfo{});
   return this->emitNoRet(SourceInfo{});
 }
 
@@ -8423,6 +8543,35 @@ bool Compiler<Emitter>::visitDeclRef(const ValueDecl *D, const Expr *E) {
       return true;
     return this->emitConst(ECD->getInitVal(), E);
   }
+  if constexpr (!std::is_same_v<Emitter, EvalEmitter>) {
+    // Lambda captures. A lambda that captures the result name of the enclosing
+    // function refers to its own copy or reference, not to the result object
+    // of the enclosing call, so this has to come before the result name case.
+    if (auto It = this->LambdaCaptures.find(D);
+        It != this->LambdaCaptures.end()) {
+      auto [Offset, IsPtr] = It->second;
+      if (DiscardResult)
+        return true;
+      if (IsPtr)
+        return this->emitGetThisFieldPtr(Offset, E);
+      return this->emitGetPtrThisField(Offset, E);
+    }
+  }
+  if (const auto *RND = dyn_cast<ResultNameDecl>(D)) {
+    // A result name can only be evaluated as part of the postcondition
+    // assertions of the function being compiled.
+    if (!PostconditionLabel)
+      return this->emitInvalid(E);
+    if (DiscardResult)
+      return true;
+    // The result object of the call.
+    if (!ReturnType)
+      return this->emitRVOPtr(E);
+    // The returned glvalue.
+    if (RND->getType()->isReferenceType())
+      return this->emitGetLocal(PT_Ptr, *ResultLocal, E);
+    return this->emitGetPtrLocal(*ResultLocal, E);
+  }
   if (const auto *FuncDecl = dyn_cast<FunctionDecl>(D)) {
     if (DiscardResult)
       return true;
@@ -8520,10 +8669,19 @@ bool Compiler<Emitter>::visitDeclRef(const ValueDecl *D, const Expr *E) {
     if constexpr (std::is_same_v<Emitter, EvalEmitter>) {
       if (!this->emitPushCC(VD->hasConstantInitialization(), E))
         return false;
+      // The contract assertions that the initializer evaluates were checked
+      // when the variable was initialized. Their violations have been
+      // diagnosed and must not have any further effect, but the predicates
+      // are evaluated again as their side effects can affect the value of the
+      // variable.
+      if (!this->emitPushIgnoreContractViolations(E))
+        return false;
     }
     auto VarState = this->visitDecl(VD);
 
     if constexpr (std::is_same_v<Emitter, EvalEmitter>) {
+      if (!this->emitPopIgnoreContractViolations(E))
+        return false;
       if (!this->emitPopCC(E))
         return false;
     }
@@ -8535,18 +8693,6 @@ bool Compiler<Emitter>::visitDeclRef(const ValueDecl *D, const Expr *E) {
     // Retry.
     return this->visitDeclRef(D, E);
   };
-
-  if constexpr (!std::is_same_v<Emitter, EvalEmitter>) {
-    // Lambda captures.
-    if (auto It = this->LambdaCaptures.find(D);
-        It != this->LambdaCaptures.end()) {
-      auto [Offset, IsPtr] = It->second;
-
-      if (IsPtr)
-        return this->emitGetThisFieldPtr(Offset, E) && maybePopPtr();
-      return this->emitGetPtrThisField(Offset, E) && maybePopPtr();
-    }
-  }
 
   if (const auto *DRE = dyn_cast<DeclRefExpr>(E);
       DRE && DRE->refersToEnclosingVariableOrCapture()) {

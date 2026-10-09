@@ -2546,6 +2546,15 @@ void StmtPrinter::VisitLambdaExpr(LambdaExpr *Node) {
     }
   }
 
+  // Print any function contract specifiers.
+  if (const ContractSpecifierDecl *Contracts =
+          Node->getCallOperator()->getContracts()) {
+    for (ContractStmt *Contract : Contracts->contracts()) {
+      OS << ' ';
+      Visit(Contract);
+    }
+  }
+
   // Print the body.
   OS << ' ';
   if (Policy.TerseOutput || Policy.SuppressLambdaBody)
@@ -2896,6 +2905,36 @@ void StmtPrinter::VisitDependentCoawaitExpr(DependentCoawaitExpr *S) {
 void StmtPrinter::VisitCoyieldExpr(CoyieldExpr *S) {
   OS << "co_yield ";
   PrintExpr(S->getOperand());
+}
+
+// C++ contracts
+
+void StmtPrinter::VisitContractStmt(ContractStmt *Node) {
+  // A contract_assert is a statement on its own; preconditions and
+  // postconditions are printed inline as part of a function declarator.
+  bool IsAssert = Node->getContractKind() == ContractKind::Assert;
+  if (IsAssert)
+    Indent();
+
+  OS << Node->getContractKindString();
+
+  // Attributes appertaining to the contract are written after the keyword:
+  //   pre [[attr]] ( ... )
+  for (const Attr *A : Node->getAttrs()) {
+    OS << " ";
+    A->printPretty(OS, Policy);
+  }
+  if (!Node->getAttrs().empty())
+    OS << " ";
+
+  OS << "(";
+  if (const ResultNameDecl *RND = Node->getResultName())
+    OS << RND->getDeclName() << " : ";
+  PrintExpr(Node->getCond());
+  OS << ")";
+
+  if (IsAssert)
+    OS << ";" << NL;
 }
 
 // Obj-C

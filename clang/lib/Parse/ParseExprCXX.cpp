@@ -1223,7 +1223,7 @@ bool Parser::isLambdaSpecifier() {
                      tok::kw___private, tok::kw___global, tok::kw___local,
                      tok::kw___constant, tok::kw___generic, tok::kw_groupshared,
                      tok::kw_requires, tok::kw_noexcept) ||
-         Tok.isRegularKeywordAttribute() ||
+         isFunctionContractKeyword(Tok) || Tok.isRegularKeywordAttribute() ||
          (Tok.is(tok::l_square) && NextToken().is(tok::l_square));
 }
 
@@ -1493,6 +1493,22 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
 
   Actions.ActOnStartOfLambdaDefinition(Intro, D, DS);
 
+  // The function contract specifiers of the lambda are parsed in the context
+  // of the call operator. If a postcondition names the result and the return
+  // type is deduced from the body, they are parsed after the body instead.
+  CachedTokens ContractToks;
+  Decl *CallOperator = nullptr;
+  bool ParseContractsAfterBody = false;
+  if (isFunctionContractKeyword(Tok)) {
+    assert(Actions.CurContext->isFunctionOrMethod());
+    CallOperator = cast<FunctionDecl>(Actions.CurContext);
+    LateParseFunctionContractSpecifierSeq(ContractToks);
+    ParseContractsAfterBody =
+        shouldParseFunctionContractsAfterBody(CallOperator, ContractToks);
+    if (!ContractToks.empty() && !ParseContractsAfterBody)
+      ParseLexedFunctionContracts(ContractToks, CallOperator, CES_Definition);
+  }
+
   // Parse compound-statement.
   if (!Tok.is(tok::l_brace)) {
     Diag(Tok, diag::err_expected_lambda_body);
@@ -1501,13 +1517,24 @@ ExprResult Parser::ParseLambdaExpressionAfterIntroducer(
   }
 
   StmtResult Stmt(ParseCompoundStatementBody());
+
   BodyScope.Exit();
+  if (ParseContractsAfterBody && !Stmt.isInvalid())
+    ParseLexedFunctionContracts(ContractToks, CallOperator,
+                                CES_AfterBody | CES_Definition);
   TemplateParamScope.Exit();
   LambdaScope.Exit();
 
   if (!Stmt.isInvalid() && !TrailingReturnType.isInvalid() &&
-      !D.isInvalidType())
-    return Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+      !D.isInvalidType()) {
+
+    ExprResult Lambda = Actions.ActOnLambdaExpr(LambdaBeginLoc, Stmt.get());
+
+    if (!Lambda.isUsable())
+      return Lambda;
+
+    return Lambda;
+  }
 
   Actions.ActOnLambdaError(LambdaBeginLoc, getCurScope());
   return ExprError();

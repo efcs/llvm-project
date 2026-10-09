@@ -23,6 +23,8 @@ namespace clang {
 
 class VarDecl;
 class CXXExpansionStmtDecl;
+class ResultNameDecl;
+class UnnamedGlobalConstantDecl;
 
 /// CXXCatchStmt - This represents a C++ catch block.
 ///
@@ -1102,6 +1104,225 @@ public:
     return T->getStmtClass() == CXXExpansionStmtInstantiationClass;
   }
 };
+
+class ContractStmt final
+    : public Stmt,
+      private llvm::TrailingObjects<ContractStmt, Stmt *, const Attr *> {
+
+  // A note on attributes:
+  //
+  // The attribute-specifier-seq which follows the 'pre', 'post' or
+  // 'contract_assert' keyword appertains to the contract assertion:
+  //   pre [[attr]] ( ... )
+  //
+  // These attributes affect the semantics of the contract assertion (e.g.
+  // [[clang::contract_group]] selects its evaluation semantic), so they are
+  // stored directly in the ContractStmt instead of in an AttributedStmt
+  // wrapping it, as is done for the attributes of other statements. Only
+  // attributes which are meaningful for a contract assertion are accepted
+  // there (see Sema::ProcessContractAttributes).
+
+  friend class ASTStmtReader;
+  friend TrailingObjects;
+
+  unsigned numTrailingObjects(OverloadToken<Stmt *>) const {
+    return ContractAssertBits.HasResultName + 1;
+  }
+
+  Stmt **getStmtPtr() { return getTrailingObjects<Stmt *>(); }
+
+  unsigned numTrailingObjects(OverloadToken<const Attr *>) const {
+    return ContractAssertBits.NumAttrs;
+  }
+
+  const Attr **getAttrPtr() { return getTrailingObjects<const Attr *>(); }
+
+  SourceLocation KeywordLoc;
+
+  /// The locations of the parentheses which enclose the predicate (and the
+  /// result-name-introducer, if any).
+  SourceLocation LParenLoc, RParenLoc;
+
+  /// The text of the predicate as it was written in the source. The storage
+  /// is owned by the ASTContext.
+  StringRef PredicateText;
+
+  ArrayRef<Stmt *> getSubStmts() const {
+    return llvm::ArrayRef(getTrailingObjects<Stmt *>(),
+                          numTrailingObjects(OverloadToken<Stmt *>{}));
+  }
+
+  MutableArrayRef<Stmt *> getSubStmts() {
+    return llvm::MutableArrayRef(getTrailingObjects<Stmt *>(),
+                                 numTrailingObjects(OverloadToken<Stmt *>{}));
+  }
+
+  void setResultName(DeclStmt *D) {
+    assert(hasResultName() && "no result name decl");
+    getSubStmts().front() = D;
+  }
+
+  void setCondition(Expr *E) {
+    assert(E && "no condition");
+    getSubStmts().back() = E;
+  }
+
+  void copyAttrs(ArrayRef<const Attr *> Attrs) {
+    assert(Attrs.size() == ContractAssertBits.NumAttrs &&
+           "wrong number of attributes");
+    std::copy(Attrs.begin(), Attrs.end(), getAttrPtr());
+  }
+
+  ContractStmt(ContractKind CK, SourceLocation KeywordLoc, Expr *Condition,
+               DeclStmt *RN, ArrayRef<const Attr *> Attrs = {})
+      : Stmt(ContractStmtClass), KeywordLoc(KeywordLoc) {
+    ContractAssertBits.ContractKind = static_cast<unsigned>(CK);
+    ContractAssertBits.HasResultName = RN != nullptr;
+    ContractAssertBits.NumAttrs = Attrs.size();
+    if (RN)
+      setResultName(RN);
+    setCondition(Condition);
+    if (!Attrs.empty())
+      copyAttrs(Attrs);
+  }
+
+  ContractStmt(EmptyShell Empty, ContractKind Kind, bool HasResultName,
+               unsigned NumAttrs = 0)
+      : Stmt(ContractStmtClass, Empty) {
+    ContractAssertBits.ContractKind = static_cast<unsigned>(Kind);
+    ContractAssertBits.HasResultName = HasResultName;
+    ContractAssertBits.NumAttrs = NumAttrs;
+    if (NumAttrs != 0)
+      std::fill_n(getAttrPtr(), NumAttrs, nullptr);
+  }
+
+public:
+  static ContractStmt *Create(const ASTContext &C, ContractKind Kind,
+                              SourceLocation KeywordLoc, Expr *Condition,
+                              DeclStmt *ResultNameDecl,
+                              ArrayRef<const Attr *> Attrs = {},
+                              StringRef PredicateText = {},
+                              SourceLocation LParenLoc = SourceLocation(),
+                              SourceLocation RParenLoc = SourceLocation());
+
+  static ContractStmt *CreateEmpty(const ASTContext &C, ContractKind Kind,
+                                   bool HasResultName, unsigned NumAttrs);
+
+  bool hasResultName() const { return ContractAssertBits.HasResultName; }
+
+  DeclStmt *getResultNameDeclStmt() const {
+    return hasResultName() ? static_cast<DeclStmt *>(getSubStmts().front())
+                           : nullptr;
+  }
+
+  ResultNameDecl *getResultName() const;
+
+  Expr *getCond() { return static_cast<Expr *>(getSubStmts().back()); }
+  const Expr *getCond() const {
+    return const_cast<ContractStmt *>(this)->getCond();
+  }
+
+public:
+  // Convert the contract semantic to a string for use in diagnostics.
+  static StringRef SemanticAsString(ContractEvaluationSemantic Semantic);
+
+  // Convert the contract kind (pre, post, or contract_assert) to a string
+  static StringRef ContractKindAsString(ContractKind Kind);
+
+  /// Return the text of the predicate of this contract assertion as it was
+  /// written in the source.
+  ///
+  /// The text consists of the spellings of the preprocessing tokens between
+  /// the parentheses of the contract assertion (the result-name-introducer,
+  /// if any, and the conditional-expression) before macro expansion. Tokens
+  /// which were separated by whitespace (including new-lines and comments) in
+  /// the source are separated by a single space, as if by the '#' operator.
+  /// If the tokens of the predicate do not form a contiguous range of
+  /// characters in the source because part of the predicate is produced by a
+  /// macro expansion, the text of the enclosing macro invocation is used
+  /// instead.
+  ///
+  /// The text is computed when the contract assertion is parsed and is
+  /// stored in the AST; it does not depend on the source being available. It
+  /// is empty for a contract assertion that was not parsed from source.
+  StringRef getPredicateText() const { return PredicateText; }
+
+  /// Set the text of the predicate. The text is copied into \p Ctx.
+  void setPredicateText(const ASTContext &Ctx, StringRef Text);
+
+  /// Return the source text associated with this contract.
+  std::string getSourceText(const ASTContext &Ctx) const;
+
+  /// Return the message for use in building the contract violation
+  /// diagnostic (i.e. the value of std::contracts::contract_violation::
+  /// comment()). This is the text of the predicate unless it is overridden by
+  /// the [[clang::contract_message]] attribute.
+  std::string getMessage(const ASTContext &Ctx) const;
+
+  /// Return the type of the contract.
+  /// It's one of 'pre', 'post', 'contract_assert'.
+  ContractKind getContractKind() const {
+    return static_cast<ContractKind>(ContractAssertBits.ContractKind);
+  }
+
+  StringRef getContractKindString() const {
+    return ContractStmt::ContractKindAsString(getContractKind());
+  }
+
+  /// Calculate the evaluation semantic for a specific contract.
+  ///
+  /// This takes into account the default evaluation semantic for all contracts,
+  /// as well as any attributes on the specific contract itself.
+  ContractEvaluationSemantic getSemantic(const ASTContext &Ctx) const;
+
+  StringRef getSemanticString(const ASTContext &Ctx) const {
+    return ContractStmt::SemanticAsString(getSemantic(Ctx));
+  }
+
+  ArrayRef<const Attr *> getAttrs() const {
+    return llvm::ArrayRef(getTrailingObjects<const Attr *>(),
+                          ContractAssertBits.NumAttrs);
+  }
+  // Access attributes of a particular type.
+  template <class T> const T *getAttrAs() const;
+
+  SourceLocation getKeywordLoc() const { return KeywordLoc; }
+  SourceLocation getLParenLoc() const { return LParenLoc; }
+  SourceLocation getRParenLoc() const { return RParenLoc; }
+  void setParenLocs(SourceLocation LParen, SourceLocation RParen) {
+    LParenLoc = LParen;
+    RParenLoc = RParen;
+  }
+
+  SourceLocation getBeginLoc() const LLVM_READONLY { return KeywordLoc; }
+  SourceLocation getExpressionLoc() const LLVM_READONLY {
+    return getSubStmts().back()->getBeginLoc();
+  }
+  SourceLocation getEndLoc() const LLVM_READONLY {
+    assert(!KeywordLoc.isInvalid() &&
+           "Trying to get end location on an invalid node");
+    // The contract assertion ends with its closing parenthesis.
+    if (RParenLoc.isValid())
+      return RParenLoc;
+    return getSubStmts().back()->getEndLoc();
+  }
+
+  child_range children() { return getSubStmts(); }
+  const_child_range children() const { return getSubStmts(); }
+
+  static bool classof(const Stmt *T) {
+    return T->getStmtClass() == ContractStmtClass;
+  }
+};
+
+template <class T> const T *ContractStmt::getAttrAs() const {
+  for (auto *A : getAttrs()) {
+    if (const T *TA = dyn_cast<T>(A)) {
+      return TA;
+    }
+  }
+  return nullptr;
+}
 
 }  // end namespace clang
 

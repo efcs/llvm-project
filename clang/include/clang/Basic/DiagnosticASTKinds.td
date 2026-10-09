@@ -265,6 +265,18 @@ def note_constexpr_calls_suppressed : Note<
   "(skipping %0 call%s0 in backtrace; use -fconstexpr-backtrace-limit=0 to "
   "see all)">;
 def note_constexpr_call_here : Note<"in call to '%0'">;
+def constexpr_contract_violation : TextSubstitution<
+  "contract violation with the '%0' evaluation semantic: "
+  "%select{precondition|postcondition|contract assertion}1 '%2' "
+  "%select{evaluated to false|is not a constant expression}3">;
+def note_constexpr_contract_violation : Note<
+  "%sub{constexpr_contract_violation}0,1,2,3">;
+def warn_constexpr_contract_violation : Warning<
+  "%sub{constexpr_contract_violation}0,1,2,3">,
+  InGroup<ContractViolation>, NoSFINAE;
+def note_constexpr_dtor_postcondition_after_subobjects : Note<
+  "the postcondition assertions of a destructor are evaluated after the "
+  "members and base classes of the %0 object have been destroyed">;
 def note_constexpr_inherited_ctor_call_here : Note<
   "in implicit initialization for inherited constructor of %0">;
 def note_constexpr_baa_insufficient_alignment : Note<
@@ -754,6 +766,10 @@ def err_module_odr_violation_record : Error<
   "%select{method %5|constructor|destructor}4 "
     "with %6 for %ordinal7 template argument|"
   "%select{method %5|constructor|destructor}4 "
+    "with %6 function contract specifier%s6|"
+  "%select{method %5|constructor|destructor}4 "
+    "with %ordinal6 function contract specifier|"
+  "%select{method %5|constructor|destructor}4 "
     "with %select{no body|body}6|"
   "%select{method %5|constructor|destructor}4 "
     "with body|"
@@ -772,6 +788,8 @@ def err_module_odr_violation_record : Error<
   "function template %4 with %ordinal5 template parameter with one type|"
   "function template %4 with %ordinal5 template parameter %select{not |}6"
     "being a template parameter pack|"
+  "function template %4 with %5 function contract specifier%s5|"
+  "function template %4 with %ordinal5 function contract specifier|"
   "}3">;
 
 def note_module_odr_violation_record : Note<"but in '%0' found "
@@ -805,6 +823,10 @@ def note_module_odr_violation_record : Note<"but in '%0' found "
   "%select{method %3|constructor|destructor}2 "
     "with %4 for %ordinal5 template argument|"
   "%select{method %3|constructor|destructor}2 "
+    "with %4 function contract specifier%s4|"
+  "%select{method %3|constructor|destructor}2 "
+    "with a different %ordinal4 function contract specifier|"
+  "%select{method %3|constructor|destructor}2 "
     "with %select{no body|body}4|"
   "%select{method %3|constructor|destructor}2 "
     "with different body|"
@@ -823,6 +845,9 @@ def note_module_odr_violation_record : Note<"but in '%0' found "
   "function template %2 with %ordinal3 template parameter with different type|"
   "function template %2 with %ordinal3 template parameter %select{not |}4"
     "being a template parameter pack|"
+  "function template %2 with %3 function contract specifier%s3|"
+  "function template %2 with a different %ordinal3 function contract "
+    "specifier|"
   "}1">;
 
 def err_module_odr_violation_field : Error<
@@ -891,7 +916,9 @@ def err_module_odr_violation_function : Error<
   "%ordinal4 parameter with type %5%select{| decayed from %7}6|"
   "%ordinal4 parameter with%select{out|}5 a default argument|"
   "%ordinal4 parameter with a default argument|"
-  "function body"
+  "function body|"
+  "%4 function contract specifier%s4|"
+  "%ordinal4 function contract specifier"
   "}3">;
 
 def note_module_odr_violation_function : Note<"but in '%0' found "
@@ -901,8 +928,34 @@ def note_module_odr_violation_function : Note<"but in '%0' found "
   "%ordinal2 parameter with type %3%select{| decayed from %5}4|"
   "%ordinal2 parameter with%select{out|}3 a default argument|"
   "%ordinal2 parameter with a different default argument|"
-  "a different body"
+  "a different body|"
+  "%2 function contract specifier%s2|"
+  "a different %ordinal2 function contract specifier"
   "}1">;
+
+def warn_module_mismatched_contract_specifiers : Warning<
+  "%q0 has different function contract specifiers in different translation "
+  "units; %select{declaration in module '%2'|this declaration}1 has "
+  "%select{"
+  "%plural{0:no function contract specifiers|"
+    "1:1 function contract specifier|"
+    ":%4 function contract specifiers}4|"
+  "a %select{precondition|postcondition}5 as its %ordinal4 function contract "
+    "specifier|"
+  "a %ordinal4 function contract specifier %select{without|with}5 a result "
+    "name|"
+  "this predicate in its %ordinal4 function contract specifier"
+  "}3">, InGroup<MismatchedContractSpecifiers>, DefaultError;
+def note_module_mismatched_contract_specifiers : Note<
+  "but %select{the declaration in module '%1'|this declaration}0 has "
+  "%select{"
+  "%plural{0:no function contract specifiers|"
+    "1:1 function contract specifier|"
+    ":%3 function contract specifiers}3|"
+  "a %select{precondition|postcondition}3|"
+  "a function contract specifier %select{without|with}3 a result name|"
+  "a different predicate"
+  "}2">;
 
 def err_module_odr_violation_enum : Error<
   "%q0 has different definitions in different modules; "

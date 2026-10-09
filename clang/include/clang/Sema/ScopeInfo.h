@@ -589,6 +589,11 @@ class Capture {
   /// The location of the ellipsis that expands a parameter pack.
   SourceLocation EllipsisLoc;
 
+  /// The location of the contract assertion (of the capturing
+  /// lambda-expression) containing the first potential reference to the
+  /// captured entity which occurs within such a contract assertion.
+  SourceLocation ContractLoc;
+
   /// The type as it was captured, which is the type of the non-static data
   /// member that would hold the capture.
   QualType CaptureType;
@@ -616,6 +621,11 @@ class Capture {
   LLVM_PREFERRED_TYPE(bool)
   unsigned NonODRUsed : 1;
 
+  /// Whether there is a potential reference to the captured entity which is
+  /// not within a contract assertion of the capturing lambda-expression.
+  LLVM_PREFERRED_TYPE(bool)
+  unsigned ReferencedOutsideContracts : 1;
+
   /// Whether the capture is invalid (a capture was required but the entity is
   /// non-capturable).
   LLVM_PREFERRED_TYPE(bool)
@@ -630,7 +640,8 @@ public:
                                        : ByRef ? Cap_ByRef
                                                : Cap_ByCopy),
         Nested(IsNested), CapturesThis(false), ODRUsed(false),
-        NonODRUsed(false), Invalid(Invalid) {}
+        NonODRUsed(false), ReferencedOutsideContracts(false),
+        Invalid(Invalid) {}
 
   enum IsThisCapture { ThisCapture };
   Capture(IsThisCapture, bool IsNested, SourceLocation Loc,
@@ -638,14 +649,14 @@ public:
       : Loc(Loc), CaptureType(CaptureType),
         Kind(ByCopy ? Cap_ByCopy : Cap_ByRef), Nested(IsNested),
         CapturesThis(true), ODRUsed(false), NonODRUsed(false),
-        Invalid(Invalid) {}
+        ReferencedOutsideContracts(false), Invalid(Invalid) {}
 
   enum IsVLACapture { VLACapture };
   Capture(IsVLACapture, const VariableArrayType *VLA, bool IsNested,
           SourceLocation Loc, QualType CaptureType)
       : CapturedVLA(VLA), Loc(Loc), CaptureType(CaptureType), Kind(Cap_VLA),
         Nested(IsNested), CapturesThis(false), ODRUsed(false),
-        NonODRUsed(false), Invalid(false) {}
+        NonODRUsed(false), ReferencedOutsideContracts(false), Invalid(false) {}
 
   bool isThisCapture() const { return CapturesThis; }
   bool isVariableCapture() const {
@@ -660,6 +671,30 @@ public:
   bool isNested() const { return Nested; }
 
   bool isInvalid() const { return Invalid; }
+
+  /// Note a potential reference to the captured entity. If the reference
+  /// occurs within a function contract assertion of the capturing
+  /// lambda-expression, or within an assertion-statement in its body,
+  /// \p ContractLoc is the location of that contract assertion.
+  void noteReference(SourceLocation ContractLoc) {
+    if (ContractLoc.isInvalid())
+      ReferencedOutsideContracts = true;
+    else if (this->ContractLoc.isInvalid())
+      this->ContractLoc = ContractLoc;
+  }
+
+  /// Whether all potential references to the captured entity occur within
+  /// contract assertions of the capturing lambda-expression, in which case an
+  /// implicit capture of the entity is ill-formed
+  /// ([expr.prim.lambda.closure]p10).
+  bool isOnlyReferencedInContracts() const {
+    return !ReferencedOutsideContracts && ContractLoc.isValid();
+  }
+
+  /// If the captured entity is referenced within a contract assertion of the
+  /// capturing lambda-expression, the location of the first such contract
+  /// assertion.
+  SourceLocation getContractLoc() const { return ContractLoc; }
 
   /// Determine whether this capture is an init-capture.
   bool isInitCapture() const;

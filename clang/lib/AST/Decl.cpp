@@ -2013,6 +2013,24 @@ SourceLocation DeclaratorDecl::getTypeSpecEndLoc() const {
   return SourceLocation();
 }
 
+DeclaratorDecl::ExtInfo *DeclaratorDecl::getOrCreateExtInfo() {
+  if (!hasExtInfo()) {
+    // Save (non-extended) type source info pointer.
+    auto *savedTInfo = cast<TypeSourceInfo *>(DeclInfo);
+    // Allocate external info struct.
+    DeclInfo = new (getASTContext()) ExtInfo;
+    // Restore savedTInfo into (extended) decl info.
+    getExtInfo()->TInfo = savedTInfo;
+  }
+  return getExtInfo();
+}
+
+void DeclaratorDecl::setContractsImpl(ContractSpecifierDecl *CSD) {
+  if (!CSD && !hasExtInfo())
+    return;
+  getOrCreateExtInfo()->Contracts = CSD;
+}
+
 void DeclaratorDecl::setQualifierInfo(NestedNameSpecifierLoc QualifierLoc) {
   if (QualifierLoc) {
     // Make sure the extended decl info is allocated.
@@ -2556,9 +2574,10 @@ const APValue *VarDecl::evaluateValue() const {
   return evaluateValueImpl(/*Notes=*/nullptr, hasConstantInitialization());
 }
 
-const APValue *
-VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
-                           bool IsConstantInitialization) const {
+const APValue *VarDecl::evaluateValueImpl(
+    SmallVectorImpl<PartialDiagnosticAt> *Notes, bool IsConstantInitialization,
+    bool IgnoreContracts, SmallVectorImpl<PartialDiagnosticAt> *ContractNotes,
+    bool *HasIgnoredContracts) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
 
   const auto *Init = getInit();
@@ -2582,9 +2601,12 @@ VarDecl::evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
   Expr::EvalResult EStatus;
   EStatus.Diag = Notes;
   EStatus.ExtendedDiag = &MSWarning;
-  bool Result =
-      Init->EvaluateAsInitializer(Ctx, this, EStatus, IsConstantInitialization);
+  EStatus.ContractDiag = ContractNotes;
+  bool Result = Init->EvaluateAsInitializer(
+      Ctx, this, EStatus, IsConstantInitialization, IgnoreContracts);
   Eval->Evaluated = std::move(EStatus.Val);
+  if (HasIgnoredContracts)
+    *HasIgnoredContracts = EStatus.HasIgnoredContractAssertion;
 
   // In C++, or in C23 if we're initialising a 'constexpr' variable, this isn't
   // a constant initializer if we produced notes. In that case, we can't keep
@@ -2653,7 +2675,9 @@ bool VarDecl::hasConstantInitialization() const {
 }
 
 bool VarDecl::checkForConstantInitialization(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes,
+    SmallVectorImpl<PartialDiagnosticAt> *ContractNotes,
+    bool *ContractCheckFailed) const {
   EvaluatedStmt *Eval = ensureEvaluatedStmt();
   // If we ask for the value before we know whether we have a constant
   // initializer, we can compute the wrong value (for example, due to
@@ -2666,16 +2690,74 @@ bool VarDecl::checkForConstantInitialization(
 
   assert(!getInit()->isValueDependent());
 
+  // C++26 [expr.const.init]p4:
+  //   A variable v is constant-initializable if the full-expression of its
+  //   initialization is a constant expression when interpreted as a
+  //   constant-expression with all contract assertions using the ignore
+  //   evaluation semantic [...]
+  //   [Note: Furthermore, if the initialization is manifestly
+  //   constant-evaluated, its evaluation during translation can still
+  //   evaluate contract assertions with other evaluation semantics, resulting
+  //   in a diagnostic or ill-formed program if a contract violation occurs.]
+  //
+  // That is, a contract assertion must not silently turn the constant
+  // initialization of a variable into dynamic initialization, so first
+  // perform a trial evaluation that ignores all contract assertions.
+  //
+  // The trial evaluation is not needed for a variable that is required to be
+  // constant-initialized: the program is ill-formed if evaluating its
+  // initializer fails, whether or not a contract assertion is the reason.
+  ASTContext &Ctx = getASTContext();
+  bool RequiresConstantInit =
+      isConstexpr() || (hasGlobalStorage() && hasAttr<ConstInitAttr>());
+  bool IgnoreContracts = Ctx.getLangOpts().Contracts && !RequiresConstantInit;
+
   // Evaluate the initializer to check whether it's a constant expression.
+  bool HasIgnoredContracts = false;
   Eval->HasConstantInitialization =
-      evaluateValueImpl(&Notes, true) && Notes.empty();
+      evaluateValueImpl(&Notes, true, IgnoreContracts, ContractNotes,
+                        &HasIgnoredContracts) &&
+      Notes.empty();
 
   // If evaluation as a constant initializer failed, allow re-evaluation as a
   // non-constant initializer if we later find we want the value.
-  if (!Eval->HasConstantInitialization)
+  if (!Eval->HasConstantInitialization) {
     Eval->WasEvaluated = false;
+    return false;
+  }
 
-  return Eval->HasConstantInitialization;
+  if (!HasIgnoredContracts)
+    return true;
+
+  // The variable is constant-initialized, which makes its initializer
+  // manifestly constant-evaluated. Evaluate it again, this time checking the
+  // contract assertions that the trial evaluation ignored. A contract
+  // assertion with side effects can change the value of the initializer.
+  Expr::EvalResult Status;
+  Status.Diag = &Notes;
+  Status.ContractDiag = ContractNotes;
+
+  Eval->WasEvaluated = false;
+  Eval->IsEvaluating = true;
+  bool Result = getInit()->EvaluateAsInitializer(
+                    Ctx, this, Status, /*IsConstantInitialization=*/true,
+                    /*IgnoreContracts=*/false) &&
+                Notes.empty();
+  Eval->IsEvaluating = false;
+  Eval->WasEvaluated = true;
+
+  if (Result) {
+    // The value of the trial evaluation is already registered for destruction
+    // if it needs to be.
+    bool WasRegistered = Eval->Evaluated.needsCleanup();
+    Eval->Evaluated = std::move(Status.Val);
+    if (!WasRegistered && Eval->Evaluated.needsCleanup())
+      Ctx.addDestruction(&Eval->Evaluated);
+  } else if (ContractCheckFailed) {
+    // Keep the value of the trial evaluation for error recovery.
+    *ContractCheckFailed = true;
+  }
+  return true;
 }
 
 bool VarDecl::isEscapingByref() const {
@@ -3068,7 +3150,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
                            TypeSourceInfo *TInfo, StorageClass S,
                            bool UsesFPIntrin, bool isInlineSpecified,
                            ConstexprSpecKind ConstexprKind,
-                           const AssociatedConstraint &TrailingRequiresClause)
+                           const AssociatedConstraint &TrailingRequiresClause,
+                           ContractSpecifierDecl *Contracts)
     : DeclaratorDecl(DK, DC, NameInfo.getLoc(), NameInfo.getName(), T, TInfo,
                      StartLoc),
       DeclContext(DK), redeclarable_base(C), Body(), ODRHash(0),
@@ -3106,6 +3189,8 @@ FunctionDecl::FunctionDecl(Kind DK, ASTContext &C, DeclContext *DC,
 
   if (TrailingRequiresClause)
     setTrailingRequiresClause(TrailingRequiresClause);
+  if (Contracts)
+    setContracts(Contracts);
 }
 
 void FunctionDecl::getNameForDiagnostic(
@@ -3787,6 +3872,96 @@ FunctionDecl::setPreviousDeclaration(FunctionDecl *PrevDecl) {
 }
 
 FunctionDecl *FunctionDecl::getCanonicalDecl() { return getFirstDecl(); }
+
+void FunctionDecl::setContracts(ContractSpecifierDecl *CSD) {
+  setContractsImpl(CSD);
+  if (CSD)
+    CSD->setOwningFunction(this);
+}
+
+ContractSpecifierDecl *
+FunctionDecl::getContractsInEffect(bool InSameModuleOnly) const {
+  if (InSameModuleOnly) {
+    auto GetModule = [](const FunctionDecl *FD) -> const Module * {
+      const Module *M = FD->getImportedOwningModule();
+      return M ? M->getTopLevelModule() : nullptr;
+    };
+    const Module *M = GetModule(this);
+    for (const FunctionDecl *FD = this; FD; FD = FD->getPreviousDecl()) {
+      if (FD != this && GetModule(FD) != M)
+        continue;
+      if (ContractSpecifierDecl *Contracts = FD->getContracts())
+        return Contracts;
+    }
+    return nullptr;
+  }
+
+  // [dcl.contract.func]p3: the function contract assertions of a function are
+  // introduced by its first declaration.
+  const FunctionDecl *First = getFirstDecl();
+  if (ContractSpecifierDecl *Contracts = First->getContracts())
+    return Contracts;
+
+  // [temp.expl.spec]p12: the function contract specifiers of a template have
+  // no effect on an explicit specialization, which has its own. The first
+  // declaration of the specialization may be one that was implicitly
+  // instantiated (e.g. by template argument deduction) before the explicit
+  // specialization was declared; the contracts are introduced by the first
+  // declaration that has them.
+  if (First->getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
+    for (const FunctionDecl *FD : First->redecls())
+      if (ContractSpecifierDecl *Contracts = FD->getContracts())
+        return Contracts;
+  return nullptr;
+}
+
+const FunctionDecl *FunctionDecl::getContractInstantiationPattern() const {
+  // Explicit specializations have their own function contract specifiers.
+  if (getTemplateSpecializationKind() == TSK_ExplicitSpecialization)
+    return nullptr;
+
+  const FunctionDecl *Pattern = nullptr;
+  if (isTemplateInstantiation())
+    Pattern = getTemplateInstantiationPattern(/*ForDefinition=*/false);
+  else if (getTemplatedKind() == TK_NonTemplate)
+    // A function declared locally in a function template.
+    Pattern = getInstantiatedFromDecl();
+
+  // The declarations of a member of a class template specialization, or of a
+  // member template of one, don't carry the contracts of their pattern; keep
+  // looking through the member instantiation chain.
+  while (Pattern) {
+    if (ContractSpecifierDecl *Contracts = Pattern->getContractsInEffect())
+      return cast<FunctionDecl>(Contracts->getDeclContext());
+    const FunctionDecl *Next = Pattern->getInstantiatedFromMemberFunction();
+    if (!Next)
+      if (FunctionTemplateDecl *FTD = Pattern->getDescribedFunctionTemplate())
+        if (FunctionTemplateDecl *From = FTD->getInstantiatedFromMemberTemplate())
+          Next = From->getTemplatedDecl();
+    Pattern = Next;
+  }
+  return nullptr;
+}
+
+ArrayRef<ContractStmt *> FunctionDecl::contracts() const {
+  if (auto *CSD = getContractsInEffect())
+    return CSD->contracts();
+  return {};
+}
+
+FunctionDecl::ContractRange FunctionDecl::postconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Post;
+      });
+}
+
+FunctionDecl::ContractRange FunctionDecl::preconditions() const {
+  return llvm::make_filter_range(
+      contracts(), +[](const ContractStmt *CS) {
+        return CS->getContractKind() == ContractKind::Pre;
+      });
+}
 
 /// Returns a value indicating whether this function corresponds to a builtin
 /// function.
@@ -5692,16 +5867,18 @@ ImplicitParamDecl *ImplicitParamDecl::CreateDeserialized(ASTContext &C,
   return new (C, ID) ImplicitParamDecl(C, QualType(), ImplicitParamKind::Other);
 }
 
+
 FunctionDecl *
 FunctionDecl::Create(ASTContext &C, DeclContext *DC, SourceLocation StartLoc,
                      const DeclarationNameInfo &NameInfo, QualType T,
                      TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin,
                      bool isInlineSpecified, bool hasWrittenPrototype,
                      ConstexprSpecKind ConstexprKind,
-                     const AssociatedConstraint &TrailingRequiresClause) {
+                     const AssociatedConstraint &TrailingRequiresClause,
+                     ContractSpecifierDecl *Contracts) {
   FunctionDecl *New = new (C, DC) FunctionDecl(
       Function, C, DC, StartLoc, NameInfo, T, TInfo, SC, UsesFPIntrin,
-      isInlineSpecified, ConstexprKind, TrailingRequiresClause);
+      isInlineSpecified, ConstexprKind, TrailingRequiresClause, Contracts);
   New->setHasWrittenPrototype(hasWrittenPrototype);
   return New;
 }
