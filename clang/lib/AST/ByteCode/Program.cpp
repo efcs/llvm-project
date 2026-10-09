@@ -80,6 +80,16 @@ UnsignedOrNone Program::getOrCreateGlobal(const ValueDecl *VD,
   return std::nullopt;
 }
 
+void Program::removeGlobal(const ValueDecl *VD) {
+  for (const Decl *Redecl : VD->redecls())
+    GlobalIndices.erase(Redecl);
+}
+
+void Program::restoreGlobal(const ValueDecl *VD, unsigned Index) {
+  for (const Decl *Redecl : VD->redecls())
+    GlobalIndices[Redecl] = Index;
+}
+
 UnsignedOrNone Program::createGlobal(const ValueDecl *VD, const Expr *Init,
                                      bool IsConstexprUnknown) {
   bool IsStatic, IsExtern;

@@ -116,6 +116,15 @@ public:
     return ++LambdaManglingNumbers[LambdaSig];
   }
 
+  void reserveManglingNumber(const CXXMethodDecl *CallOperator,
+                             unsigned Number) override {
+    llvm::SmallString<128> LambdaSig;
+    llvm::raw_svector_ostream Out(LambdaSig);
+    Mangler->mangleLambdaSig(CallOperator->getParent(), Out);
+    unsigned &Current = LambdaManglingNumbers[LambdaSig];
+    Current = std::max(Current, Number);
+  }
+
   unsigned getManglingNumber(const BlockDecl *BD) override {
     return ++BlockManglingNumber;
   }

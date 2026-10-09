@@ -128,6 +128,25 @@ bool InvalidShuffleVectorIndex(InterpState &S, CodePtr OpPC, uint32_t Index);
 bool CheckBitCast(InterpState &S, CodePtr OpPC, bool HasIndeterminateBits,
                   bool TargetIsUCharOrByte);
 bool CheckBCPResult(InterpState &S, const Pointer &Ptr);
+
+/// The state that the predicate of a contract assertion can leave behind if
+/// it is not a core constant expression. Whether it is must not affect the
+/// evaluation of the enclosing expression, which might continue.
+class ContractPredicateCleanup {
+public:
+  ContractPredicateCleanup(InterpState &S);
+  /// Restore the state. Has to be called while the diagnostics of the
+  /// predicate are still being collected. \p Evaluated is whether the
+  /// predicate could be evaluated.
+  void cleanup(bool Evaluated);
+
+private:
+  InterpState &S;
+  size_t StackSize;
+  unsigned NumAllocations;
+  std::optional<bool> ConstantContextOverride;
+  unsigned IgnoreContractViolationsDepth;
+};
 bool checkDestructor(InterpState &S, CodePtr OpPC, const Pointer &Ptr);
 bool CheckFunctionDecl(InterpState &S, CodePtr OpPC, const FunctionDecl *FD);
 bool CheckBitCast(InterpState &S, CodePtr OpPC, const Type *TargetType,
@@ -3730,6 +3749,11 @@ inline bool PushIgnoreDiags(InterpState &S) {
   S.PrevDiagsEmitted = S.getEvalStatus().DiagEmitted;
   S.getEvalStatus().Diag = nullptr;
   assert(!S.diagnosing());
+  // Contract violations are neither diagnosed nor do they make the program
+  // ill-formed if they happen during speculative execution.
+  S.PrevContractDiags = S.getEvalStatus().ContractDiag;
+  S.getEvalStatus().ContractDiag = nullptr;
+  S.PrevHasContractViolation = S.getEvalStatus().HasContractViolation;
   return true;
 }
 
@@ -3740,6 +3764,9 @@ inline bool PopIgnoreDiags(InterpState &S) {
     S.getEvalStatus().Diag = S.PrevDiags;
     S.getEvalStatus().DiagEmitted = S.PrevDiagsEmitted;
     S.PrevDiags = nullptr;
+    S.getEvalStatus().ContractDiag = S.PrevContractDiags;
+    S.PrevContractDiags = nullptr;
+    S.getEvalStatus().HasContractViolation = S.PrevHasContractViolation;
   }
   return true;
 }
@@ -3779,12 +3806,32 @@ PRESERVE_NONE inline bool EndSpeculation(InterpState &S) {
   return true;
 }
 
+/// Marks the end of the predicate of a contract assertion. See ContractCheck.
+/// Like EndSpeculation, this op returns instead of dispatching the next op.
+inline bool EndContract(InterpState &S, uint32_t FirstScope,
+                        uint32_t EndScope) {
+  return true;
+}
+
 inline bool PushCC(InterpState &S, bool Value) {
   S.ConstantContextOverride = Value;
   return true;
 }
 inline bool PopCC(InterpState &S) {
   S.ConstantContextOverride = std::nullopt;
+  return true;
+}
+
+inline bool PushIgnoreContractViolations(InterpState &S) {
+  ++S.IgnoreContractViolationsDepth;
+  S.IgnoreContractViolations = true;
+  return true;
+}
+
+inline bool PopIgnoreContractViolations(InterpState &S) {
+  assert(S.IgnoreContractViolationsDepth != 0);
+  if (--S.IgnoreContractViolationsDepth == 0)
+    S.IgnoreContractViolations = false;
   return true;
 }
 

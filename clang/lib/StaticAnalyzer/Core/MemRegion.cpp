@@ -1059,6 +1059,18 @@ const VarRegion *MemRegionManager::getVarRegion(const VarDecl *D,
   assert(SF);
   const auto *PVD = dyn_cast<ParmVarDecl>(D);
   if (PVD) {
+    // The predicates of the function contract assertions refer to the
+    // parameters of the declaration that introduces the contracts
+    // ([dcl.contract.func]), which need not be the one being analyzed; use the
+    // corresponding parameter of the latter.
+    if (const auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext()))
+      for (const StackFrame &Frame : SF->parentsIncludingSelf())
+        if (const auto *FrameFD = dyn_cast<FunctionDecl>(Frame.getDecl());
+            FrameFD && FrameFD != FD && declaresSameEntity(FrameFD, FD) &&
+            PVD->getFunctionScopeIndex() < FrameFD->getNumParams()) {
+          D = PVD = FrameFD->getParamDecl(PVD->getFunctionScopeIndex());
+          break;
+        }
     unsigned Index = PVD->getFunctionScopeIndex();
     const Expr *CallSite = SF->getCallSite();
     if (CallSite) {

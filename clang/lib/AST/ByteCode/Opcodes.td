@@ -77,6 +77,7 @@ def ArgVoidPtr : ArgType { let Name = "const void *"; }
 def ArgReflectionKind : ArgType { let Name = "ReflectionKind"; }
 def ArgDeclOrExpr : ArgType { let Name = "DeclOrExpr"; }
 def ArgCtorDecl : ArgType { let Name = "const CXXConstructorDecl *"; }
+def ArgContractStmt : ArgType { let Name = "const ContractStmt *"; }
 
 //===----------------------------------------------------------------------===//
 // Classes of types instructions operate on.
@@ -203,6 +204,22 @@ def EndSpeculation : SuccessOpcode;
 def BCP : Opcode {
   let HasCustomEval = 1;
   let Args = [ArgSint32, ArgPrimType];
+}
+
+// Checks a contract assertion. The code that evaluates the predicate follows
+// this op and ends at the EndContract op the offset refers to.
+def ContractCheck : Opcode {
+  let HasCustomEval = 1;
+  let Args = [ArgSint32, ArgContractStmt];
+}
+// The arguments are the range of scopes created by the predicate. Like
+// EndSpeculation, this op returns to ContractCheck instead of dispatching the
+// next op.
+def EndContract : Opcode {
+  let CanReturn = 1;
+  let CanFail = 0;
+  let NeedsOpPC = 0;
+  let Args = [ArgUint32, ArgUint32];
 }
 
 //===----------------------------------------------------------------------===//
@@ -1075,3 +1092,8 @@ def PopMSVCCE : SuccessOpcode;
 def GetStringPtr : SuccessOpcode {
   let Args = [ArgExpr];
 }
+
+// Ignore contract violations while the initializer of a variable, whose
+// contract assertions have been checked already, is evaluated again.
+def PushIgnoreContractViolations : SuccessOpcode;
+def PopIgnoreContractViolations : SuccessOpcode;

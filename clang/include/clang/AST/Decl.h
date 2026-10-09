@@ -59,6 +59,8 @@ namespace clang {
 class ASTContext;
 struct ASTTemplateArgumentListInfo;
 class CompoundStmt;
+class ContractStmt;
+class ContractSpecifierDecl;
 class DependentFunctionTemplateSpecializationInfo;
 class EnumDecl;
 class Expr;
@@ -71,6 +73,7 @@ class Module;
 class NamespaceDecl;
 class ParmVarDecl;
 class RecordDecl;
+class ResultNameDecl;
 class Stmt;
 class StringLiteral;
 class TagDecl;
@@ -81,6 +84,7 @@ class TypeAliasTemplateDecl;
 class UnresolvedSetImpl;
 class VarTemplateDecl;
 enum class ImplicitParamKind;
+enum class ContractKind;
 struct UsualDeleteParams;
 
 // Holds a constraint expression along with a pack expansion index, if
@@ -780,11 +784,13 @@ struct QualifierInfo {
 /// Contains type source information through TypeSourceInfo.
 class DeclaratorDecl : public ValueDecl {
   // A struct representing a TInfo, a trailing requires-clause and a syntactic
-  // qualifier, to be used for the (uncommon) case of out-of-line declarations
-  // and constrained function decls.
+  // qualifier, to be used for the (uncommon) case of out-of-line declarations,
+  // constrained function decls or functions with pre/post conditions.
   struct ExtInfo : public QualifierInfo {
     TypeSourceInfo *TInfo = nullptr;
     AssociatedConstraint TrailingRequiresClause;
+    /// The function contract specifiers (pre/post) of a FunctionDecl, if any.
+    ContractSpecifierDecl *Contracts = nullptr;
   };
 
   llvm::PointerUnion<TypeSourceInfo *, ExtInfo *> DeclInfo;
@@ -797,11 +803,22 @@ class DeclaratorDecl : public ValueDecl {
   ExtInfo *getExtInfo() { return cast<ExtInfo *>(DeclInfo); }
   const ExtInfo *getExtInfo() const { return cast<ExtInfo *>(DeclInfo); }
 
+  /// Allocate the extended declarator info if it isn't already present.
+  ExtInfo *getOrCreateExtInfo();
+
 protected:
   DeclaratorDecl(Kind DK, DeclContext *DC, SourceLocation L,
                  DeclarationName N, QualType T, TypeSourceInfo *TInfo,
                  SourceLocation StartL)
       : ValueDecl(DK, DC, L, N, T), DeclInfo(TInfo), InnerLocStart(StartL) {}
+
+  /// Function contracts are stored in the (rarely allocated) ExtInfo so that
+  /// functions without contracts don't pay for them. Only FunctionDecl
+  /// exposes these.
+  ContractSpecifierDecl *getContractsImpl() const {
+    return hasExtInfo() ? getExtInfo()->Contracts : nullptr;
+  }
+  void setContractsImpl(ContractSpecifierDecl *CSD);
 
 public:
   friend class ASTDeclReader;
@@ -1438,8 +1455,11 @@ public:
   const APValue *evaluateValue() const;
 
 private:
-  const APValue *evaluateValueImpl(SmallVectorImpl<PartialDiagnosticAt> *Notes,
-                                   bool IsConstantInitialization) const;
+  const APValue *evaluateValueImpl(
+      SmallVectorImpl<PartialDiagnosticAt> *Notes,
+      bool IsConstantInitialization, bool IgnoreContracts = false,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr,
+      bool *HasIgnoredContracts = nullptr) const;
 
 public:
   /// Return the already-evaluated value of this variable's
@@ -1450,10 +1470,21 @@ public:
   /// Evaluate the destruction of this variable to determine if it constitutes
   /// constant destruction.
   ///
+  /// Whether it does is determined with all contract assertions ignored. If
+  /// the destructor evaluates a contract assertion with a checking semantic,
+  /// the destruction is not treated as constant (so that the destructor is
+  /// called at run time, where it checks the contract assertion), unless the
+  /// variable is constexpr: then the destruction is evaluated again with the
+  /// contract assertions checked, \p ContractNotes receives the diagnostics
+  /// for observed contract violations (\see Expr::EvalStatus::ContractDiag),
+  /// and a violation with a terminating semantic makes the evaluation fail.
+  ///
   /// \pre hasConstantInitialization()
   /// \return \c true if this variable has constant destruction, \c false if
   ///         not.
-  bool evaluateDestruction(SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+  bool evaluateDestruction(
+      SmallVectorImpl<PartialDiagnosticAt> &Notes,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr) const;
 
   /// Determine whether this variable has constant initialization.
   ///
@@ -1471,8 +1502,27 @@ public:
   /// Evaluate the initializer of this variable to determine whether it's a
   /// constant initializer. Should only be called once, after completing the
   /// definition of the variable.
+  ///
+  /// Whether a variable is constant-initialized does not depend on the
+  /// evaluation semantics of the contract assertions that its initializer
+  /// evaluates (C++26 [expr.const.init]p4). If the variable is
+  /// constant-initialized, its initializer is manifestly constant-evaluated
+  /// and the contract assertions are checked with their evaluation semantics.
+  ///
+  /// \param Notes Why the initializer is not a constant initializer or, if
+  ///        \p ContractCheckFailed is set, why it could not be evaluated
+  ///        with its contract assertions checked.
+  /// \param ContractNotes If non-null, receives the diagnostics for the
+  ///        contract violations that don't prevent the initializer from being
+  ///        evaluated. See Expr::EvalStatus::ContractDiag.
+  /// \param ContractCheckFailed If non-null, set to true if the variable is
+  ///        constant-initialized but its initializer could not be evaluated
+  ///        with its contract assertions checked. In that case the program is
+  ///        ill-formed.
   bool checkForConstantInitialization(
-      SmallVectorImpl<PartialDiagnosticAt> &Notes) const;
+      SmallVectorImpl<PartialDiagnosticAt> &Notes,
+      SmallVectorImpl<PartialDiagnosticAt> *ContractNotes = nullptr,
+      bool *ContractCheckFailed = nullptr) const;
 
   void setInitStyle(InitializationStyle Style) {
     VarDeclBits.InitStyle = Style;
@@ -2269,7 +2319,8 @@ protected:
                const DeclarationNameInfo &NameInfo, QualType T,
                TypeSourceInfo *TInfo, StorageClass S, bool UsesFPIntrin,
                bool isInlineSpecified, ConstexprSpecKind ConstexprKind,
-               const AssociatedConstraint &TrailingRequiresClause);
+               const AssociatedConstraint &TrailingRequiresClause,
+               ContractSpecifierDecl *Contracts = nullptr);
 
   using redeclarable_base = Redeclarable<FunctionDecl>;
 
@@ -2305,12 +2356,14 @@ public:
          TypeSourceInfo *TInfo, StorageClass SC, bool UsesFPIntrin = false,
          bool isInlineSpecified = false, bool hasWrittenPrototype = true,
          ConstexprSpecKind ConstexprKind = ConstexprSpecKind::Unspecified,
-         const AssociatedConstraint &TrailingRequiresClause = {}) {
+         const AssociatedConstraint &TrailingRequiresClause = {},
+         ContractSpecifierDecl *Contracts = nullptr) {
+
     DeclarationNameInfo NameInfo(N, NLoc);
     return FunctionDecl::Create(C, DC, StartLoc, NameInfo, T, TInfo, SC,
                                 UsesFPIntrin, isInlineSpecified,
                                 hasWrittenPrototype, ConstexprKind,
-                                TrailingRequiresClause);
+                                TrailingRequiresClause, Contracts);
   }
 
   static FunctionDecl *
@@ -2318,7 +2371,8 @@ public:
          const DeclarationNameInfo &NameInfo, QualType T, TypeSourceInfo *TInfo,
          StorageClass SC, bool UsesFPIntrin, bool isInlineSpecified,
          bool hasWrittenPrototype, ConstexprSpecKind ConstexprKind,
-         const AssociatedConstraint &TrailingRequiresClause);
+         const AssociatedConstraint &TrailingRequiresClause, ContractSpecifierDecl *Contracts);
+
 
   static FunctionDecl *CreateDeserialized(ASTContext &C, GlobalDeclID ID);
 
@@ -3275,6 +3329,79 @@ public:
       return FPT->getFunctionEffects();
     return {};
   }
+
+  /// Set the function contract specifiers written on this declaration of the
+  /// function. Update the specifier decl and its children to have this
+  /// declaration as a declaration context.
+  void setContracts(ContractSpecifierDecl *CSD);
+
+  /// Whether a function-contract-specifier-seq was written on (or, for a
+  /// template specialization, instantiated for) this declaration.
+  bool hasContracts() const { return getContracts() != nullptr; }
+
+  /// The function-contract-specifier-seq written on this declaration, if any.
+  ///
+  /// The function contract assertions of a function are introduced by its
+  /// first declaration ([dcl.contract.func]p3). A later declaration may repeat
+  /// the sequence ([dcl.contract.func]p4), in which case its own copy exists
+  /// only for diagnostics and tooling (the redeclaration check, printing,
+  /// dumping); it is never used to evaluate the contract assertions. Use
+  /// getContractsInEffect() to find the contracts of the function.
+  ContractSpecifierDecl *getContracts() const { return getContractsImpl(); }
+
+  /// Returns the function contract specifiers of the function, that is, the
+  /// ones that introduce its function contract assertions: those of its first
+  /// declaration ([dcl.contract.func]p3) or, for an explicit specialization,
+  /// of the first declaration of the specialization that has them (an
+  /// implicitly instantiated declaration of the specialization may precede
+  /// it) ([temp.expl.spec]).
+  ///
+  /// The predicates refer to the parameters (and result name) of that owning
+  /// declaration, which is the declaration context of the returned specifier.
+  /// Anything that evaluates or emits the contracts for another declaration
+  /// of the function (its definition, in particular) maps the parameters by
+  /// their function scope index.
+  ///
+  /// The contracts of a template specialization are instantiated from the
+  /// pattern on demand (see hasUninstantiatedContracts()); until then this
+  /// returns null for it.
+  ///
+  /// This is O(1) for functions without contracts.
+  ///
+  /// \param InSameModuleOnly only consider this declaration and the preceding
+  /// declarations which are owned by the same (top-level) module as this
+  /// declaration, and return the contracts of the nearest one that has them.
+  /// The redeclaration chain of a function loaded from AST files contains the
+  /// declarations of all translation units; this restricts the search to the
+  /// declarations that preceded this one in its own translation unit.
+  ContractSpecifierDecl *
+  getContractsInEffect(bool InSameModuleOnly = false) const;
+
+  /// For a template specialization (or a member of one, or a function
+  /// declared locally in one), the declaration of the pattern whose function
+  /// contract specifiers introduce the contracts of this function once they
+  /// are instantiated. Returns null if there is no such declaration: the
+  /// function is not an instantiation, or it is an explicit specialization
+  /// (which has its own contracts), or the pattern has no contracts.
+  const FunctionDecl *getContractInstantiationPattern() const;
+
+  /// Whether the function contract specifiers of this template specialization
+  /// have yet to be instantiated from its pattern. They are instantiated when
+  /// they are needed ([dcl.contract.func]p9): when the function is odr-used or
+  /// when its definition is instantiated.
+  bool hasUninstantiatedContracts() const {
+    return !getContractsInEffect() && getContractInstantiationPattern();
+  }
+
+  using ContractRange = llvm::iterator_range<llvm::filter_iterator<
+      ArrayRef<ContractStmt *>::iterator, bool (*)(const ContractStmt *)>>;
+
+  /// The function contract assertions of the function (see
+  /// getContractsInEffect()), and the preconditions and postconditions among
+  /// them.
+  ArrayRef<ContractStmt *> contracts() const;
+  ContractRange preconditions() const;
+  ContractRange postconditions() const;
 
   // Implement isa/cast/dyncast/etc.
   static bool classof(const Decl *D) { return classofKind(D->getKind()); }

@@ -512,6 +512,25 @@ void ASTStmtReader::VisitDependentCoawaitExpr(DependentCoawaitExpr *E) {
     SubExpr = Record.readSubStmt();
 }
 
+void ASTStmtReader::VisitContractStmt(ContractStmt *S) {
+  VisitStmt(S);
+  Record.skipInts(1);
+  unsigned NumAttrs = Record.readInt();
+
+  S->KeywordLoc = Record.readSourceLocation();
+  S->LParenLoc = Record.readSourceLocation();
+  S->RParenLoc = Record.readSourceLocation();
+  S->setCondition(Record.readExpr());
+  if (S->hasResultName())
+    S->setResultName(cast<DeclStmt>(Record.readStmt()));
+  AttrVec Attrs;
+  Record.readAttributes(Attrs);
+  assert(Attrs.size() == NumAttrs);
+  ((void)NumAttrs);
+  std::copy(Attrs.begin(), Attrs.end(), S->getAttrPtr());
+  S->setPredicateText(Record.getContext(), Record.readString());
+}
+
 void ASTStmtReader::VisitCapturedStmt(CapturedStmt *S) {
   VisitStmt(S);
   Record.skipInts(1);
@@ -654,6 +673,8 @@ void ASTStmtReader::VisitDeclRefExpr(DeclRefExpr *E) {
   E->DeclRefExprBits.NonOdrUseReason =
       CurrentUnpackingBits->getNextBits(/*Width=*/2);
   E->DeclRefExprBits.IsImmediateEscalating = CurrentUnpackingBits->getNextBit();
+  E->DeclRefExprBits.IsContractConstified =
+      CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasFoundDecl = CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasQualifier = CurrentUnpackingBits->getNextBit();
   E->DeclRefExprBits.HasTemplateKWAndArgsInfo =
@@ -3322,7 +3343,10 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
 
     case EXPR_DECL_REF: {
       BitsUnpacker DeclRefExprBits(Record[ASTStmtReader::NumExprFields]);
-      DeclRefExprBits.advance(5);
+      // Skip HadMultipleCandidates, RefersToEnclosingVariableOrCapture,
+      // NonOdrUseReason (2 bits), IsImmediateEscalating and
+      // IsContractConstified; see ASTStmtWriter::VisitDeclRefExpr.
+      DeclRefExprBits.advance(6);
       bool HasFoundDecl = DeclRefExprBits.getNextBit();
       bool HasQualifier = DeclRefExprBits.getNextBit();
       bool HasTemplateKWAndArgsInfo = DeclRefExprBits.getNextBit();
@@ -4608,6 +4632,17 @@ Stmt *ASTReader::ReadStmtFromStream(ModuleFile &F) {
     case EXPR_DEPENDENT_COAWAIT:
       S = new (Context) DependentCoawaitExpr(Empty);
       break;
+
+    case STMT_CXX_CONTRACT: {
+      BitsUnpacker ContractBits(Record[ASTStmtReader::NumStmtFields]);
+      ContractKind CK = static_cast<ContractKind>(ContractBits.getNextBits(2));
+      bool HasResultName = ContractBits.getNextBit();
+
+      unsigned NumAttrs = Record[ASTStmtReader::NumStmtFields + 1];
+
+      S = ContractStmt::CreateEmpty(Context, CK, HasResultName, NumAttrs);
+      break;
+    }
 
     case EXPR_CONCEPT_SPECIALIZATION: {
       S = new (Context) ConceptSpecializationExpr(Empty);
