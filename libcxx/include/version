@@ -98,6 +98,7 @@ __cpp_lib_containers_ranges                             202202L <deque> <forward
                                                                 <map> <queue> <set>
                                                                 <stack> <string> <unordered_map>
                                                                 <unordered_set> <vector>
+__cpp_lib_contracts                                     202502L <contracts>
 __cpp_lib_copyable_function                             202306L <functional>
 __cpp_lib_coroutine                                     201902L <coroutine>
 __cpp_lib_debugging                                     202311L <debugging>
@@ -594,6 +595,9 @@ __cpp_lib_void_t                                        201411L <type_traits>
 # define __cpp_lib_constexpr_queue                      202502L
 # define __cpp_lib_constexpr_set                        202502L
 # define __cpp_lib_constrained_equality                 202411L
+# if defined(__cpp_contracts) && _LIBCPP_AVAILABILITY_HAS_CONTRACTS
+#   define __cpp_lib_contracts                          202502L
+# endif
 // # define __cpp_lib_copyable_function                    202306L
 // # define __cpp_lib_debugging                            202311L
 // # define __cpp_lib_default_template_type_for_algorithm_values 202403L

@@ -1743,6 +1743,22 @@ void JSONNodeDumper::VisitCaseStmt(const CaseStmt *CS) {
   attributeOnlyIfTrue("isGNURange", CS->caseStmtIsGNURange());
 }
 
+void JSONNodeDumper::VisitResultNameDecl(const ResultNameDecl *RND) {
+  VisitNamedDecl(RND);
+  JOS.attribute("type", createQualType(RND->getType()));
+  if (!RND->isCanonicalResultName())
+    JOS.attribute("canonicalResultNameId",
+                  createPointerRepresentation(RND->getCanonicalResultName()));
+}
+
+void JSONNodeDumper::VisitContractStmt(const ContractStmt *CS) {
+  JOS.attribute("contractKind", CS->getContractKindString());
+  JOS.attribute("semantic", CS->getSemanticString(Ctx));
+  attributeOnlyIfTrue("hasResultName", CS->hasResultName());
+  if (!CS->getPredicateText().empty())
+    JOS.attribute("predicate", CS->getPredicateText());
+}
+
 void JSONNodeDumper::VisitLabelStmt(const LabelStmt *LS) {
   JOS.attribute("name", LS->getName());
   JOS.attribute("declId", createPointerRepresentation(LS->getDecl()));

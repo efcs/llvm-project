@@ -10146,10 +10146,15 @@ QualType Sema::getDecltypeForExpr(Expr *E) {
   //   entity.
   if (getCurLambda() && isa<ParenExpr>(IDExpr)) {
     if (auto *DRE = dyn_cast<DeclRefExpr>(IDExpr->IgnoreParens())) {
-      if (auto *Var = dyn_cast<VarDecl>(DRE->getDecl())) {
+      if (auto *Var = DRE->getDecl(); isa<VarDecl, ResultNameDecl>(Var)) {
         QualType T = getCapturedDeclRefType(Var, DRE->getLocation());
-        if (!T.isNull())
+        if (!T.isNull()) {
+          // Within a contract assertion the id-expression may additionally
+          // be const ([expr.prim.id.unqual]).
+          if (DRE->isContractConstified())
+            T.addConst();
           return Context.getLValueReferenceType(T);
+        }
       }
     }
   }

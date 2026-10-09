@@ -3704,6 +3704,35 @@ LValue CodeGenFunction::EmitDeclRefLValue(const DeclRefExpr *E) {
   assert(E->isNonOdrUse() != NOUR_Unevaluated &&
          "should not emit an unevaluated operand");
 
+  // A result name in a postcondition assertion refers to the object (or, for
+  // a function returning a reference, the referent) being returned. The
+  // postconditions are emitted after the return value has been stored into
+  // the return slot, so we can read it from there.
+  if (const auto *RND = dyn_cast<ResultNameDecl>(ND)) {
+    // Within a lambda-expression nested in the postcondition, the result
+    // binding has been captured: it denotes either the member of the closure
+    // type that holds the copy, or the object referred to by the capture.
+    if (E->refersToEnclosingVariableOrCapture()) {
+      if (auto *FD = LambdaCaptureFields.lookup(RND))
+        return EmitCapturedFieldLValue(*this, FD, CXXABIThisValue);
+      CGM.ErrorUnsupported(E, "result name captured by a non-lambda");
+      return MakeAddrLValue(CreateMemTemp(T), T);
+    }
+    if (!ReturnValue.isValid()) {
+      CGM.ErrorUnsupported(E, "result name outside of a postcondition");
+      return MakeAddrLValue(CreateMemTemp(T), T);
+    }
+    if (FnRetTy->isReferenceType()) {
+      LValueBaseInfo BaseInfo;
+      TBAAAccessInfo TBAAInfo;
+      Address Addr = EmitLoadOfReference(
+          MakeAddrLValue(ReturnValue, FnRetTy, AlignmentSource::Decl),
+          &BaseInfo, &TBAAInfo);
+      return MakeAddrLValue(Addr, T, BaseInfo, TBAAInfo);
+    }
+    return MakeAddrLValue(ReturnValue, T, AlignmentSource::Decl);
+  }
+
   if (const auto *VD = dyn_cast<VarDecl>(ND)) {
     // Global Named registers access via intrinsics only
     if (VD->getStorageClass() == SC_Register &&

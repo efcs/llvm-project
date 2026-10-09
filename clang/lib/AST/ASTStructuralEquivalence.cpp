@@ -75,6 +75,7 @@
 #include "clang/AST/ExprObjC.h"
 #include "clang/AST/ExprOpenMP.h"
 #include "clang/AST/NestedNameSpecifier.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/StmtObjC.h"
 #include "clang/AST/StmtOpenACC.h"
 #include "clang/AST/StmtOpenMP.h"
@@ -291,6 +292,17 @@ class StmtComparer {
   }
 
   bool IsStmtEquivalent(const Stmt *S1, const Stmt *S2) { return true; }
+
+  bool IsStmtEquivalent(const ContractStmt *S1, const ContractStmt *S2) {
+    if (S1->getContractKind() != S2->getContractKind() ||
+        S1->hasResultName() != S2->hasResultName() ||
+        S1->getAttrs().size() != S2->getAttrs().size())
+      return false;
+    for (auto [A1, A2] : llvm::zip(S1->getAttrs(), S2->getAttrs()))
+      if (A1->getKind() != A2->getKind())
+        return false;
+    return true;
+  }
 
   bool IsStmtEquivalent(const GotoStmt *S1, const GotoStmt *S2) {
     LabelDecl *L1 = S1->getLabel();
@@ -2534,6 +2546,18 @@ static bool IsStructurallyEquivalent(StructuralEquivalenceContext &Context,
   // FIXME: Consider checking for function attributes as well.
   if (!IsStructurallyEquivalent(Context, D1->getType(), D2->getType()))
     return false;
+
+  // Function contract specifiers may be omitted on redeclarations, so only
+  // compare them when both declarations have them.
+  const ContractSpecifierDecl *CSD1 = D1->getContracts();
+  const ContractSpecifierDecl *CSD2 = D2->getContracts();
+  if (CSD1 && CSD2) {
+    if (CSD1->getNumContracts() != CSD2->getNumContracts())
+      return false;
+    for (auto [C1, C2] : llvm::zip(CSD1->contracts(), CSD2->contracts()))
+      if (!IsStructurallyEquivalent(Context, C1, C2))
+        return false;
+  }
 
   return true;
 }

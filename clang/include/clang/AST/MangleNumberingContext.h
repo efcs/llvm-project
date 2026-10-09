@@ -37,6 +37,13 @@ public:
   /// given call operator within this context.
   virtual unsigned getManglingNumber(const CXXMethodDecl *CallOperator) = 0;
 
+  /// Note that the lambda expression with the given call operator has the
+  /// mangling number \p Number within this context (it was numbered when the
+  /// context was created elsewhere, e.g. in the translation unit of a module),
+  /// so that no later lambda expression gets that number.
+  virtual void reserveManglingNumber(const CXXMethodDecl *CallOperator,
+                                     unsigned Number) {}
+
   /// Retrieve the mangling number of a new block literal within this
   /// context.
   virtual unsigned getManglingNumber(const BlockDecl *BD) = 0;

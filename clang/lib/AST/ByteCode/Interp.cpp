@@ -277,6 +277,9 @@ namespace clang {
 namespace interp {
 PRESERVE_NONE static bool BCP(InterpState &S, CodePtr OpPC, int32_t Offset,
                               PrimType PT);
+PRESERVE_NONE static bool ContractCheck(InterpState &S, CodePtr OpPC,
+                                        int32_t Offset,
+                                        const ContractStmt *CS);
 
 bool diagnoseShiftFailure(InterpState &S, CodePtr OpPC, ShiftFailure Failure,
                           const APSInt *Value, unsigned Bits) {
@@ -2726,6 +2729,12 @@ bool StartThisLifetime1(InterpState &S) {
 static void setLifeStateRecurse(PtrView Ptr, Lifetime L) {
   if (const Record *R = Ptr.getRecord()) {
     Ptr.setLifeState(L);
+    // The base class subobjects too: a trivially destructible base class is
+    // not destroyed by its own destructor, but is gone all the same (e.g. for
+    // the postcondition assertions of the destructor, which are evaluated
+    // after the destruction of the subobjects).
+    for (const Record::Base &B : R->bases())
+      setLifeStateRecurse(Ptr.atField(B.Offset), L);
     for (const Record::Field &Fi : R->fields())
       setLifeStateRecurse(Ptr.atField(Fi.Offset), L);
     return;
@@ -3803,7 +3812,8 @@ bool TrivialCopy(InterpState &S, CodePtr OpPC, bool Activate,
          Op == OP_RetSint64 || Op == OP_RetUint64 || Op == OP_RetIntAP ||
          Op == OP_RetIntAPS || Op == OP_RetBool || Op == OP_RetFixedPoint ||
          Op == OP_RetPtr || Op == OP_RetMemberPtr || Op == OP_RetFloat ||
-         Op == OP_RetReflect || Op == OP_EndSpeculation;
+         Op == OP_RetReflect || Op == OP_EndSpeculation ||
+         Op == OP_EndContract;
 }
 
 #if USE_TAILCALLS
@@ -3934,6 +3944,101 @@ PRESERVE_NONE static bool BCP(InterpState &S, CodePtr OpPC, int32_t Offset,
   assert(S.SpeculationDepth == DepthBefore - 1);
 
   return true;
+}
+
+ContractPredicateCleanup::ContractPredicateCleanup(InterpState &S)
+    : S(S), StackSize(S.Stk.size()),
+      NumAllocations(S.getNumDynamicAllocations()),
+      ConstantContextOverride(S.ConstantContextOverride),
+      IgnoreContractViolationsDepth(S.IgnoreContractViolationsDepth) {}
+
+void ContractPredicateCleanup::cleanup(bool Evaluated) {
+  if (!Evaluated) {
+    S.Stk.clearTo(StackSize);
+    S.ConstantContextOverride = ConstantContextOverride;
+    S.IgnoreContractViolationsDepth = IgnoreContractViolationsDepth;
+    S.IgnoreContractViolations = IgnoreContractViolationsDepth != 0;
+  }
+
+  // A predicate that leaks memory is not a core constant expression.
+  if (S.getNumDynamicAllocations() == NumAllocations)
+    return;
+  const Expr *Source = nullptr;
+  if (unsigned NumLeaked =
+          S.getAllocator().deallocateSince(NumAllocations, S, Source);
+      NumLeaked && Evaluated)
+    S.CCEDiag(Source->getExprLoc(), diag::note_constexpr_memory_leak)
+        << (NumLeaked - 1) << Source->getSourceRange();
+}
+
+/// Check a contract assertion (C++26 [basic.contract.eval]). The code that
+/// evaluates the predicate follows this op and ends at the EndContract op
+/// that \p Offset refers to.
+///
+/// This uses the same tail-call mechanism as BCP: the predicate is
+/// interpreted by dispatching its first op, and the EndContract op returns
+/// instead of dispatching the next op, so that control comes back here both
+/// when the predicate has been evaluated and when one of its ops failed.
+PRESERVE_NONE static bool ContractCheck(InterpState &S, CodePtr OpPC,
+                                        int32_t Offset,
+                                        const ContractStmt *CS) {
+  // PC after reading the opcode and both arguments. Like for the jump ops,
+  // the offset is relative to the position after the first argument.
+  CodePtr PCBefore = S.PC;
+  CodePtr EndPC = PCBefore + Offset - align(sizeof(const ContractStmt *));
+
+  CodePtr EndArgsPC = EndPC;
+  [[maybe_unused]] Opcode EndOp = EndArgsPC.read<Opcode>();
+  assert(EndOp == OP_EndContract);
+  uint32_t FirstScope = EndArgsPC.read<uint32_t>();
+  uint32_t EndScope = EndArgsPC.read<uint32_t>();
+  // EndArgsPC is now the PC just after the EndContract op.
+
+  // An ignored contract assertion has no effect; skip the predicate.
+  if (!S.shouldCheckContract(CS)) {
+    S.PC = EndArgsPC;
+    return true;
+  }
+
+  State::ContractCheck Check(S, CS);
+  ContractPredicateCleanup Cleanup(S);
+
+  auto InterpretPredicate = [&S]() -> bool {
+#if USE_TAILCALLS
+    auto Op = S.PC.read<Opcode>();
+    auto Fn = InterpFunctions[Op];
+    return Fn(S);
+#else
+    while (true) {
+      auto Op = S.PC.read<Opcode>();
+      auto Fn = InterpFunctions[Op];
+
+      if (!Fn(S))
+        return false;
+      if (OpReturns(Op))
+        break;
+    }
+    return true;
+#endif
+  };
+
+  bool Value = false;
+  bool Evaluated = InterpretPredicate();
+  if (Evaluated) {
+    // The predicate ended naturally via the EndContract op.
+    assert(S.PC == EndArgsPC);
+    Value = S.Stk.pop<bool>();
+  } else {
+    // Evaluation might continue after a predicate that could not be
+    // evaluated. Destroy the locals of the scopes that it didn't get to
+    // destroy.
+    for (uint32_t I = FirstScope; I != EndScope; ++I)
+      S.Current->destroy(I);
+  }
+  Cleanup.cleanup(Evaluated);
+
+  S.PC = EndArgsPC;
+  return Check.finish(Evaluated, Value);
 }
 
 } // namespace interp

@@ -257,6 +257,14 @@ void ExprEngine::processCallExit(ExplodedNode *CEBNode) {
   // Find the last statement in the function and the corresponding basic block.
   auto [LastSt, Blk] = getLastStmt(CEBNode);
 
+  // If the function has postconditions, they were evaluated after the return
+  // statement, which provides the return value (see
+  // CFGBuilder::VisitReturnStmt).
+  if (!isa_and_nonnull<ReturnStmt>(LastSt))
+    if (const ReturnStmt *RS = getPendingReturnStmt(State))
+      LastSt = RS;
+  State = clearPendingReturnStmt(State);
+
   const CFGBlock *PrePurgeBlock =
       isa_and_nonnull<ReturnStmt>(LastSt) ? Blk : &CEBNode->getCFG().getExit();
   // The first half of this process happens in the callee stack frame:
@@ -1296,8 +1304,10 @@ void ExprEngine::dynDispatchBifurcate(const MemRegion *BifurReg,
 
 void ExprEngine::VisitReturnStmt(const ReturnStmt *RS, ExplodedNode *Pred,
                                  ExplodedNodeSet &Dst) {
-  if (RS->getRetValue()) {
-    Dst.insert(Engine.makePostStmtNode(RS, Pred->getState(), Pred));
+  ProgramStateRef State =
+      setPendingReturnStmt(Pred->getState(), RS, Pred->getStackFrame());
+  if (RS->getRetValue() || State != Pred->getState()) {
+    Dst.insert(Engine.makePostStmtNode(RS, State, Pred));
   } else {
     Dst.insert(Pred);
   }

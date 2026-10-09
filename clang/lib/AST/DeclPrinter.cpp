@@ -79,6 +79,7 @@ namespace {
     void VisitDecompositionDecl(DecompositionDecl *D);
     void VisitLabelDecl(LabelDecl *D);
     void VisitParmVarDecl(ParmVarDecl *D);
+    void VisitResultNameDecl(ResultNameDecl *D);
     void VisitFileScopeAsmDecl(FileScopeAsmDecl *D);
     void VisitTopLevelStmtDecl(TopLevelStmtDecl *D);
     void VisitImportDecl(ImportDecl *D);
@@ -827,10 +828,9 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
       }
     }
 
-    if (CDecl) {
-      if (!Policy.TerseOutput)
-        PrintConstructorInitializers(CDecl, Proto);
-    } else if (!ConversionDecl && !isa<CXXDestructorDecl>(D)) {
+    // Constructor initializers are printed after any function contract
+    // specifiers, right before the body (see below).
+    if (!CDecl && !ConversionDecl && !isa<CXXDestructorDecl>(D)) {
       if (FT && FT->hasTrailingReturn()) {
         if (!GuideDecl)
           Out << "auto ";
@@ -859,6 +859,17 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
           prettyPrintAttributes(D, AttrPosAsWritten::Right))
     Out << ' ' << *Attrs;
 
+  // The function-contract-specifier-seq follows the requires-clause and any
+  // virt-specifiers, and precedes the pure-specifier, the ctor-initializer,
+  // and the function body.
+  if (const ContractSpecifierDecl *Contracts = D->getContracts()) {
+    for (const ContractStmt *Contract : Contracts->contracts()) {
+      Out << ' ';
+      Contract->printPretty(Out, nullptr, SubPolicy, Indentation, "\n",
+                            &Context);
+    }
+  }
+
   if (D->isPureVirtual())
     Out << " = 0";
   else if (D->isDeletedAsWritten()) {
@@ -884,6 +895,11 @@ void DeclPrinter::VisitFunctionDecl(FunctionDecl *D) {
           Out << ";\n";
         }
         Indentation -= Policy.Indentation;
+      }
+
+      if (CDecl) {
+        std::string Empty;
+        PrintConstructorInitializers(CDecl, Empty);
       }
 
       if (D->getBody())
@@ -2045,6 +2061,15 @@ void DeclPrinter::VisitNonTypeTemplateParmDecl(
   }
 }
 
+void DeclPrinter::VisitResultNameDecl(ResultNameDecl *RND) {
+  // A result name is introduced by just an identifier, as in
+  //   post(r : r > 0)
+  // its type is implied by the return type of the function.
+  if (IdentifierInfo *II = RND->getIdentifier())
+    Out << (Policy.CleanUglifiedParameters ? II->deuglifiedName()
+                                           : II->getName());
+}
+
 void DeclPrinter::VisitTemplateTemplateParmDecl(
     const TemplateTemplateParmDecl *TTPD) {
   VisitTemplateDecl(TTPD);
@@ -2065,6 +2090,7 @@ void DeclPrinter::VisitOpenACCDeclareDecl(OpenACCDeclareDecl *D) {
     }
   }
 }
+
 void DeclPrinter::VisitOpenACCRoutineDecl(OpenACCRoutineDecl *D) {
   if (!D->isInvalidDecl()) {
     Out << "#pragma acc routine";
@@ -2086,5 +2112,6 @@ void DeclPrinter::VisitOpenACCRoutineDecl(OpenACCRoutineDecl *D) {
       OpenACCClausePrinter Printer(Out, Policy);
       Printer.VisitClauseList(D->clauses());
     }
+
   }
 }

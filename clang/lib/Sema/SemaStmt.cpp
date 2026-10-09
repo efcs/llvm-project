@@ -805,6 +805,27 @@ bool Sema::checkMustTailAttr(const Stmt *St, const Attr &MTA) {
     CallerType.Func = CallerDecl->getType()->getAs<FunctionProtoType>();
   }
 
+  // The postcondition assertions of the caller are evaluated after the callee
+  // has returned, so the call cannot be a tail call.
+  auto HasPostconditions = [](const FunctionDecl *FD) {
+    if (!FD)
+      return false;
+    for (const FunctionDecl *Redecl : FD->redecls()) {
+      auto Posts = Redecl->postconditions();
+      if (Posts.begin() != Posts.end())
+        return true;
+    }
+    return false;
+  };
+  // The function contract specifiers of a function template specialization
+  // may not have been instantiated yet.
+  if (HasPostconditions(CallerDecl) ||
+      HasPostconditions(CallerDecl->getTemplateInstantiationPattern())) {
+    Diag(St->getBeginLoc(), diag::err_musttail_postcondition);
+    Diag(MTA.getLocation(), diag::note_tail_call_required) << &MTA;
+    return false;
+  }
+
   const Expr *CalleeExpr = CE->getCallee()->IgnoreParens();
   const auto *CalleeBinOp = dyn_cast<BinaryOperator>(CalleeExpr);
   SourceLocation CalleeLoc = CE->getCalleeDecl()
