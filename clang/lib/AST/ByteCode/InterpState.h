@@ -71,7 +71,7 @@ public:
     return Current ? (Current->getDepth() + 1) : 1;
   }
   bool stepsLeft() const override { return true; }
-  bool inConstantContext() const;
+  bool inConstantContext() const override;
 
   /// Deallocates a pointer.
   void deallocate(Block *B);
@@ -91,6 +91,11 @@ public:
     }
 
     return *Alloc;
+  }
+
+  /// The number of dynamic allocations performed so far.
+  unsigned getNumDynamicAllocations() const {
+    return Alloc ? Alloc->getNumAllocations() : 0;
   }
 
   /// Diagnose any dynamic allocations that haven't been freed yet.
@@ -159,6 +164,13 @@ public:
   bool noteStep(CodePtr OpPC) {
     if (InfiniteSteps)
       return true;
+
+    // Once the limit has been reached, every further step fails as well:
+    // evaluation can continue after a failure (e.g. after the predicate of
+    // a contract assertion with the observe semantic could not be
+    // evaluated), and must not get an unlimited number of steps then.
+    if (LLVM_UNLIKELY(StepsLeft == 0))
+      return diagnoseStepLimitExceeded(OpPC);
 
     --StepsLeft;
     if (LLVM_LIKELY(StepsLeft != 0))
@@ -270,10 +282,15 @@ public:
   /// Things needed to do speculative execution.
   SmallVectorImpl<PartialDiagnosticAt> *PrevDiags = nullptr;
   bool PrevDiagsEmitted = false;
+  SmallVectorImpl<PartialDiagnosticAt> *PrevContractDiags = nullptr;
+  bool PrevHasContractViolation = false;
 #ifndef NDEBUG
   unsigned SpeculationDepth = 0;
 #endif
   unsigned DiagIgnoreDepth = 0;
+  /// The number of nested evaluations in which contract violations are
+  /// ignored.
+  unsigned IgnoreContractViolationsDepth = 0;
   std::optional<bool> ConstantContextOverride;
 
   llvm::SmallVector<

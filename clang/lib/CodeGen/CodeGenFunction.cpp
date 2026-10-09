@@ -395,6 +395,13 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
       HasCleanups && EHStack.containsOnlyNoopCleanups(PrologueCleanupDepth);
   bool EmitRetDbgLoc = !HasCleanups || HasOnlyNoopCleanups;
 
+  // If the function has postcondition assertions, they are evaluated after
+  // the variables of the function body have been destroyed and before the
+  // parameters are.
+  bool HasPostconditions = PostconditionsSavedReturnBlock.isValid();
+  EHScopeStack::stable_iterator BodyCleanupDepth =
+      HasPostconditions ? PostconditionsCleanupDepth : PrologueCleanupDepth;
+
   std::optional<ApplyDebugLocation> OAL;
   if (HasCleanups) {
     // Make sure the line table doesn't jump back into the body for
@@ -408,6 +415,11 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
         OAL = ApplyDebugLocation::CreateDefaultArtificial(*this, EndLoc);
     }
 
+    PopCleanupBlocks(BodyCleanupDepth);
+  }
+
+  if (HasPostconditions) {
+    EmitFunctionPostconditions(EndLoc);
     PopCleanupBlocks(PrologueCleanupDepth);
   }
 
@@ -481,6 +493,21 @@ void CodeGenFunction::FinishFunction(SourceLocation EndLoc) {
     }
   }
 
+  // The function contract assertions of a coroutine are evaluated before the
+  // coroutine state is allocated and after the coroutine has returned to its
+  // caller for the first time, at which point the coroutine state may already
+  // have been destroyed. They share the exception slots with the coroutine
+  // body, so these must not be placed in the coroutine frame. They never need
+  // to be: an exception that is being handled or propagated is not live across
+  // a suspension point.
+  if (ContractsFD && isCoroutine()) {
+    for (llvm::Value *Slot : {ExceptionSlot, (llvm::Value *)EHSelectorSlot})
+      if (auto *AI = dyn_cast_or_null<llvm::AllocaInst>(Slot))
+        AI->setMetadata(llvm::LLVMContext::MD_coro_outside_frame,
+                        llvm::MDNode::get(getLLVMContext(), {}));
+  }
+
+  EmitIfUsed(*this, GetSharedContractViolationTrapBlock(false));
   EmitIfUsed(*this, EHResumeBlock);
   EmitIfUsed(*this, TerminateLandingPad);
   EmitIfUsed(*this, TerminateHandler);
@@ -1390,8 +1417,7 @@ void CodeGenFunction::StartFunction(GlobalDecl GD, QualType RetTy,
 }
 
 void CodeGenFunction::EmitFunctionBody(const Stmt *Body) {
-  incrementProfileCounter(Body);
-  maybeCreateMCDCCondBitmap();
+  incrementFunctionBodyProfileCounter(Body);
   if (const CompoundStmt *S = dyn_cast<CompoundStmt>(Body))
     EmitCompoundStmtWithoutScope(*S);
   else
@@ -1580,6 +1606,27 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
   // Emit the standard function prologue.
   StartFunction(GD, ResTy, Fn, FnInfo, Args, Loc, BodyRange.getBegin());
 
+  // Assign the profile counters of the function. This includes the counters
+  // for the predicates of its function contract assertions.
+  PGO->assignRegionCounters(GD, CurFn);
+
+  // Emit the precondition assertions before anything else in the body (in
+  // particular, before any member or base initializers of a constructor), but
+  // only in the function that actually runs the user-written body. The
+  // postcondition assertions are emitted by FinishFunction.
+  if (shouldEmitFunctionContracts(GD)) {
+    ContractsFD = FD;
+    MapContractParameters(FD);
+    // The preconditions of a destructor are emitted by EmitDestructorBody.
+    if (!isa<CXXDestructorDecl>(FD)) {
+      // Count the function as entered before evaluating its preconditions.
+      if (Body && hasCheckedPreconditions(FD))
+        incrementFunctionBodyProfileCounter(Body);
+      EmitPreconditions(FD);
+    }
+    BeginFunctionPostconditions();
+  }
+
   // Save parameters for coroutine function.
   if (Body && isa_and_nonnull<CoroutineBodyStmt>(Body))
     llvm::append_range(FnArgs, FD->parameters());
@@ -1592,7 +1639,6 @@ void CodeGenFunction::GenerateCode(GlobalDecl GD, llvm::Function *Fn,
     CurFn->addFnAttr(llvm::Attribute::MustProgress);
 
   // Generate the body of the function.
-  PGO->assignRegionCounters(GD, CurFn);
   if (isa<CXXDestructorDecl>(FD))
     EmitDestructorBody(Args);
   else if (isa<CXXConstructorDecl>(FD))

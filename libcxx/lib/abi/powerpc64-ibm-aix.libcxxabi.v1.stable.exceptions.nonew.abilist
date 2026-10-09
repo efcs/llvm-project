@@ -1114,6 +1114,8 @@
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_current_primary_exception', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_decrement_exception_refcount', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_end_catch', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'IMP', 'is_defined': False, 'name': '__contract_invoke_default_handler', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_find_field', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_free_exception', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_guard_abort', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_guard_acquire', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
@@ -1125,6 +1127,7 @@
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_rethrow_primary_exception', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_throw', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'IMP', 'is_defined': False, 'name': '__cxa_uncaught_exceptions', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'wEXP', 'is_defined': True, 'name': '_Z25handle_contract_violationRKNSt9contracts18contract_violationE', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__110moneypunctIcLb0EE11do_groupingEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__110moneypunctIcLb0EE13do_neg_formatEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__110moneypunctIcLb0EE13do_pos_formatEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
@@ -1328,6 +1331,13 @@
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__18time_putIcNS_19ostreambuf_iteratorIcNS_11char_traitsIcEEEEE6do_putES4_RNS_8ios_baseEcPK2tmcc', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__18time_putIwNS_19ostreambuf_iteratorIwNS_11char_traitsIwEEEEE3putES4_RNS_8ios_baseEwPK2tmPKwSC_', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__18time_putIwNS_19ostreambuf_iteratorIwNS_11char_traitsIwEEEEE6do_putES4_RNS_8ios_baseEwPK2tmcc', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation14detection_modeEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation14is_terminatingEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation20evaluation_exceptionEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation4kindEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation7commentEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation8locationEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNKSt9contracts18contract_violation8semanticEv', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__19money_getIcNS_19istreambuf_iteratorIcNS_11char_traitsIcEEEEE6do_getES4_S4_bRNS_8ios_baseERjRNS_12basic_stringIcS3_NS_9allocatorIcEEEE', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__19money_getIcNS_19istreambuf_iteratorIcNS_11char_traitsIcEEEEE6do_getES4_S4_bRNS_8ios_baseERjRe', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNKSt3__19money_getIwNS_19istreambuf_iteratorIwNS_11char_traitsIwEEEEE6do_getES4_S4_bRNS_8ios_baseERjRNS_12basic_stringIwS3_NS_9allocatorIwEEEE', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
@@ -1785,6 +1795,7 @@
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19basic_iosIwNS_11char_traitsIwEEED0Ev', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19basic_iosIwNS_11char_traitsIwEEED1Ev', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19basic_iosIwNS_11char_traitsIwEEED2Ev', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
+{'import_export': 'EXP', 'is_defined': True, 'name': '_ZNSt9contracts41invoke_default_contract_violation_handlerERKNS_18contract_violationE', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19money_getIcNS_19istreambuf_iteratorIcNS_11char_traitsIcEEEEE2idE', 'storage_mapping_class': 'RW', 'type': 'OBJECT'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19money_getIcNS_19istreambuf_iteratorIcNS_11char_traitsIcEEEEE8__do_getERS4_S4_bRKNS_6localeEjRjRbRKNS_5ctypeIcEERNS_10unique_ptrIcPFvPvEEERPcSM_', 'storage_mapping_class': 'DS', 'type': 'FUNC'}
 {'import_export': 'wEXP', 'is_defined': True, 'name': '_ZNSt3__19money_getIwNS_19istreambuf_iteratorIwNS_11char_traitsIwEEEEE2idE', 'storage_mapping_class': 'RW', 'type': 'OBJECT'}

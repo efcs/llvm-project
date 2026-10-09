@@ -158,6 +158,10 @@ private:
   const StackFrame *CurrStackFrame = nullptr;
   const CFGBlock *CurrBlock = nullptr;
 
+  /// Whether some contract assertions may have the 'ignore' evaluation
+  /// semantic, in which case their predicates must not be evaluated.
+  bool MayIgnoreContracts = false;
+
   /// Helper object to determine if an Objective-C message expression
   /// implicitly never returns.
   ObjCNoReturn ObjCNoRet;
@@ -465,6 +469,21 @@ public:
   DataTag::Factory &getDataTags() { return Engine.getDataTags(); }
 
   // Functions for external checking of whether we have unfinished work.
+  /// Determine whether \p S is part of the predicate of a contract assertion
+  /// whose evaluation semantic is 'ignore'. Such a predicate is part of the
+  /// CFG but is not evaluated.
+  bool isInIgnoredContractPredicate(const Stmt *S, const StackFrame *SF) const;
+
+  /// The postconditions of a function are evaluated after its return
+  /// statement (see CFGBuilder::VisitReturnStmt). Remember the return
+  /// statement so that the result name and the call exit can find the return
+  /// value. Does nothing if the function has no postconditions.
+  ProgramStateRef setPendingReturnStmt(ProgramStateRef State,
+                                       const ReturnStmt *RS,
+                                       const StackFrame *SF);
+  const ReturnStmt *getPendingReturnStmt(ProgramStateRef State) const;
+  ProgramStateRef clearPendingReturnStmt(ProgramStateRef State) const;
+
   bool wasBlocksExhausted() const { return Engine.wasBlocksExhausted(); }
   bool hasEmptyWorkList() const { return !Engine.getWorkList()->hasWork(); }
   bool hasExploredAllPaths() const { return Engine.hasExploredAllPaths(); }

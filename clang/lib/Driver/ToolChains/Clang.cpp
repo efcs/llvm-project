@@ -7982,6 +7982,22 @@ void Clang::ConstructJob(Compilation &C, const JobAction &JA,
       CmdArgs.push_back("-faligned-allocation");
   }
 
+  // C++ contracts. The contract evaluation options are only forwarded when
+  // contracts are enabled.
+  if (Args.hasFlag(options::OPT_fcontracts, options::OPT_fno_contracts,
+                   false)) {
+    CmdArgs.push_back("-fcontracts");
+    Args.AddLastArg(CmdArgs, options::OPT_fcontract_evaluation_semantic_EQ);
+    std::vector<std::string> ContractGroups = Args.getAllArgValues(
+        options::OPT_fcontract_group_evaluation_semantic_EQ);
+    if (!ContractGroups.empty())
+      CmdArgs.push_back(
+          Args.MakeArgString(Twine("-fcontract-group-evaluation-semantic=") +
+                             llvm::join(ContractGroups, ",")));
+    Args.addOptOutFlag(CmdArgs, options::OPT_fcontract_exceptions,
+                       options::OPT_fno_contract_exceptions);
+  }
+
   // The default new alignment can be specified using a dedicated option or via
   // a GCC-compatible option that also turns on aligned allocation.
   if (Arg *A = Args.getLastArg(options::OPT_fnew_alignment_EQ,

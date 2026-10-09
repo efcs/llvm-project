@@ -1631,6 +1631,23 @@ public:
     return getSema().BuildCoroutineBodyStmt(Args);
   }
 
+  /// Build a new contract_assert, pre, or post statement
+  //
+  //
+  StmtResult RebuildContractStmt(ContractKind K, SourceLocation KeywordLoc,
+                                 Expr *Cond, DeclStmt *ResultName,
+                                 ArrayRef<const Attr *> Attrs,
+                                 StringRef PredicateText = {},
+                                 SourceRange ParenRange = SourceRange()) {
+    return getSema().BuildContractStmt(K, KeywordLoc, Cond, ResultName, Attrs,
+                                       PredicateText, ParenRange);
+  }
+
+  DeclResult RebuildContractSpecifierDecl(ArrayRef<ContractStmt *> Stmts,
+                                          bool IsInvalid) {
+    return getSema().ActOnFinishContractSpecifierSequence(Stmts, IsInvalid);
+  }
+
   /// Build a new Objective-C \@try statement.
   ///
   /// By default, performs semantic analysis to build the new statement.
@@ -2811,15 +2828,22 @@ public:
   ///
   /// By default, performs semantic analysis to build the new expression.
   /// Subclasses may override this routine to provide different behavior.
+  ///
+  /// \p ContractConstified is whether the original expression is const
+  /// because of where it appears relative to a contract assertion, which
+  /// applies to the new expression too.
   ExprResult RebuildDeclRefExpr(NestedNameSpecifierLoc QualifierLoc,
                                 ValueDecl *VD,
                                 const DeclarationNameInfo &NameInfo,
                                 NamedDecl *Found,
-                                TemplateArgumentListInfo *TemplateArgs) {
+                                TemplateArgumentListInfo *TemplateArgs,
+                                bool ContractConstified) {
     CXXScopeSpec SS;
     SS.Adopt(QualifierLoc);
     return getSema().BuildDeclarationNameExpr(SS, NameInfo, VD, Found,
-                                              TemplateArgs);
+                                              TemplateArgs,
+                                              /*AcceptInvalidDecl=*/false,
+                                              ContractConstified);
   }
 
   /// Build a new expression in parentheses.
@@ -9208,6 +9232,53 @@ TreeTransform<Derived>::TransformCoyieldExpr(CoyieldExpr *E) {
   return getDerived().RebuildCoyieldExpr(E->getKeywordLoc(), Result.get());
 }
 
+// C++ Contract Statements
+
+template <typename Derived>
+StmtResult TreeTransform<Derived>::TransformContractStmt(ContractStmt *S) {
+
+  SmallVector<const Attr *> NewAttrs;
+  for (auto *A : S->getAttrs())
+    NewAttrs.push_back(getDerived().TransformAttr(A));
+
+  EnterExpressionEvaluationContext Unevaluated(
+      SemaRef, Sema::ExpressionEvaluationContext::PotentiallyEvaluated, nullptr,
+      Sema::ExpressionEvaluationContextRecord::EK_Other,
+      /*ShouldEnter=*/S->getContractKind() != ContractKind::Assert);
+  std::optional<Sema::CXXThisScopeRAII> OptThisScope;
+  if (S->getContractKind() != ContractKind::Assert) {
+    OptThisScope.emplace(getSema(),
+                         dyn_cast_if_present<CXXRecordDecl>(
+                             getSema().getFunctionLevelDeclContext()),
+                         Qualifiers());
+  }
+
+  assert(getSema().getFunctionLevelDeclContext(true)->isFunctionOrMethod());
+
+  Sema::ContractScopeRAII ContractScope(getSema(), S->getContractKind(),
+                                        S->getKeywordLoc());
+
+  StmtResult NewResultName;
+  if (S->hasResultName()) {
+    NewResultName = getDerived().TransformStmt(S->getResultNameDeclStmt());
+    if (NewResultName.isInvalid())
+      return StmtError();
+  }
+
+  Expr *Cond = S->getCond();
+  Sema::ConditionResult CondRes = getDerived().TransformCondition(Cond->getExprLoc(), /*Var=*/nullptr, Cond, Sema::ConditionKind::Boolean);
+  if (CondRes.isInvalid())
+    return StmtError();
+
+  Cond = CondRes.get().second;
+
+  return getDerived().RebuildContractStmt(
+      S->getContractKind(), S->getKeywordLoc(), Cond,
+      cast_or_null<DeclStmt>(NewResultName.get()), NewAttrs,
+      S->getPredicateText(),
+      SourceRange(S->getLParenLoc(), S->getRParenLoc()));
+}
+
 // Objective-C Statements.
 
 template<typename Derived>
@@ -13724,8 +13795,9 @@ TreeTransform<Derived>::TransformDeclRefExpr(DeclRefExpr *E) {
       return ExprError();
   }
 
-  return getDerived().RebuildDeclRefExpr(QualifierLoc, ND, NameInfo,
-                                         Found, TemplateArgs);
+  return getDerived().RebuildDeclRefExpr(QualifierLoc, ND, NameInfo, Found,
+                                         TemplateArgs,
+                                         E->isContractConstified());
 }
 
 template<typename Derived>
@@ -16604,6 +16676,30 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
       Sema::ExpressionEvaluationContext::PotentiallyEvaluated,
       E->getCallOperator());
 
+  // Transform the function contract specifiers of the call operator. If a
+  // postcondition names the result and the return type is yet to be deduced
+  // from the body, this has to wait until the body has been transformed.
+  ContractSpecifierDecl *OldCSD = E->getCallOperator()->getContracts();
+  auto TransformContracts = [&] {
+    SmallVector<ContractStmt *, 4> NewContracts;
+    bool ContractsInvalid = OldCSD->isInvalidDecl();
+    for (ContractStmt *CS : OldCSD->contracts()) {
+      StmtResult NewCS = getDerived().TransformStmt(CS);
+      if (NewCS.isInvalid())
+        ContractsInvalid = true;
+      else
+        NewContracts.push_back(NewCS.getAs<ContractStmt>());
+    }
+    NewCallOperator->setContracts(getSema().BuildContractSpecifierDecl(
+        NewContracts, NewCallOperator, OldCSD->getLocation(),
+        ContractsInvalid));
+  };
+  bool TransformContractsAfterBody =
+      OldCSD && OldCSD->getCanonicalResultName() &&
+      NewCallOperator->getReturnType()->isUndeducedType();
+  if (OldCSD && !Invalid && !TransformContractsAfterBody)
+    TransformContracts();
+
   StmtResult Body;
   {
     Sema::NonSFINAEContext _(getSema());
@@ -16618,6 +16714,9 @@ TreeTransform<Derived>::TransformLambdaExpr(LambdaExpr *E) {
 
     getSema().popCodeSynthesisContext();
   }
+
+  if (TransformContractsAfterBody && !Invalid && !Body.isInvalid())
+    TransformContracts();
 
   // ActOnLambda* will pop the function scope for us.
   FuncScopeCleanup.disable();

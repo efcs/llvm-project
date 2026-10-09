@@ -77,6 +77,7 @@ IdentifierTable::IdentifierTable(const LangOptions &LangOpts,
 // Language Keyword Implementation
 //===----------------------------------------------------------------------===//
 
+
 // This works on a single TokenKey flag and checks the LangOpts to get the
 // KeywordStatus based exclusively on this flag, so that it can be merged in
 // getKeywordStatus. Most should be enabled/disabled, but some might imply
@@ -139,6 +140,8 @@ static KeywordStatus getKeywordStatusHelper(const LangOptions &LangOpts,
     return LangOpts.ZVector ? KS_Enabled : KS_Unknown;
   case KEYCOROUTINES:
     return LangOpts.Coroutines ? KS_Enabled : KS_Unknown;
+  case KEYCONTRACTS:
+    return LangOpts.Contracts ? KS_Enabled : KS_Unknown;
   case KEYMODULES:
     return KS_Unknown;
   case KEYOPENCLCXX:

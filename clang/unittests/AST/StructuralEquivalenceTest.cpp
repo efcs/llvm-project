@@ -20,6 +20,8 @@ using std::get;
 struct StructuralEquivalenceTest : ::testing::Test {
   std::unique_ptr<ASTUnit> AST0, AST1;
   std::string Code0, Code1; // Buffers for SourceManager
+  // Additional compiler arguments appended when building the ASTs.
+  std::vector<std::string> ExtraArgs;
 
   // Parses the source code in the specified language and sets the ASTs of
   // the current test instance to the parse result.
@@ -28,6 +30,7 @@ struct StructuralEquivalenceTest : ::testing::Test {
     this->Code0 = SrcCode0;
     this->Code1 = SrcCode1;
     std::vector<std::string> Args = getCommandLineArgsForTesting(Lang);
+    llvm::append_range(Args, ExtraArgs);
 
     const char *const InputFileName = "input.cc";
 
@@ -339,6 +342,44 @@ TEST_F(StructuralEquivalenceFunctionTest, ParamConstWithRef) {
   auto t =
       makeNamedDecls("void foo(int&);", "void foo(const int&);", Lang_CXX03);
   EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, SameContracts) {
+  ExtraArgs = {"-fcontracts"};
+  auto t = makeNamedDecls("int foo(const int x) __pre(x > 0) __post(r : r > x);",
+                          "int foo(const int x) __pre(x > 0) __post(r : r > x);",
+                          Lang_CXX23);
+  EXPECT_TRUE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentContractConditions) {
+  ExtraArgs = {"-fcontracts"};
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);",
+                          "int foo(int x) __pre(x > 1);", Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentContractKinds) {
+  ExtraArgs = {"-fcontracts"};
+  auto t = makeNamedDecls("int foo(const int x) __pre(x > 0);",
+                          "int foo(const int x) __post(x > 0);", Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, DifferentNumberOfContracts) {
+  ExtraArgs = {"-fcontracts"};
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);",
+                          "int foo(int x) __pre(x > 0) __pre(x < 10);",
+                          Lang_CXX23);
+  EXPECT_FALSE(testStructuralMatch(t));
+}
+
+TEST_F(StructuralEquivalenceFunctionTest, ContractsOmittedOnOneDecl) {
+  ExtraArgs = {"-fcontracts"};
+  // Contracts may be omitted on redeclarations.
+  auto t = makeNamedDecls("int foo(int x) __pre(x > 0);", "int foo(int x);",
+                          Lang_CXX23);
+  EXPECT_TRUE(testStructuralMatch(t));
 }
 
 TEST_F(StructuralEquivalenceFunctionTest, ParamConstSimple) {

@@ -6786,6 +6786,74 @@ the `int` parameter is the one that represents the error.
 }];
 }
 
+def ContractGroupDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_group`` attribute places a C++26 contract assertion in a
+named *contract group*. The evaluation semantic of the contract assertions in a
+group can be selected separately from the default evaluation semantic, using
+``-fcontract-group-evaluation-semantic=<group>=<semantic>``.
+
+The attribute appertains to a contract assertion and is written in the
+*attribute-specifier-seq* which follows the ``pre``, ``post`` or
+``contract_assert`` keyword:
+
+.. code-block:: c++
+
+  int f(int x)
+    pre [[clang::contract_group("mylib.audit")]] (is_expensive_to_check(x))
+    post [[clang::contract_group("mylib")]] (r : r >= 0);
+
+  void g(int *p) {
+    contract_assert [[clang::contract_group("mylib.hardening")]] (p != nullptr);
+  }
+
+The name of a group consists of one or more components separated by ``.``; each
+component may contain letters, digits, ``_`` and ``-`` (not as its first or last
+character). When the semantic of a contract assertion is determined, the most
+specific group for which a semantic was specified wins: with
+``-fcontract-group-evaluation-semantic=mylib=ignore,mylib.hardening=enforce``
+the assertion in ``g`` above is enforced and those of ``f`` are ignored. A
+contract assertion whose group (and enclosing groups) were not given a semantic,
+or which has no group, uses the semantic selected by
+``-fcontract-evaluation-semantic=``.
+
+The semantic is selected in the translation unit in which the contract
+assertion is evaluated; for example, a contract assertion of a function which
+is defined in a module is given the semantic selected by the options of the
+translation unit which emits the definition.
+
+The attribute may appear at most once on a contract assertion.
+  }];
+}
+
+def ContractMessageDocs : Documentation {
+  let Category = DocCatStmt;
+  let Content = [{
+The ``clang::contract_message`` attribute customizes the text which describes a
+C++26 contract assertion when it is violated, that is, the string returned by
+``std::contracts::contract_violation::comment()``. By default that is the text
+of the predicate as it was written in the source (with a single space between
+tokens which were separated by whitespace, and without expanding macros).
+
+.. code-block:: c++
+
+  void f(int *p)
+    pre [[clang::contract_message("the buffer must not be null")]] (p != nullptr);
+
+The attribute takes a string literal and an optional boolean constant. If the
+second argument is ``true`` (the default) the message is appended to the text
+of the predicate, and the comment for the precondition above is
+``p != nullptr: "the buffer must not be null"``. If it is ``false`` the message
+replaces the text of the predicate: the comment is
+``"the buffer must not be null"``.
+
+The attribute appertains to a contract assertion and is written in the
+*attribute-specifier-seq* which follows the ``pre``, ``post`` or
+``contract_assert`` keyword. It may appear at most once on a contract assertion.
+  }];
+}
+
 def SuppressDocs : Documentation {
   let Category = DocCatStmt;
   let Content = [{

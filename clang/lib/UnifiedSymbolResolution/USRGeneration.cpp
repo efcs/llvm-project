@@ -123,6 +123,7 @@ public:
   void VisitTemplateTypeParmDecl(const TemplateTypeParmDecl *D);
   void VisitVarDecl(const VarDecl *D);
   void VisitBindingDecl(const BindingDecl *D);
+  void VisitResultNameDecl(const ResultNameDecl *D);
   void VisitNonTypeTemplateParmDecl(const NonTypeTemplateParmDecl *D);
   void VisitTemplateTemplateParmDecl(const TemplateTemplateParmDecl *D);
   void VisitUnresolvedUsingValueDecl(const UnresolvedUsingValueDecl *D);
@@ -393,6 +394,13 @@ void USRGenerator::VisitVarDecl(const VarDecl *D) {
 
 void USRGenerator::VisitBindingDecl(const BindingDecl *D) {
   if (isLocal(D) && GenLoc(D, /*IncludeOffset=*/true))
+    return;
+  VisitNamedDecl(D);
+}
+
+void USRGenerator::VisitResultNameDecl(const ResultNameDecl *D) {
+  // A result name is local to the postcondition it is declared in.
+  if (GenLoc(D, /*IncludeOffset=*/true))
     return;
   VisitNamedDecl(D);
 }

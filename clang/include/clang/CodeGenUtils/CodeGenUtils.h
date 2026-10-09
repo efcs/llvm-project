@@ -11,6 +11,7 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/Basic/SourceLocation.h"
+#include "llvm/ADT/STLFunctionalExtras.h"
 
 namespace clang {
 class CallExpr;
@@ -20,10 +21,18 @@ class LangOptions;
 } // namespace clang
 
 namespace clang::CodeGenUtils {
+/// A predicate telling whether the function contract assertions of a
+/// destructor are evaluated as part of it. A destructor with checked contract
+/// assertions is never treated as having a trivial body: the assertions are
+/// evaluated and may depend on the dynamic type of the object.
+using DtorHasCheckedContractsFn =
+    llvm::function_ref<bool(const CXXDestructorDecl *)>;
+
 /// Check whether we need to initialize any vtable pointers before calling this
 /// destructor.
-bool canSkipVTablePointerInitialization(ASTContext &Ctx,
-                                        const CXXDestructorDecl *Dtor);
+bool canSkipVTablePointerInitialization(
+    ASTContext &Ctx, const CXXDestructorDecl *Dtor,
+    DtorHasCheckedContractsFn HasCheckedContracts = {});
 
 /// Check whether destructing \p Field has no observable behaviors, and thus can
 /// be skipped when creating a destructor body. So non-record types, anonymous
@@ -32,7 +41,9 @@ bool canSkipVTablePointerInitialization(ASTContext &Ctx,
 /// Note: This is a more liberal definition of trivial destruction than the C++
 /// Standard's version, and thus cannot be used as a substitute for C++ Standard
 /// requirements.
-bool fieldHasTrivialDestructorBody(ASTContext &Context, const FieldDecl *Field);
+bool fieldHasTrivialDestructorBody(
+    ASTContext &Context, const FieldDecl *Field,
+    DtorHasCheckedContractsFn HasCheckedContracts = {});
 
 /// Determines whether the language options require us to model
 /// unwind exceptions.  We treat -fexceptions as mandating this

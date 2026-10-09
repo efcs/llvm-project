@@ -15,6 +15,7 @@
 #include "clang/AST/ASTLambda.h"
 #include "clang/AST/Attr.h"
 #include "clang/AST/DeclCXX.h"
+#include "clang/AST/StmtCXX.h"
 #include <type_traits>
 
 using namespace clang;
@@ -242,6 +243,15 @@ bool ByteCodeEmitter::speculate(const CallExpr *E, const LabelTy &EndLabel) {
   if (!this->visit(Arg))
     return false;
   return true;
+}
+
+bool ByteCodeEmitter::checkContract(const ContractStmt *S,
+                                    const LabelTy &EndLabel) {
+  // The ContractCheck op interprets the code of the predicate, which follows
+  // it and ends at EndLabel.
+  if (!this->emitContractCheck(getOffset(EndLabel), S, S->getCond()))
+    return false;
+  return this->visitContractPredicate(S);
 }
 
 //===----------------------------------------------------------------------===//

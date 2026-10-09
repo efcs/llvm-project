@@ -6389,6 +6389,21 @@ ExprResult Sema::PerformImplicitObjectArgumentInitialization(
             << From->getSourceRange();
         Diag(Method->getLocation(), diag::note_previous_decl)
           << Method->getDeclName();
+
+
+        // If the object expression is 'this' and it is only const because it
+        // appears in the predicate of a contract assertion, say so.
+        if (const auto *This =
+                dyn_cast<CXXThisExpr>(From->IgnoreParenImpCasts());
+            This && (CVR & Qualifiers::Const)) {
+          QualType ThisTy =
+              getCurrentThisType(/*ApplyContractConstification=*/false);
+          if (!ThisTy.isNull() && !ThisTy->getPointeeType().isConstQualified())
+            if (const ContractScopeRecord *CSR =
+                    getEnclosingContractAssertion())
+              Diag(CSR->KeywordLoc,
+                   diag::note_cxx_this_const_in_contract_introduced_here);
+        }
         return ExprError();
       }
       break;
@@ -6785,9 +6800,11 @@ Sema::EvaluateConvertedConstantExpression(Expr *E, QualType T, APValue &Value,
   // Check the expression is a constant expression.
   SmallVector<PartialDiagnosticAt, 8> Notes;
   SmallVector<PartialDiagnosticAt> MSWarning;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Expr::EvalResult Eval;
   Eval.Diag = &Notes;
   Eval.ExtendedDiag = &MSWarning;
+  Eval.ContractDiag = &ContractNotes;
 
   assert(CCE != CCEKind::TempArgStrict && "unnexpected CCE Kind");
 
@@ -6799,8 +6816,12 @@ Sema::EvaluateConvertedConstantExpression(Expr *E, QualType T, APValue &Value,
   else
     Kind = ConstantExprKind::Normal;
 
-  if (!E->EvaluateAsConstantExpr(Eval, Context, Kind) ||
-      (RequireInt && !Eval.Val.isInt())) {
+  bool Evaluated = E->EvaluateAsConstantExpr(Eval, Context, Kind);
+  DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  if (DiagnoseContractViolationInSFINAEContext(E, Eval))
+    return ExprError();
+
+  if (!Evaluated || (RequireInt && !Eval.Val.isInt())) {
     // The expression can't be folded, so we can't keep it at this position in
     // the AST.
     Result = ExprError();

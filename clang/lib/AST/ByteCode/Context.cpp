@@ -144,6 +144,26 @@ bool Context::evaluateAsInitializer(const EvalSettings &Settings,
       (VD->getType()->isRecordType() || VD->getType()->isArrayType());
 
   auto Res = C.interpretDecl(VD, Init, CheckGlobalInitialized);
+
+  // If this evaluation ignored contract assertions in order to determine
+  // whether the variable is constant-initialized, the initializer is going to
+  // be evaluated again with the contract assertions checked. Don't let that
+  // evaluation reuse the result of this one.
+  if (Settings.IgnoreContracts &&
+      Settings.EvalStatus.HasIgnoredContractAssertion) {
+    if (UnsignedOrNone GlobalIndex = P->getGlobal(VD)) {
+      TrialGlobal = {VD, *GlobalIndex};
+      P->removeGlobal(VD);
+    }
+  } else if (TrialGlobal && TrialGlobal->first == VD) {
+    // The program is ill-formed if the initializer can't be evaluated with
+    // the contract assertions checked. Keep the result of the evaluation
+    // that ignored them for error recovery.
+    if (Res.isInvalid())
+      P->restoreGlobal(VD, TrialGlobal->second);
+    TrialGlobal.reset();
+  }
+
   if (Res.isInvalid()) {
     C.cleanup();
     Stk.clearTo(StackSizeBefore);

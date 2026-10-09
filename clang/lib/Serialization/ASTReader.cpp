@@ -37,6 +37,7 @@
 #include "clang/AST/OpenACCClause.h"
 #include "clang/AST/OpenMPClause.h"
 #include "clang/AST/RawCommentList.h"
+#include "clang/AST/StmtCXX.h"
 #include "clang/AST/TemplateBase.h"
 #include "clang/AST/TemplateName.h"
 #include "clang/AST/Type.h"
@@ -10696,6 +10697,22 @@ void ASTReader::visitTopLevelModuleMaps(
   }
 }
 
+static const FunctionDecl *
+getFunctionWithLambdaInContracts(const CXXRecordDecl *RD,
+                                 const SourceManager &SM);
+
+/// Determine whether \p FD is the call operator of the closure type of a
+/// lambda-expression which appears in the function contract specifiers of a
+/// function declaration.
+static bool isLambdaCallOperatorInContracts(const FunctionDecl *FD,
+                                            const SourceManager &SM) {
+  const auto *MD = dyn_cast<CXXMethodDecl>(FD);
+  if (!MD || MD->getOverloadedOperator() != OO_Call)
+    return false;
+  const CXXRecordDecl *Closure = MD->getParent();
+  return Closure->isLambda() && getFunctionWithLambdaInContracts(Closure, SM);
+}
+
 void ASTReader::finishPendingActions() {
   while (!PendingIdentifierInfos.empty() ||
          !PendingDeducedFunctionTypes.empty() ||
@@ -10938,8 +10955,15 @@ void ASTReader::finishPendingActions() {
        PB != PBEnd; ++PB) {
     if (FunctionDecl *FD = dyn_cast<FunctionDecl>(PB->first)) {
       // FIXME: Check for =delete/=default?
+      //
+      // The call operator of a closure type declared in a function contract
+      // specifier keeps its body even if it was merged with the call operator
+      // of the corresponding lambda-expression of another translation unit,
+      // so that the predicates can be compared as written in each translation
+      // unit (see diagnoseMismatchedFunctionContracts).
       const FunctionDecl *Defn = nullptr;
-      if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn)) {
+      if (!getContext().getLangOpts().Modules || !FD->hasBody(Defn) ||
+          isLambdaCallOperatorInContracts(FD, getSourceManager())) {
         FD->setLazyBody(PB->second);
       } else {
         auto *NonConstDefn = const_cast<FunctionDecl*>(Defn);
@@ -11021,7 +11045,127 @@ void ASTReader::finishPendingActions() {
          "Should be empty at the end of finishPendingActions");
 }
 
+/// If \p RD is the closure type of a lambda-expression which appears in the
+/// function contract specifiers of a function declaration, return that
+/// declaration.
+static const FunctionDecl *
+getFunctionWithLambdaInContracts(const CXXRecordDecl *RD,
+                                 const SourceManager &SM) {
+  if (!RD->isLambda())
+    return nullptr;
+
+  // Find the enclosing function, skipping enclosing lambda-expressions. Use
+  // the lexical context: the semantic context of the members of a closure
+  // type which was merged is that of the declaration it was merged with.
+  const DeclContext *DC = RD->getLexicalDeclContext();
+  while (true) {
+    const auto *MD = dyn_cast<CXXMethodDecl>(DC);
+    const auto *Parent =
+        MD ? dyn_cast<CXXRecordDecl>(MD->getLexicalDeclContext()) : nullptr;
+    if (!Parent || !Parent->isLambda())
+      break;
+    DC = Parent->getLexicalDeclContext();
+  }
+
+  const auto *FD = dyn_cast<FunctionDecl>(DC);
+  const ContractSpecifierDecl *Contracts = FD ? FD->getContracts() : nullptr;
+  if (!Contracts || Contracts->contracts().empty())
+    return nullptr;
+
+  SourceRange Range = Contracts->getSourceRange();
+  SourceLocation Loc = RD->getLocation();
+  if (Range.isInvalid() || Loc.isInvalid() ||
+      SM.isBeforeInTranslationUnit(Loc, Range.getBegin()) ||
+      SM.isBeforeInTranslationUnit(Range.getEnd(), Loc))
+    return nullptr;
+  return FD;
+}
+
+/// Determine whether two declarations of a function use different names for
+/// their parameters, template parameters or result bindings.
+static bool hasRenamedContractEntities(const FunctionDecl *X,
+                                       const FunctionDecl *Y) {
+  if (X->getNumParams() != Y->getNumParams())
+    return true;
+  for (unsigned I = 0, N = X->getNumParams(); I != N; ++I)
+    if (X->getParamDecl(I)->getDeclName() != Y->getParamDecl(I)->getDeclName())
+      return true;
+
+  const FunctionTemplateDecl *XTemplate = X->getDescribedFunctionTemplate();
+  const FunctionTemplateDecl *YTemplate = Y->getDescribedFunctionTemplate();
+  if (XTemplate && YTemplate) {
+    const TemplateParameterList *XParams = XTemplate->getTemplateParameters();
+    const TemplateParameterList *YParams = YTemplate->getTemplateParameters();
+    if (XParams->size() != YParams->size())
+      return true;
+    for (unsigned I = 0, N = XParams->size(); I != N; ++I)
+      if (XParams->getParam(I)->getDeclName() !=
+          YParams->getParam(I)->getDeclName())
+        return true;
+  }
+
+  const ContractSpecifierDecl *XContracts = X->getContracts();
+  const ContractSpecifierDecl *YContracts = Y->getContracts();
+  if (XContracts && YContracts)
+    for (auto [XC, YC] :
+         llvm::zip(XContracts->contracts(), YContracts->contracts()))
+      if (XC->hasResultName() && YC->hasResultName() &&
+          XC->getResultName()->getDeclName() !=
+              YC->getResultName()->getDeclName())
+        return true;
+  return false;
+}
+
+void ASTReader::diagnoseMismatchedFunctionContracts() {
+  if (PendingFunctionContractChecks.empty())
+    return;
+
+  // Comparing the contracts may trigger more deserialization, which may in
+  // turn add to the set of pending checks, so take ownership of it first.
+  auto ContractChecks = std::move(PendingFunctionContractChecks);
+  PendingFunctionContractChecks.clear();
+
+  ODRDiagsEmitter DiagsEmitter(Diags, getContext(),
+                               getPreprocessor().getLangOpts());
+  for (FunctionDecl *FD : ContractChecks) {
+    FunctionDecl *Canon = FD->getCanonicalDecl();
+    if (Canon == FD || (!FD->hasContracts() && !Canon->hasContracts()))
+      continue;
+    if (FD->isInvalidDecl() || Canon->isInvalidDecl())
+      continue;
+
+    // The contracts of an instantiated declaration are instantiated when they
+    // are needed, which need not be the case in every translation unit. Any
+    // mismatch is diagnosed for the template.
+    if (FD->isTemplateInstantiation() || Canon->isTemplateInstantiation())
+      continue;
+
+    // Mismatched contracts of functions declared in a class are diagnosed
+    // when the definitions of the class are compared.
+    if (isa<CXXMethodDecl>(FD) && FD->getLexicalDeclContext()->isRecord())
+      continue;
+
+    // We only perform these checks for decls not in the explicit global
+    // module fragment.
+    if (shouldSkipCheckingODR(FD) || shouldSkipCheckingODR(Canon))
+      continue;
+
+    // If this is a definition which doesn't match another definition of the
+    // function, that will be diagnosed as an ODR violation.
+    if (PendingFunctionOdrMergeFailures.count(FD))
+      continue;
+
+    // Diagnose each function only once.
+    if (!DiagnosedFunctionContractMismatches.insert(Canon).second)
+      continue;
+    if (!DiagsEmitter.diagnoseMismatchedContracts(FD, Canon))
+      DiagnosedFunctionContractMismatches.erase(Canon);
+  }
+}
+
 void ASTReader::diagnoseOdrViolations() {
+  diagnoseMismatchedFunctionContracts();
+
   if (PendingOdrMergeFailures.empty() && PendingOdrMergeChecks.empty() &&
       PendingRecordOdrMergeFailures.empty() &&
       PendingFunctionOdrMergeFailures.empty() &&
@@ -11204,6 +11348,30 @@ void ASTReader::diagnoseOdrViolations() {
     bool Diagnosed = false;
     CXXRecordDecl *FirstRecord = Merge.first;
     for (auto &RecordPair : Merge.second) {
+      // The function contract specifiers of two declarations of a function
+      // are the same even if the declarations use different names for the
+      // parameters, the template parameters or the result binding
+      // ([dcl.contract.func]p5). The closure types of corresponding
+      // lambda-expressions within the predicates are merged, but their ODR
+      // hashes depend on those names. Don't diagnose a mismatch between
+      // them if such renaming is involved: the lambda-expressions were
+      // compared structurally with the predicates they appear in
+      // (diagnoseMismatchedFunctionContracts), and a mismatch between the
+      // predicates has already been diagnosed if there was one.
+      const SourceManager &SM = getSourceManager();
+      const FunctionDecl *FirstFn =
+          getFunctionWithLambdaInContracts(FirstRecord, SM);
+      const FunctionDecl *SecondFn =
+          FirstFn ? getFunctionWithLambdaInContracts(RecordPair.first, SM)
+                  : nullptr;
+      if (FirstFn && SecondFn &&
+          (hasRenamedContractEntities(FirstFn, SecondFn) ||
+           DiagnosedFunctionContractMismatches.count(
+               FirstFn->getCanonicalDecl()))) {
+        Diagnosed = true;
+        continue;
+      }
+
       if (DiagsEmitter.diagnoseMismatch(FirstRecord, RecordPair.first,
                                         RecordPair.second)) {
         Diagnosed = true;

@@ -225,6 +225,11 @@ public:
       break;
     }
   }
+  void SourceRangeSkipped(SourceRange Range, SourceLocation EndifLoc) override {
+    // Recorded for the text of contract predicates.
+    if (S && S->getLangOpts().Contracts)
+      S->recordSkippedSourceRange(Range);
+  }
   void PragmaDiagnostic(SourceLocation Loc, StringRef Namespace,
                         diag::Severity Mapping, StringRef Str) override {
     // The pragma changed diagnostic severities; drop any cached state
@@ -325,7 +330,8 @@ Sema::Sema(Preprocessor &pp, ASTContext &ctxt, ASTConsumer &consumer,
       StdTypeIdentity(nullptr),
       FullyCheckedComparisonCategories(
           static_cast<unsigned>(ComparisonCategoryType::Last) + 1),
-      StdSourceLocationImplDecl(nullptr), CXXTypeInfoDecl(nullptr),
+      StdSourceLocationImplDecl(nullptr),
+      CXXTypeInfoDecl(nullptr),
       GlobalNewDeleteDeclared(false), DisableTypoCorrection(false),
       TyposCorrected(0), IsBuildingRecoveryCallExpr(false),
       CurrentInstantiationScope(nullptr), NonInstantiationEntries(0),

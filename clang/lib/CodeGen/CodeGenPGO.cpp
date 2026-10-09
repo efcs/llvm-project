@@ -533,6 +533,14 @@ struct ComputeRegionCounts : public ConstStmtVisitor<ComputeRegionCounts> {
     // Counter tracks entry to the function body.
     uint64_t BodyCount = setCount(PGO.getRegionCount(D->getBody()));
     CountMap[D->getBody()] = BodyCount;
+    // The function contract assertions are evaluated when the function is
+    // entered and when it returns.
+    for (const ContractStmt *CS : D->contracts()) {
+      RecordNextStmtCount = true;
+      Visit(CS);
+      setCount(BodyCount);
+    }
+    RecordNextStmtCount = false;
     Visit(D->getBody());
   }
 
@@ -942,8 +950,18 @@ void CodeGenPGO::assignRegionCounters(GlobalDecl GD, llvm::Function *Fn) {
           CodeGenFunction::IsConstructorDelegationValid(CCD))
         return;
   }
-  if (isa<CXXDestructorDecl>(D) && GD.getDtorType() != Dtor_Base)
-    return;
+  if (const auto *DD = dyn_cast<CXXDestructorDecl>(D)) {
+    // The complete destructor runs the destructor body itself if it cannot
+    // delegate to the base destructor because the destructor has
+    // postcondition assertions (see EmitDestructorBody).
+    bool RunsBody =
+        GD.getDtorType() == Dtor_Base ||
+        (GD.getDtorType() == Dtor_Complete && !DD->getParent()->isAbstract() &&
+         DD->getParent()->getNumVBases() &&
+         CodeGenFunction::hasCheckedPostconditions(DD));
+    if (!RunsBody)
+      return;
+  }
 
   CGM.ClearUnusedCoverageMapping(D);
   if (Fn->hasFnAttribute(llvm::Attribute::NoProfile))
@@ -1493,6 +1511,14 @@ void CodeGenFunction::markStmtAsUsed(bool Skipped, const Stmt *S) {
 }
 void CodeGenFunction::markStmtMaybeUsed(const Stmt *S) {
   PGO->markStmtMaybeUsed(S);
+}
+
+void CodeGenFunction::incrementFunctionBodyProfileCounter(const Stmt *Body) {
+  if (IncrementedFunctionBodyProfileCounter)
+    return;
+  IncrementedFunctionBodyProfileCounter = true;
+  incrementProfileCounter(Body);
+  maybeCreateMCDCCondBitmap();
 }
 
 void CodeGenFunction::maybeCreateMCDCCondBitmap() {

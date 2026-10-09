@@ -548,8 +548,12 @@ namespace {
     }
 
     ~ParamReferenceReplacerRAII() {
+      // Make the parameters refer to the original parameter objects again:
+      // the postcondition assertions of the coroutine are evaluated after its
+      // body, when the parameter copies may already have been destroyed.
       for (auto&& SavedLocal : SavedLocals) {
-        LocalDeclMap.insert({SavedLocal.first, SavedLocal.second});
+        LocalDeclMap.insert_or_assign(SavedLocal.first,
+                                      Address(SavedLocal.second));
       }
     }
   };

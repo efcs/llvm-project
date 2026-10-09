@@ -113,6 +113,23 @@ static bool isAlwaysAlive(const VarDecl *D) {
   return D->hasGlobalStorage();
 }
 
+/// The predicates of the function contract assertions of a function refer to
+/// the parameters of the declaration that introduces the contracts
+/// ([dcl.contract.func]), which need not be the one being analyzed. Return
+/// the corresponding parameter of the latter, whose liveness is tracked.
+static const VarDecl *getAnalyzedParameter(AnalysisDeclContext &AC,
+                                           const VarDecl *VD) {
+  const auto *PVD = dyn_cast<ParmVarDecl>(VD);
+  if (!PVD)
+    return VD;
+  const auto *Analyzed = dyn_cast_or_null<FunctionDecl>(AC.getDecl());
+  const auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+  if (!Analyzed || !FD || FD == Analyzed || !declaresSameEntity(FD, Analyzed) ||
+      PVD->getFunctionScopeIndex() >= Analyzed->getNumParams())
+    return VD;
+  return Analyzed->getParamDecl(PVD->getFunctionScopeIndex());
+}
+
 bool LiveVariables::isLive(const CFGBlock *B, const VarDecl *D) {
   return isAlwaysAlive(D) || getImpl(impl).blocksEndToLiveness[B].isLive(D);
 }
@@ -407,6 +424,7 @@ void TransferFunctions::VisitDeclRefExpr(DeclRefExpr *DR) {
       val.liveBindings = LV.BSetFact.add(val.liveBindings, BD);
     }
   } else if (const auto *VD = dyn_cast<VarDecl>(D)) {
+    VD = getAnalyzedParameter(LV.analysisContext, VD);
     if (!InAssignment && !isAlwaysAlive(VD))
       val.liveDecls = LV.DSetFact.add(val.liveDecls, VD);
   }
