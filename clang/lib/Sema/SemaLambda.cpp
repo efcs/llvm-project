@@ -258,6 +258,18 @@ Sema::createLambdaClosureType(SourceRange IntroducerRange, TypeSourceInfo *Info,
   return Class;
 }
 
+/// Whether the predicate of a function contract specifier of the function
+/// \p DC is being parsed, and that function-contract-specifier-seq is a
+/// repetition of the one of a previous declaration.
+bool Sema::isInRepeatedFunctionContracts(const DeclContext *DC) const {
+  const auto *FD = dyn_cast<FunctionDecl>(DC);
+  if (!FD || !getLangOpts().Contracts || FD->hasContracts())
+    return false;
+  const ContractScopeRecord *CSR = getEnclosingContractAssertion();
+  return CSR && CSR->Kind != ContractKind::Assert && CSR->Context == DC &&
+         FD->getContractsInEffect();
+}
+
 std::tuple<MangleNumberingContext *, Decl *>
 Sema::getCurrentMangleNumberContext(const DeclContext *DC) {
   // Compute the context for allocating mangling numbers in the current
@@ -363,6 +375,13 @@ Sema::getCurrentMangleNumberContext(const DeclContext *DC) {
         IsInFunctionThatRequiresMangling(CurContext)) {
       while (auto *CD = dyn_cast<CapturedDecl>(DC))
         DC = CD->getParent();
+      // The closure types within a function-contract-specifier-seq that a
+      // redeclaration repeats are never emitted ([dcl.contract.func]p3: the
+      // contracts of the function are those of its first declaration), so
+      // they need no mangling, and must not take up the numbers of the
+      // closure types within the function (its contracts and its body).
+      if (isInRepeatedFunctionContracts(DC))
+        return std::make_tuple(nullptr, nullptr);
       return std::make_tuple(&Context.getManglingNumberContext(DC), nullptr);
     }
 
@@ -1313,6 +1332,9 @@ void Sema::ActOnLambdaExpressionAfterIntroducer(LambdaIntroducer &Intro,
 
       if (auto *BD = R.getAsSingle<BindingDecl>())
         Var = BD;
+      else if (auto *RND = R.getAsSingle<ResultNameDecl>())
+        // A result binding ([dcl.contract.res]) is a local entity.
+        Var = RND;
       else if (R.getAsSingle<FieldDecl>()) {
         Diag(C->Loc, diag::err_capture_class_member_does_not_name_variable)
             << C->Id;
@@ -1360,7 +1382,7 @@ void Sema::ActOnLambdaExpressionAfterIntroducer(LambdaIntroducer &Intro,
 
     VarDecl *Underlying = Var->getPotentiallyDecomposedVarDecl();
 
-    if (!Underlying->hasLocalStorage()) {
+    if (!isa<ResultNameDecl>(Var) && !Underlying->hasLocalStorage()) {
       Diag(C->Loc, diag::err_capture_non_automatic_variable) << C->Id;
       Diag(Var->getLocation(), diag::note_previous_decl) << C->Id;
       continue;
@@ -1979,7 +2001,11 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
   ExprResult Init;
   IdentifierInfo *Name = nullptr;
   if (Cap.isThisCapture()) {
-    QualType ThisTy = getCurrentThisType();
+    // The capture refers to the '*this' object itself; whether the
+    // lambda-expression appears in the predicate of a contract assertion does
+    // not affect its type.
+    QualType ThisTy =
+        getCurrentThisType(/*ApplyContractConstification=*/false);
     Expr *This = BuildCXXThisExpr(Loc, ThisTy, ImplicitCaptureLoc.isValid());
     if (Cap.isCopyCapture())
       Init = CreateBuiltinUnaryOp(Loc, UO_Deref, This);
@@ -2001,8 +2027,17 @@ ExprResult Sema::BuildCaptureInit(const Capture &Cap,
       // This is reached during lambda capture for OpenMP mappings.
       Var = BD->getDecomposedDecl();
     Name = Var->getIdentifier();
+    // The capture refers to the entity itself; whether the lambda-expression
+    // appears in the predicate of a contract assertion does not affect its
+    // type ([expr.prim.id.unqual]p7 applies to id-expressions). However, a
+    // result binding is only ever copied from as a const object, so that the
+    // capture cannot modify the result of the function.
     Init = BuildDeclarationNameExpr(
-        CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var);
+        CXXScopeSpec(), DeclarationNameInfo(Var->getDeclName(), Loc), Var,
+        /*FoundD=*/nullptr, /*TemplateArgs=*/nullptr,
+        /*AcceptInvalidDecl=*/false,
+        /*ContractConstified=*/isa<ResultNameDecl>(Var) &&
+            Cap.isCopyCapture());
   }
 
   // In OpenMP, the capture kind doesn't actually describe how to capture:
@@ -2112,6 +2147,7 @@ FieldDecl *Sema::BuildCaptureField(RecordDecl *RD, const sema::Capture &Capture,
                                    bool IsOpenMP) {
   SourceLocation Loc = Capture.getLocation();
   QualType FieldType = Capture.getCaptureType();
+
   TypeSourceInfo *TSI = nullptr;
   if (Capture.isVariableCapture()) {
     const VarDecl *Var = nullptr;
@@ -2264,6 +2300,21 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     SourceLocation ImplicitCaptureLoc =
         IsImplicit ? CaptureDefaultLoc : SourceLocation();
 
+    // [expr.prim.lambda.closure]p10: A contract assertion of the lambda
+    // cannot be the only reason for an implicit capture.
+    if (IsImplicit && !From.isVLATypeCapture() &&
+        From.isOnlyReferencedInContracts()) {
+      Diag(CaptureDefaultLoc,
+           diag::err_lambda_implicit_capture_in_contracts_only)
+          << From.isThisCapture()
+          << (From.isThisCapture() ? nullptr : From.getVariable());
+      Diag(From.getLocation(),
+           diag::note_lambda_implicit_capture_in_contract_usage)
+          << From.isThisCapture()
+          << (From.isThisCapture() ? nullptr : From.getVariable());
+      Diag(From.getContractLoc(), diag::note_contract_context);
+    }
+
     // Use source ranges of explicit captures for fixits where available.
     SourceRange CaptureRange = LSI->ExplicitCaptureRanges[I];
 
@@ -2411,7 +2462,6 @@ ExprResult Sema::BuildLambdaExpr(SourceLocation StartLoc,
     }
     maybeAddDeclWithEffects(LSI->CallOperator);
   }
-
   return MaybeBindToTemporary(Lambda);
 }
 

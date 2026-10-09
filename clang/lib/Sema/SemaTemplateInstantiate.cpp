@@ -1593,7 +1593,9 @@ namespace {
                                             NonTypeTemplateParmDecl *D);
 
     /// Rebuild a DeclRefExpr for a VarDecl reference.
-    ExprResult RebuildVarDeclRefExpr(ValueDecl *PD, SourceLocation Loc);
+    ExprResult
+    RebuildVarDeclRefExpr(ValueDecl *PD, SourceLocation Loc,
+                          std::optional<bool> ContractConstified = std::nullopt);
 
     /// Transform a reference to a function or init-capture parameter pack.
     ExprResult TransformFunctionParmPackRefExpr(DeclRefExpr *E, ValueDecl *PD);
@@ -2270,9 +2272,19 @@ TemplateInstantiator::TransformTemplateParmRefExpr(DeclRefExpr *E,
     PackIndex = SemaRef.getPackIndex(Arg);
     Arg = SemaRef.getPackSubstitutedTemplateArgument(Arg);
   }
-  return SemaRef.BuildSubstNonTypeTemplateParmExpr(
+  ExprResult Result = SemaRef.BuildSubstNonTypeTemplateParmExpr(
       AssociatedDecl, NTTP->getPosition(), ParamType, E->getLocation(), Arg,
       PackIndex, Final);
+
+  // [expr.prim.id.unqual]p7: An id-expression naming a template parameter of
+  // reference type in the predicate of a contract assertion is const.
+  if (E->isContractConstified() && Result.isUsable() &&
+      Result.get()->isLValue() && Result.get()->getType()->isObjectType() &&
+      !Result.get()->getType().isConstQualified())
+    Result = SemaRef.ImpCastExprToType(Result.get(),
+                                       Result.get()->getType().withConst(),
+                                       CK_NoOp, VK_LValue);
+  return Result;
 }
 
 const AnnotateAttr *
@@ -2370,10 +2382,13 @@ TemplateInstantiator::TransformOpenACCRoutineDeclAttr(
                    "applies to a Function Decl (and a few places for VarDecl)");
 }
 
-ExprResult TemplateInstantiator::RebuildVarDeclRefExpr(ValueDecl *PD,
-                                                       SourceLocation Loc) {
+ExprResult TemplateInstantiator::RebuildVarDeclRefExpr(
+    ValueDecl *PD, SourceLocation Loc, std::optional<bool> ContractConstified) {
   DeclarationNameInfo NameInfo(PD->getDeclName(), Loc);
-  return getSema().BuildDeclarationNameExpr(CXXScopeSpec(), NameInfo, PD);
+  return getSema().BuildDeclarationNameExpr(
+      CXXScopeSpec(), NameInfo, PD, /*FoundD=*/nullptr,
+      /*TemplateArgs=*/nullptr, /*AcceptInvalidDecl=*/false,
+      ContractConstified);
 }
 
 ExprResult
@@ -2443,7 +2458,7 @@ TemplateInstantiator::TransformFunctionParmPackRefExpr(DeclRefExpr *E,
 
   // We have either an unexpanded pack or a specific expansion.
   return RebuildVarDeclRefExpr(cast<ValueDecl>(TransformedDecl),
-                               E->getExprLoc());
+                               E->getExprLoc(), E->isContractConstified());
 }
 
 ExprResult
@@ -4771,6 +4786,7 @@ static const Decl *getCanonicalParmVarDecl(const Decl *D) {
         return FD->getCanonicalDecl()->getParamDecl(i);
     }
   }
+
   return D;
 }
 

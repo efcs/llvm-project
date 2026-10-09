@@ -104,8 +104,11 @@ public:
       return FindResult->second;
 
     // If FunctionDecl is passed in, the anonymous structID will be per-function
-    // based.
-    unsigned Id = FD ? FuncAnonStructSize[FD]++ : AnonStructIds.size();
+    // based. The declarations of a function share the numbering: a closure
+    // type within the function contract specifiers of its first declaration
+    // and one within its definition must get different IDs.
+    unsigned Id = FD ? FuncAnonStructSize[FD->getCanonicalDecl()]++
+                     : AnonStructIds.size();
     std::pair<llvm::DenseMap<const NamedDecl *, uint64_t>::iterator, bool>
         Result = AnonStructIds.insert(std::make_pair(D, Id));
     return Result.first->second;

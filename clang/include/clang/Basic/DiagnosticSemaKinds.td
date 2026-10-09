@@ -3279,6 +3279,7 @@ def err_unsupported_placeholder_constraint : Error<
   "constrained placeholder types other than simple 'auto' on non-type template "
   "parameters not supported yet">;
 
+
 def err_template_different_requires_clause : Error<
   "requires clause differs in template redeclaration">;
 def err_template_different_type_constraint : Error<
@@ -3393,6 +3394,8 @@ def err_musttail_no_variadic : Error<
   "%0 attribute may not be used with variadic functions">;
 def err_musttail_no_return : Error<
   "%0 attribute may not be used with no-return-attribute functions">;
+def err_musttail_postcondition : Error<
+  "cannot perform a tail call from a function with postcondition assertions">;
 
 def err_nsobject_attribute : Error<
   "'NSObject' attribute is for pointer types only">;
@@ -8170,6 +8173,11 @@ def err_typecheck_assign_const_method
 def note_typecheck_assign_const_method
     : Note<"member function %q0 is declared const here">;
 
+def err_typecheck_assign_constified : Error<
+  "cannot assign to %select{variable %1|non-static data member|"
+  "result name %1|structured binding %1}0 because it is considered 'const' "
+  "inside of a contract">;
+
 def warn_unsigned_always_true_comparison : Warning<
   "result of comparison of %select{%3|unsigned expression}0 %2 "
   "%select{unsigned expression|%3}0 is always %4">,
@@ -8935,8 +8943,8 @@ let CategoryName = "Lambda Issue" in {
     "variable %0 with flexible array member cannot be captured in "
     "a lambda expression">;
   def err_lambda_impcap : Error<
-    "variable %0 cannot be implicitly captured in a lambda with no "
-    "capture-default specified">;
+    "%select{variable|result name}1 %0 cannot be implicitly captured in a "
+    "lambda with no capture-default specified">;
   def note_lambda_variable_capture_fixit : Note<
     "capture %0 by %select{value|reference}1">;
   def note_lambda_default_capture_fixit : Note<
@@ -10324,7 +10332,8 @@ def ext_ms_anonymous_record : ExtWarn<
 
 // C++ local classes
 def err_reference_to_local_in_enclosing_context : Error<
-  "reference to local %select{variable|binding}1 %0 declared in enclosing "
+  "reference to %select{local variable|local binding|result name}1 %0 "
+  "declared in enclosing "
   "%select{%3|block literal|lambda expression|context}2">;
 def err_local_nested_class_invalid_scope : Error<
   "nested local class %0 must be defined in the same block scope as %1">;
@@ -11630,7 +11639,7 @@ def warn_duplicate_attribute : Warning<
 def err_duplicate_attribute
     : Error<"attribute %0 is already applied with different arguments">;
 def err_disallowed_duplicate_attribute : Error<
-  "attribute %0 cannot appear more than once on a declaration">;
+  "attribute %0 cannot appear more than once on a %select{declaration|contract specifier}1">;
 
 def warn_sync_fetch_and_nand_semantics_change : Warning<
   "the semantics of this intrinsic changed with GCC "
@@ -13130,6 +13139,122 @@ def warn_coroutine_type_aware_allocator_ignored : Warning <
   InGroup<CoroTypeAwareAllocationFunction>;
 } // end of coroutines issue category
 
+def select_contract_kind : TextSubstitution<
+  "%select{pre|post|contract_assert}0">;
+
+let CategoryName = "Contract Issue" in {
+def err_contract_on_function_kind : Error<
+  "%select{virtual function|deleted function|function defaulted on its first "
+  "declaration|naked function}0 %1 cannot have function contract specifiers">;
+def err_contract_postcondition_redecl_param_not_const : Error<
+  "parameter %0 of type %1 must be declared const because it is referenced "
+  "in a postcondition of the function">;
+def note_contract_postcondition_param_first_decl : Note<
+  "parameter referenced in postcondition of first declaration here">;
+def err_coroutine_postcondition_uses_param : Error<
+  "postcondition of a coroutine cannot odr-use non-reference parameter %0">;
+def note_coroutine_postcondition_function : Note<
+  "function %0 is a coroutine">;
+
+def err_result_name_shadows_param : Error<
+  "declaration of result name %0 %select{shadows parameter|"
+  "conflicts with init-capture}1">;
+def err_void_result_name : Error<
+  "result name %0 cannot be used with a void return type">;
+def err_result_name_not_allowed : Error<
+  "result name %0 is not allowed in %select{a precondition specifier|"
+  "a contract_assert statement}1; only a postcondition specifier can "
+  "introduce a result name">;
+def err_contract_implicit_member_access_structor : Error<
+  "implicit access to non-static member %0 of the object under "
+  "%select{construction is not allowed in the precondition of a constructor|"
+  "destruction is not allowed in the postcondition of a destructor}1">;
+
+// Diagnose clang::contract_group attribute strings
+def err_contract_group_attribute_invalid_group : Error<
+  "clang::contract_group group %select{"
+     "\"%1\" cannot start with '%2'"
+    "|\"%1\" cannot contain '%2'"
+    "|\"%1\" cannot end with '%2'"
+    "|\"%1\" cannot contain empty subgroup \"%2\""
+    "|cannot be empty"
+    "|<cannot-happen-here>"
+    "}0">;
+
+
+// Contract violations in manifestly constant-evaluated contexts. The
+// violations themselves are described by notes from the constant evaluator.
+def err_constexpr_contract_violation : Error<
+  "contract violation in a constant expression">, NoSFINAE;
+def err_constant_init_contract_check_failed : Error<
+  "constant initialization of %0 failed when checking its contract assertions">;
+def note_constant_init_ignores_contracts : Note<
+  "%0 is constant-initialized because its initializer is a constant "
+  "expression when all contract assertions are ignored">;
+
+// Redeclaration of contract attributes
+def err_function_different_contract_seq : Error<
+  "%select{function|method}0 %select{redeclaration|out-of-line definition}0 differs in contract specifier sequence">;
+def note_contract_spec_seq_arity_mismatch : Note<
+  "previously declared %select{with additional|with fewer|without}0 contracts here%select{ (%1 vs %2)| (%1 vs %2)|}0">;
+def note_previous_contract_spec_seq : Note<
+  "previously declared %select{without|with %1}0 contracts here">;
+
+def ext_contract_redecl_repeats_lambda : Extension<
+  "redeclaration repeats a function contract specifier that contains a "
+  "lambda expression; the closure types are distinct, so the program is "
+  "ill-formed, no diagnostic required">,
+  InGroup<DiagGroup<"contract-lambda-redeclaration">>;
+
+def note_mismatched_contract : Note<
+  "in contract specified here">;
+def note_previous_contracts : Note<
+  "contract previously specified %select{"
+  "<ERROR>"
+  "|<ERROR>"
+  "|as '%sub{select_contract_kind}1'"
+  "|%select{without|with}2 result name"
+  "|with a non-equivalent condition}0">;
+
+def err_attribute_invalid_on_contract : Error<
+  "%0%select{ attribute|}1 cannot be applied to a contract assertion">;
+def err_attribute_invalid_on_result_name : Error<
+  "%0%select{ attribute|}1 cannot be applied to a result name">;
+def warn_unused_result_name : Warning<"unused result name %0">,
+  InGroup<UnusedVariable>, DefaultIgnore;
+def err_contract_attribute_before_keyword : Error<
+  "%0 attribute cannot appear here; it appertains to a contract assertion "
+  "and must follow the 'contract_assert' keyword">;
+
+def err_contract_attr_bool_arg_not_constant : Error<
+  "argument to %0 attribute must be a boolean constant expression">;
+
+def warn_contract_always_evaluates_to : Warning<
+  "contract condition always evaluates to %select{false|true}0">,
+  InGroup<ContractViolation>;
+
+def err_contract_postcondition_parameter_type_invalid : Error<
+    "parameter %0 referenced in contract postcondition %select{cannot have an array type|cannot have a function type|must be declared const}1">;
+def err_lambda_implicit_capture_in_contracts_only : Error<
+         "implicit capture of %select{local entity %1|'this'}0 is not allowed when used exclusively in contract assertions">;
+
+def  note_lambda_implicit_capture_in_contract_usage : Note<"capture of %select{local entity %1|'this'}0 is "
+  "required here">;
+
+def err_auto_result_name_on_non_def_decl : Error<
+   "postcondition with result name %0 cannot appear on a function declaration with deduced return type unless it is a definition">;
+   // "result name '%0' cannot appear in postcondition for a non-template function declaration with a deduced return type">;
+def note_function_return_type : Note<
+    "function return type declared here">;
+
+def note_contract_context : Note<
+  "within contract context introduced here">;
+def note_cxx_this_const_in_contract_introduced_here : Note<
+  "'this' is 'const' within contract introduced here">;
+def err_keyword_not_allowed_in_contract : Error<
+    "'%0' cannot be used inside a contract">;
+
+} // end of contracts issues
 let CategoryName = "Documentation Issue" in {
 def warn_not_a_doxygen_trailing_member_comment : Warning<
   "not a Doxygen trailing comment">, InGroup<Documentation>, DefaultIgnore;

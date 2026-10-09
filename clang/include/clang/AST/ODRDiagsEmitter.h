@@ -29,6 +29,18 @@ public:
   bool diagnoseMismatch(const FunctionDecl *FirstFunction,
                         const FunctionDecl *SecondFunction) const;
 
+  /// Diagnose a mismatch between the function contract specifiers of two
+  /// declarations of a function which are first declarations in different
+  /// translation units ([dcl.contract.func]p4).
+  ///
+  /// Unlike the definitions of a function, the declarations are not required
+  /// to consist of the same tokens: the names of the parameters, the template
+  /// parameters and the result binding may differ.
+  ///
+  /// Returns true if found a mismatch and diagnosed it.
+  bool diagnoseMismatchedContracts(const FunctionDecl *FirstFunction,
+                                   const FunctionDecl *SecondFunction) const;
+
   /// Diagnose ODR mismatch between 2 EnumDecl.
   ///
   /// Returns true if found a mismatch and diagnosed it.

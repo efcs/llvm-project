@@ -522,6 +522,8 @@ namespace clang {
     ExpectedDecl VisitTranslationUnitDecl(TranslationUnitDecl *D);
     ExpectedDecl VisitFileScopeAsmDecl(FileScopeAsmDecl *D);
     ExpectedDecl VisitBindingDecl(BindingDecl *D);
+    ExpectedDecl VisitResultNameDecl(ResultNameDecl *D);
+    ExpectedDecl VisitContractSpecifierDecl(ContractSpecifierDecl *D);
     ExpectedDecl VisitNamespaceDecl(NamespaceDecl *D);
     ExpectedDecl VisitNamespaceAliasDecl(NamespaceAliasDecl *D);
     ExpectedDecl VisitTypedefNameDecl(TypedefNameDecl *D, bool IsAlias);
@@ -613,6 +615,7 @@ namespace clang {
     // FIXME: CapturedStmt
     ExpectedStmt VisitCXXCatchStmt(CXXCatchStmt *S);
     ExpectedStmt VisitCXXTryStmt(CXXTryStmt *S);
+    ExpectedStmt VisitContractStmt(ContractStmt *S);
     ExpectedStmt VisitCXXForRangeStmt(CXXForRangeStmt *S);
     ExpectedStmt VisitCXXExpansionStmtPattern(CXXExpansionStmtPattern *S);
     ExpectedStmt
@@ -2870,6 +2873,59 @@ ExpectedDecl ASTNodeImporter::VisitBindingDecl(BindingDecl *D) {
   return ToD;
 }
 
+ExpectedDecl ASTNodeImporter::VisitResultNameDecl(ResultNameDecl *D) {
+  DeclContext *DC, *LexicalDC;
+  DeclarationName Name;
+  SourceLocation Loc;
+  NamedDecl *ToND;
+  if (Error Err = ImportDeclParts(D, DC, LexicalDC, Name, ToND, Loc))
+    return std::move(Err);
+  if (ToND)
+    return ToND;
+
+  ExpectedType ToTypeOrErr = import(D->getType());
+  if (!ToTypeOrErr)
+    return ToTypeOrErr.takeError();
+
+  // The canonical result name is recomputed when the result names are attached
+  // to their ContractSpecifierDecl.
+  ResultNameDecl *ToD;
+  if (GetImportedOrCreateDecl(ToD, D, Importer.getToContext(), DC, Loc,
+                              Name.getAsIdentifierInfo(), *ToTypeOrErr,
+                              /*CanonicalResultName=*/nullptr,
+                              D->hasInventedPlaceholderType(),
+                              D->getFunctionScopeDepth()))
+    return ToD;
+  ToD->setLexicalDeclContext(LexicalDC);
+  return ToD;
+}
+
+ExpectedDecl
+ASTNodeImporter::VisitContractSpecifierDecl(ContractSpecifierDecl *D) {
+  // The owning function must have been imported (and mapped) first.
+  auto DCOrErr = Importer.ImportContext(D->getDeclContext());
+  if (!DCOrErr)
+    return DCOrErr.takeError();
+  ExpectedSLoc LocOrErr = import(D->getLocation());
+  if (!LocOrErr)
+    return LocOrErr.takeError();
+
+  SmallVector<ContractStmt *, 4> ToContracts;
+  ToContracts.reserve(D->getNumContracts());
+  for (ContractStmt *C : D->contracts()) {
+    if (auto ToCOrErr = import(C))
+      ToContracts.push_back(*ToCOrErr);
+    else
+      return ToCOrErr.takeError();
+  }
+
+  ContractSpecifierDecl *ToD;
+  if (GetImportedOrCreateDecl(ToD, D, Importer.getToContext(), *DCOrErr,
+                              *LocOrErr, ToContracts, D->isInvalidDecl()))
+    return ToD;
+  return ToD;
+}
+
 ExpectedDecl ASTNodeImporter::VisitAccessSpecDecl(AccessSpecDecl *D) {
   ExpectedSLoc LocOrErr = import(D->getLocation());
   if (!LocOrErr)
@@ -4069,7 +4125,8 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
             ToFunction, D, Importer.getToContext(), DC, ToInnerLocStart,
             NameInfo, T, TInfo, D->getStorageClass(), D->UsesFPIntrin(),
             D->isInlineSpecified(), D->hasWrittenPrototype(),
-            D->getConstexprKind(), TrailingRequiresClause))
+            D->getConstexprKind(), TrailingRequiresClause,
+            /*Contracts=*/nullptr))
       return ToFunction;
   }
 
@@ -4135,6 +4192,17 @@ ExpectedDecl ASTNodeImporter::VisitFunctionDecl(FunctionDecl *D) {
       LT->update(Param, Importer.getToContext().getTranslationUnitDecl());
   }
   ToFunction->setParams(Parameters);
+
+  // Import the function contract specifiers. This must happen after the
+  // parameters are imported (the contracts refer to them) and after ToFunction
+  // is mapped, as it is the declaration context of the contracts and of any
+  // result names they introduce.
+  if (ContractSpecifierDecl *FromContracts = D->getContracts()) {
+    if (auto ToContractsOrErr = import(FromContracts))
+      ToFunction->setContracts(*ToContractsOrErr);
+    else
+      return ToContractsOrErr.takeError();
+  }
 
   // We need to complete creation of FunctionProtoTypeLoc manually with setting
   // params it refers to.
@@ -7398,6 +7466,29 @@ ExpectedStmt ASTNodeImporter::VisitCXXTryStmt(CXXTryStmt *S) {
 
   return CXXTryStmt::Create(Importer.getToContext(), *ToTryLocOrErr,
                             cast<CompoundStmt>(*ToTryBlockOrErr), ToHandlers);
+}
+
+ExpectedStmt ASTNodeImporter::VisitContractStmt(ContractStmt *S) {
+  Error Err = Error::success();
+  auto ToKeywordLoc = importChecked(Err, S->getKeywordLoc());
+  auto ToLParenLoc = importChecked(Err, S->getLParenLoc());
+  auto ToRParenLoc = importChecked(Err, S->getRParenLoc());
+  auto ToResultName = importChecked(Err, S->getResultNameDeclStmt());
+  auto ToCond = importChecked(Err, S->getCond());
+  if (Err)
+    return std::move(Err);
+
+  SmallVector<const Attr *, 2> ToAttrs;
+  for (const Attr *A : S->getAttrs()) {
+    if (auto ToAOrErr = Importer.Import(A))
+      ToAttrs.push_back(*ToAOrErr);
+    else
+      return ToAOrErr.takeError();
+  }
+
+  return ContractStmt::Create(Importer.getToContext(), S->getContractKind(),
+                              ToKeywordLoc, ToCond, ToResultName, ToAttrs,
+                              S->getPredicateText(), ToLParenLoc, ToRParenLoc);
 }
 
 ExpectedStmt ASTNodeImporter::VisitCXXForRangeStmt(CXXForRangeStmt *S) {

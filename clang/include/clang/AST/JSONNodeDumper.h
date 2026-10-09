@@ -255,6 +255,7 @@ public:
   void VisitUsingEnumDecl(const UsingEnumDecl *UED);
   void VisitUsingShadowDecl(const UsingShadowDecl *USD);
   void VisitVarDecl(const VarDecl *VD);
+  void VisitResultNameDecl(const ResultNameDecl *RND);
   void VisitFieldDecl(const FieldDecl *FD);
   void VisitFunctionDecl(const FunctionDecl *FD);
   void VisitEnumDecl(const EnumDecl *ED);
@@ -343,6 +344,7 @@ public:
   void VisitSwitchStmt(const SwitchStmt *SS);
   void VisitCaseStmt(const CaseStmt *CS);
   void VisitLabelStmt(const LabelStmt *LS);
+  void VisitContractStmt(const ContractStmt *CS);
   void VisitGotoStmt(const GotoStmt *GS);
   void VisitWhileStmt(const WhileStmt *WS);
   void VisitObjCAtCatchStmt(const ObjCAtCatchStmt *OACS);

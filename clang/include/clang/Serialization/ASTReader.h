@@ -1305,6 +1305,13 @@ private:
   llvm::SmallDenseMap<FunctionDecl *, llvm::SmallVector<FunctionDecl *, 2>, 2>
       PendingFunctionOdrMergeFailures;
 
+  /// Function declarations which are the first declaration of the function in
+  /// the translation unit they were loaded from, and which were merged with a
+  /// declaration of that function from another translation unit. The function
+  /// contract specifiers of such declarations are required to be the same
+  /// ([dcl.contract.func]p4).
+  llvm::SmallVector<FunctionDecl *, 4> PendingFunctionContractChecks;
+
   /// Enum definitions in which we found an ODR violation.
   llvm::SmallDenseMap<EnumDecl *, llvm::SmallVector<EnumDecl *, 2>, 2>
       PendingEnumOdrMergeFailures;
@@ -1321,6 +1328,11 @@ private:
 
   /// DeclContexts in which we have diagnosed an ODR violation.
   llvm::SmallPtrSet<DeclContext*, 2> DiagnosedOdrMergeFailures;
+
+  /// The (canonical declarations of the) functions for which we have
+  /// diagnosed mismatched function contract specifiers.
+  llvm::SmallPtrSet<const FunctionDecl *, 2>
+      DiagnosedFunctionContractMismatches;
 
   /// The set of Objective-C categories that have been deserialized
   /// since the last time the declaration chains were linked.
@@ -1704,6 +1716,7 @@ private:
 
   void finishPendingActions();
   void diagnoseOdrViolations();
+  void diagnoseMismatchedFunctionContracts();
 
   void pushExternalDeclIntoScope(NamedDecl *D, DeclarationName Name);
 

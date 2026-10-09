@@ -42,6 +42,11 @@ public:
     return ++LambdaManglingNumber;
   }
 
+  void reserveManglingNumber(const CXXMethodDecl *CallOperator,
+                             unsigned Number) override {
+    LambdaManglingNumber = std::max(LambdaManglingNumber, Number);
+  }
+
   unsigned getManglingNumber(const BlockDecl *BD) override {
     const Type *Ty = nullptr;
     return ++ManglingNumbers[Ty];
