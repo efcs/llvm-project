@@ -550,6 +550,26 @@ static void EmitBaseInitializer(CodeGenFunction &CGF,
                                           isBaseVirtual);
 }
 
+/// Like CXXMethodDecl::isMemcpyEquivalentSpecialMember, except that a
+/// defaulted union copy or move operation which has function contract
+/// assertions to evaluate is not memcpy-equivalent: it has to be called, and
+/// its definition performs the copy.
+static bool isMemcpyEquivalentSpecialMember(const ASTContext &Ctx,
+                                            const CXXMethodDecl *D) {
+  if (!D->isMemcpyEquivalentSpecialMember(Ctx))
+    return false;
+
+  // We can emit a memcpy for a trivial copy or move constructor/assignment.
+  if (D->isTrivial() && !D->getParent()->mayInsertExtraPadding())
+    return true;
+
+  // We *must* emit a memcpy for a defaulted union copy or move op, since the
+  // AST does not model that copy. If the function was defaulted after its
+  // first declaration and has function contract assertions to evaluate, we
+  // have to call it instead; its definition performs the copy.
+  return !CodeGenFunction::hasCheckedFunctionContracts(D);
+}
+
 static void EmitLValueForAnyFieldInitialization(CodeGenFunction &CGF,
                                                 CXXCtorInitializer *MemberInit,
                                                 LValue &LHS) {
@@ -604,8 +624,8 @@ static void EmitMemberInitializer(CodeGenFunction &CGF,
     QualType BaseElementTy = CGF.getContext().getBaseElementType(Array);
     CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(MemberInit->getInit());
     if (BaseElementTy.isPODType(CGF.getContext()) ||
-        (CE && CE->getConstructor()->isMemcpyEquivalentSpecialMember(
-                   CGF.getContext()))) {
+        (CE && isMemcpyEquivalentSpecialMember(CGF.getContext(),
+                                         CE->getConstructor()))) {
       unsigned SrcArgIndex =
           CGF.CGM.getCXXABI().getSrcArgforCopyCtor(Constructor, Args);
       llvm::Value *SrcPtr =
@@ -805,8 +825,7 @@ void CodeGenFunction::EmitConstructorBody(FunctionArgList &Args) {
   if (IsTryBody)
     EnterCXXTryStmt(*cast<CXXTryStmt>(Body), true);
 
-  incrementProfileCounter(Body);
-  maybeCreateMCDCCondBitmap();
+  incrementFunctionBodyProfileCounter(Body);
 
   RunCleanupsScope RunCleanups(*this);
 
@@ -1013,8 +1032,8 @@ private:
     CXXConstructExpr *CE = dyn_cast<CXXConstructExpr>(MemberInit->getInit());
 
     // Bail out on non-memcpyable, not-trivially-copyable members.
-    if (!(CE && CE->getConstructor()->isMemcpyEquivalentSpecialMember(
-                    CGF.getContext())) &&
+    if (!(CE && isMemcpyEquivalentSpecialMember(CGF.getContext(),
+                                            CE->getConstructor())) &&
         !(FieldType.isTriviallyCopyableType(CGF.getContext()) ||
           FieldType->isReferenceType()))
       return false;
@@ -1123,7 +1142,7 @@ private:
       return nullptr;
     } else if (CXXMemberCallExpr *MCE = dyn_cast<CXXMemberCallExpr>(S)) {
       CXXMethodDecl *MD = dyn_cast<CXXMethodDecl>(MCE->getCalleeDecl());
-      if (!(MD && MD->isMemcpyEquivalentSpecialMember(CGF.getContext())))
+      if (!(MD && isMemcpyEquivalentSpecialMember(CGF.getContext(), MD)))
         return nullptr;
       MemberExpr *IOA = dyn_cast<MemberExpr>(MCE->getImplicitObjectArgument());
       if (!IOA)
@@ -1217,6 +1236,22 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
 
   const CXXRecordDecl *ClassDecl = CD->getParent();
 
+  // [class.copy.ctor]p15: The implicitly-defined copy/move constructor for a
+  // union copies the object representation. The AST does not model that copy,
+  // and most callers perform it themselves instead of calling the constructor
+  // (see isMemcpyEquivalentSpecialMember), but the definition of a constructor
+  // which was defaulted after its first declaration has to perform it too.
+  if (ClassDecl->isUnion() && CD->isDefaulted() &&
+      CD->isCopyOrMoveConstructor()) {
+    const VarDecl *SrcArg =
+        Args[CGM.getCXXABI().getSrcArgforCopyCtor(CD, Args)];
+    CanQualType RecordTy = getContext().getCanonicalTagType(ClassDecl);
+    LValue Dest = MakeAddrLValue(LoadCXXThisAddress(), RecordTy);
+    LValue Src = MakeNaturalAlignAddrLValue(
+        Builder.CreateLoad(GetAddrOfLocalVar(SrcArg)), RecordTy);
+    EmitAggregateCopyCtor(Dest, Src, AggValueSlot::MayOverlap);
+  }
+
   // Virtual base initializers aren't needed if:
   // - This is a base ctor variant
   // - There are no vbases
@@ -1301,6 +1336,34 @@ void CodeGenFunction::EmitCtorPrologue(const CXXConstructorDecl *CD,
   }
 
   CM.finish();
+}
+
+/// Checks whether the complete object destructor of the given destructor can
+/// be emitted as a call to the base object destructor followed by the
+/// destruction of the virtual bases.
+bool CodeGenFunction::IsDestructorDelegationValid(
+    const CXXDestructorDecl *Dtor) {
+  // In the Microsoft ABI the complete destructor may have to be emitted in a
+  // translation unit which does not define the destructor. We can only
+  // delegate in that case.
+  const Stmt *Body = Dtor->getBody();
+  if (!Body)
+    return true;
+
+  // We can't delegate if the body is a function-try-block, because we'd
+  // introduce *two* handler blocks.
+  if (isa<CXXTryStmt>(Body))
+    return false;
+
+  // The postcondition assertions of a destructor are evaluated after all
+  // subobjects have been destroyed, including the virtual bases for a complete
+  // object. The base object destructor evaluates them before the virtual bases
+  // are destroyed, so the complete object destructor has to run the
+  // destructor body and evaluate the function contract assertions itself.
+  if (Dtor->getParent()->getNumVBases() && hasCheckedPostconditions(Dtor))
+    return false;
+
+  return true;
 }
 
 static void EmitConditionalArrayDtorCall(const CXXDestructorDecl *DD,
@@ -1425,10 +1488,8 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   }
 
   Stmt *Body = Dtor->getBody();
-  if (Body) {
-    incrementProfileCounter(Body);
-    maybeCreateMCDCCondBitmap();
-  }
+  if (Body)
+    incrementFunctionBodyProfileCounter(Body);
 
   // The call to operator delete in a deleting destructor happens
   // outside of the function-try-block, which means it's always
@@ -1447,6 +1508,42 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     return;
   }
 
+  // If this is the complete variant, just invoke the base variant;
+  // the epilogue will destruct the virtual bases.  But we can't do
+  // this optimization if the body is a function-try-block, because
+  // we'd introduce *two* handler blocks, or if the destructor has
+  // postcondition assertions which have to be evaluated after the
+  // virtual bases have been destroyed.  In the Microsoft ABI, we
+  // always delegate if we don't have a definition in this TU.
+  bool DelegateToBase =
+      DtorType == Dtor_Complete && IsDestructorDelegationValid(Dtor);
+
+  // The precondition assertions are evaluated before the function body, which
+  // includes the function-try-block if there is one.
+  bool InitializedVTablePointers = false;
+  if (ContractsFD && hasCheckedPreconditions(ContractsFD)) {
+    assert(!DelegateToBase && "delegating destructor evaluating contracts");
+
+    // [class.cdtor]p4: A virtual function called during the evaluation of a
+    // precondition assertion of a destructor calls the final overrider in
+    // the destructor's class, so initialize the vtable pointers first.
+    if (!CodeGenUtils::canSkipVTablePointerInitialization(
+            getContext(), Dtor, hasCheckedFunctionContracts)) {
+      if (CGM.getCodeGenOpts().StrictVTablePointers &&
+          CGM.getCodeGenOpts().OptimizationLevel > 0)
+        CXXThisValue = Builder.CreateLaunderInvariantGroup(LoadCXXThis());
+      InitializeVTablePointers(Dtor->getParent());
+    }
+    InitializedVTablePointers = true;
+
+    // [except.ctor]p3: If the destructor exits via an exception, e.g. one
+    // thrown by the contract-violation handler, the subobjects are still
+    // destroyed.
+    RunCleanupsScope PreconditionScope(*this);
+    EnterStructorSubobjectEHCleanups();
+    EmitPreconditions(ContractsFD);
+  }
+
   // If the body is a function-try-block, enter the try before
   // anything else.
   bool isTryBody = isa_and_nonnull<CXXTryStmt>(Body);
@@ -1457,11 +1554,6 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
   // Enter the epilogue cleanups.
   RunCleanupsScope DtorEpilogue(*this);
 
-  // If this is the complete variant, just invoke the base variant;
-  // the epilogue will destruct the virtual bases.  But we can't do
-  // this optimization if the body is a function-try-block, because
-  // we'd introduce *two* handler blocks.  In the Microsoft ABI, we
-  // always delegate because we might not have a definition in this TU.
   switch (DtorType) {
   case Dtor_Unified:
     llvm_unreachable("not expecting a unified dtor");
@@ -1479,7 +1571,7 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     // Enter the cleanup scopes for virtual bases.
     EnterDtorCleanups(Dtor, Dtor_Complete);
 
-    if (!isTryBody) {
+    if (DelegateToBase) {
       QualType ThisTy = Dtor->getFunctionObjectParameterType();
       EmitCXXDestructorCall(Dtor, Dtor_Base, /*ForVirtualBase=*/false,
                             /*Delegating=*/false, LoadCXXThisAddress(), ThisTy);
@@ -1496,7 +1588,9 @@ void CodeGenFunction::EmitDestructorBody(FunctionArgList &Args) {
     EnterDtorCleanups(Dtor, Dtor_Base);
 
     // Initialize the vtable pointers before entering the body.
-    if (!CodeGenUtils::canSkipVTablePointerInitialization(getContext(), Dtor)) {
+    if (!InitializedVTablePointers &&
+        !CodeGenUtils::canSkipVTablePointerInitialization(
+            getContext(), Dtor, hasCheckedFunctionContracts)) {
       // Insert the llvm.launder.invariant.group intrinsic before initializing
       // the vptrs to cancel any previous assumptions we might have made.
       if (CGM.getCodeGenOpts().StrictVTablePointers &&
@@ -1539,8 +1633,8 @@ void CodeGenFunction::emitImplicitAssignmentOperatorBody(
 
   LexicalScope Scope(*this, RootCS->getSourceRange());
 
-  incrementProfileCounter(RootCS);
-  maybeCreateMCDCCondBitmap();
+  incrementFunctionBodyProfileCounter(RootCS);
+
   AssignmentMemcpyizer AM(*this, AssignOp, Args);
   for (auto *I : RootCS->body())
     AM.emitAssignment(I);
@@ -1866,7 +1960,8 @@ public:
     if (isEmptyFieldForLayout(Context, Field))
       return;
     unsigned FieldIndex = Field->getFieldIndex();
-    if (CodeGenUtils::fieldHasTrivialDestructorBody(Context, Field)) {
+    if (CodeGenUtils::fieldHasTrivialDestructorBody(
+            Context, Field, CodeGenFunction::hasCheckedFunctionContracts)) {
       if (!StartIndex)
         StartIndex = FieldIndex;
     } else if (StartIndex) {
@@ -2186,7 +2281,7 @@ void CodeGenFunction::EmitCXXConstructorCall(
   // If this is a trivial constructor, emit a memcpy now before we lose
   // the alignment information on the argument.
   // FIXME: It would be better to preserve alignment information into CallArg.
-  if (D->isMemcpyEquivalentSpecialMember(getContext())) {
+  if (isMemcpyEquivalentSpecialMember(getContext(), D)) {
     assert(E->getNumArgs() == 1 && "unexpected argcount for trivial ctor");
 
     const Expr *Arg = E->getArg(0);
@@ -2254,7 +2349,7 @@ void CodeGenFunction::EmitCXXConstructorCall(
   // If this is a trivial constructor, just emit what's needed. If this is a
   // union copy constructor, we must emit a memcpy, because the AST does not
   // model that copy.
-  if (D->isMemcpyEquivalentSpecialMember(getContext())) {
+  if (isMemcpyEquivalentSpecialMember(getContext(), D)) {
     assert(Args.size() == 2 && "unexpected argcount for trivial ctor");
     QualType SrcTy = D->getParamDecl(0)->getType().getNonReferenceType();
     Address Src = makeNaturalAddressForPointer(
@@ -2538,6 +2633,100 @@ void CodeGenFunction::EmitDelegatingCXXConstructorCall(
 
     EHStack.pushCleanup<CallDelegatingCtorDtor>(
         EHCleanup, ClassDecl->getDestructor(), ThisPtr, Type);
+  }
+}
+
+void CodeGenFunction::EnterStructorSubobjectEHCleanups() {
+  if (!getLangOpts().Exceptions)
+    return;
+
+  const auto *MD = cast<CXXMethodDecl>(CurGD.getDecl());
+  const CXXRecordDecl *ClassDecl = MD->getParent();
+
+  if (const auto *Ctor = dyn_cast<CXXConstructorDecl>(MD)) {
+    // [except.ctor]p4: If the non-delegating constructor has completed and
+    // the delegating constructor exits with an exception, the object's
+    // destructor is invoked.
+    if (Ctor->isDelegatingConstructor()) {
+      if (!ClassDecl->hasTrivialDestructor()) {
+        CXXDtorType Type =
+            CurGD.getCtorType() == Ctor_Complete ? Dtor_Complete : Dtor_Base;
+        EHStack.pushCleanup<CallDelegatingCtorDtor>(
+            EHCleanup, ClassDecl->getDestructor(), LoadCXXThisAddress(), Type);
+      }
+      return;
+    }
+
+    // [except.ctor]p3: Destroy the subobjects which were initialized by the
+    // constructor. This mirrors the cleanups pushed by EmitCtorPrologue.
+    bool ConstructVBases = CurGD.getCtorType() != Ctor_Base &&
+                           ClassDecl->getNumVBases() != 0 &&
+                           !ClassDecl->isAbstract();
+    for (const CXXCtorInitializer *Init : Ctor->inits()) {
+      if (Init->isBaseInitializer()) {
+        if (Init->isBaseVirtual() && !ConstructVBases)
+          continue;
+        const auto *BaseClassDecl = Init->getBaseClass()->castAsCXXRecordDecl();
+        if (!BaseClassDecl->hasTrivialDestructor())
+          EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl,
+                                            Init->isBaseVirtual());
+        continue;
+      }
+
+      assert(Init->isAnyMemberInitializer());
+      QualType FieldType = Init->getAnyMember()->getType();
+      QualType::DestructionKind DtorKind = FieldType.isDestructedType();
+      if (!needsEHCleanup(DtorKind))
+        continue;
+
+      CanQualType RecordTy = getContext().getCanonicalTagType(ClassDecl);
+      LValue LHS =
+          CurGD.getCtorType() == Ctor_Base
+              ? MakeNaturalAlignPointeeAddrLValue(LoadCXXThis(), RecordTy)
+              : MakeNaturalAlignAddrLValue(LoadCXXThis(), RecordTy);
+      EmitLValueForAnyFieldInitialization(
+          *this, const_cast<CXXCtorInitializer *>(Init), LHS);
+      pushEHDestroy(DtorKind, LHS.getAddress(), FieldType);
+    }
+    return;
+  }
+
+  // [except.ctor]p3: Each destructor invocation which would be performed
+  // after executing the body of the destructor is performed. This mirrors the
+  // cleanups pushed by EnterDtorCleanups.
+  assert(isa<CXXDestructorDecl>(MD));
+
+  // Unions have no bases and do not call field destructors.
+  if (ClassDecl->isUnion())
+    return;
+
+  auto PushBaseCleanup = [&](const CXXBaseSpecifier &Base, bool IsVirtual) {
+    const auto *BaseClassDecl = Base.getType()->castAsCXXRecordDecl();
+    if (!BaseClassDecl->hasTrivialDestructor())
+      EHStack.pushCleanup<CallBaseDtor>(EHCleanup, BaseClassDecl, IsVirtual);
+  };
+
+  if (CurGD.getDtorType() == Dtor_Complete)
+    for (const CXXBaseSpecifier &Base : ClassDecl->vbases())
+      PushBaseCleanup(Base, /*IsVirtual=*/true);
+
+  for (const CXXBaseSpecifier &Base : ClassDecl->bases())
+    if (!Base.isVirtual())
+      PushBaseCleanup(Base, /*IsVirtual=*/false);
+
+  for (const FieldDecl *Field : ClassDecl->fields()) {
+    QualType FieldType = Field->getType();
+    QualType::DestructionKind DtorKind = FieldType.isDestructedType();
+    if (!needsEHCleanup(DtorKind))
+      continue;
+
+    // Anonymous union members do not have their destructors called.
+    const RecordType *RT = FieldType->getAsUnionType();
+    if (RT && RT->getDecl()->isAnonymousStructOrUnion())
+      continue;
+
+    EHStack.pushCleanup<DestroyField>(EHCleanup, Field, getDestroyer(DtorKind),
+                                      /*useEHCleanupForArray=*/true);
   }
 }
 

@@ -311,6 +311,15 @@ See `include/__config` for the list of ABI macros.
 **Values**: `none`, `libcxxabi`, `system-libcxxabi`, `libcxxrt`, `libstdc++`, `libsupc++`, `vcruntime`.
 
 Select the ABI library to build libc++ against.
+
+The C++26 contract-violation runtime (the entry points of the Itanium C++
+Contracts ABI that the compiler calls when a contract assertion is violated,
+and the default contract-violation handler) is provided by libc++abi when
+libc++ is built against it (`libcxxabi`, `system-libcxxabi`), and by libc++
+itself otherwise, as is done for `operator new`. With `vcruntime`, the
+contract-violation handler cannot be replaced by the program (the default
+handler is always used), since the replacement mechanism relies on weak
+symbols, which do not resolve across DLLs.
 :::
 
 :::{option} LIBCXX_CXX_ABI_INCLUDE_PATHS:PATHS
