@@ -73,6 +73,7 @@
 #include "llvm/ADT/BitmaskEnum.h"
 #include "llvm/ADT/DenseMap.h"
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/Hashing.h"
 #include "llvm/ADT/FloatingPointMode.h"
 #include "llvm/ADT/FoldingSet.h"
 #include "llvm/ADT/MapVector.h"
@@ -3298,6 +3299,129 @@ public:
   //
   //
 
+  /// \name C++ Contracts
+  /// Implementations are in SemaContract.cpp
+  ///@{
+
+public:
+  /// \param PredicateRange the range of the tokens between the parentheses
+  /// of the contract assertion: the result-name-introducer (if any) and the
+  /// conditional-expression. Used to record the text of the predicate.
+  /// \param ParenRange the locations of the parentheses.
+  /// \param ResultNameAttrRange the range of the attribute-specifier-seq of
+  /// the result-name-introducer, if any. It is not part of the text.
+  StmtResult
+  ActOnContractAssert(ContractKind CK, SourceLocation KeywordLoc, Expr *Cond,
+                      ResultNameDecl *ResultNameDecl, ParsedAttributes &Attrs,
+                      SourceRange PredicateRange = SourceRange(),
+                      SourceRange ParenRange = SourceRange(),
+                      SourceRange ResultNameAttrRange = SourceRange());
+
+  /// Compute the text of the predicate of a contract assertion, given the
+  /// range of its tokens. See ContractStmt::getPredicateText().
+  /// \param ExcludedRange a range of tokens within \p PredicateRange which
+  /// is left out of the text (the attributes of the result name).
+  std::string
+  getContractPredicateText(SourceRange PredicateRange,
+                           SourceRange ExcludedRange = SourceRange()) const;
+
+  /// The source ranges skipped by the preprocessor (the inactive branches of
+  /// conditional inclusion directives, including the directives themselves),
+  /// by file and as pairs of offsets, recorded so that they can be left out
+  /// of the text of contract predicates. Only recorded when contracts are
+  /// enabled.
+  llvm::DenseMap<FileID, SmallVector<std::pair<unsigned, unsigned>, 4>>
+      SkippedSourceRanges;
+  void recordSkippedSourceRange(SourceRange Range);
+
+  /// \param Attrs the attributes of the attributed-identifier which
+  /// declares the result binding, if any.
+  ResultNameDecl *ActOnResultNameDeclarator(ContractKind CK, Scope *S,
+                                            QualType T, SourceLocation IDLoc,
+                                            IdentifierInfo *II,
+                                            unsigned FunctionScopeDepth,
+                                            ParsedAttributes *Attrs = nullptr);
+
+  ExprResult ActOnContractAssertCondition(Expr *Cond);
+
+  StmtResult BuildContractStmt(ContractKind CK, SourceLocation KeywordLoc,
+                               Expr *Cond, DeclStmt *ResultName,
+                               ArrayRef<const Attr *> Attrs,
+                               StringRef PredicateText = {},
+                               SourceRange ParenRange = SourceRange());
+
+  ContractSpecifierDecl *
+  BuildContractSpecifierDecl(ArrayRef<ContractStmt *> Contracts,
+                             DeclContext *DC, SourceLocation Loc,
+                             bool IsInvalid);
+
+  // Check two function declarations for equivalent contract sequences.
+  // Return true if a diagnostic was issued, false otherwise.
+  bool CheckEquivalentContractSequence(FunctionDecl *OrigDecl,
+                                       FunctionDecl *NewDecl);
+
+  /// Note that the local entity \p Var (or '*this' if \p Var is null), which
+  /// is captured by the enclosing lambda-expressions, is being referenced in
+  /// the current context, keeping track of whether all the references which
+  /// require an implicit capture occur within contract assertions of the
+  /// capturing lambda-expression ([expr.prim.lambda.closure]p10).
+  void noteCaptureReference(ValueDecl *Var);
+
+  /// Perform semantic analysis for a contract specifier on the specified function.
+  /// For function templates, these checks should be performed with the instantiation of
+  /// the body, and not the declaration.
+  void CheckFunctionContracts(FunctionDecl *FD, bool IsDefinition,
+    bool IsInstantiation);
+
+  /// Build the contract specifier for a parsed function-contract-specifier-seq
+  /// in the current context.
+  ContractSpecifierDecl *
+  ActOnFinishContractSpecifierSequence(ArrayRef<ContractStmt *> ContractStmts,
+                                       SourceLocation Loc, bool IsInvalid);
+
+  /// Check the function contract specifiers of \p FD once the declaration
+  /// (including any late-parsed contracts) is complete.
+  void ActOnContractsOnFinishFunctionDecl(FunctionDecl *FD, bool IsDefinition);
+
+  /// Called once the late-parsed function contract specifiers of \p FD have
+  /// been parsed. Attaches them to the declaration and checks them against
+  /// previous declarations.
+  void ActOnFinishLateParsedFunctionContracts(FunctionDecl *FD,
+                                              ContractSpecifierDecl *CSD,
+                                              bool IsDefinition);
+
+  /// Diagnose function contract specifiers on functions which may not have
+  /// them ([dcl.contract.func]p6). Returns true if a diagnostic was issued.
+  bool CheckFunctionContractPlacement(FunctionDecl *FD);
+  void ActOnContractsOnFinishFunctionBody(FunctionDecl *FD);
+
+  /// Introduce the parameters of \p FD into the scope \p S, which is to be
+  /// used to parse the function contract specifiers of \p FD after its body,
+  /// in the context of the function.
+  void ActOnReenterFunctionParameterScope(Scope *S, FunctionDecl *FD);
+
+  /// Instantiate the function contract specifiers of the template
+  /// specialization \p Function (or member of a class template specialization,
+  /// or function declared locally in a function template) from its pattern,
+  /// if it has any that have not been instantiated yet
+  /// (FunctionDecl::hasUninstantiatedContracts()). They are attached to the
+  /// first declaration of \p Function, which owns them like the first
+  /// declaration of any function does, and refer to its parameters.
+  ///
+  /// The contracts are needed ([dcl.contract.func]p9) when the function is
+  /// odr-used (MarkFunctionReferenced) or when its definition is instantiated
+  /// (InstantiateFunctionDefinition).
+  void InstantiateFunctionContracts(SourceLocation PointOfInstantiation,
+                                    FunctionDecl *Function);
+
+  ///@}
+
+  //
+  //
+  // -------------------------------------------------------------------------
+  //
+  //
+
   /// \name C++ Scope Specifiers
   /// Implementations are in SemaCXXScopeSpec.cpp
   ///@{
@@ -3601,6 +3725,7 @@ public:
       S.CurContext = ContextToPush;
       if (NewThisContext)
         S.CXXThisTypeOverride = QualType();
+
       // Any saved FunctionScopes do not refer to this context.
       S.FunctionScopesStart = S.FunctionScopes.size();
       S.InventedParameterInfosStart = S.InventedParameterInfos.size();
@@ -4137,9 +4262,14 @@ public:
   /// This sets NewFD->isInvalidDecl() to true if there was an error.
   ///
   /// \returns true if the function declaration is a redeclaration.
+  ///
+  /// \p HasLateParsedContracts indicates that the function contract specifiers
+  /// of the declaration will be parsed (and attached) after the declaration
+  /// has been created.
   bool CheckFunctionDeclaration(Scope *S, FunctionDecl *NewFD,
                                 LookupResult &Previous,
-                                bool IsMemberSpecialization, bool DeclIsDefn);
+                                bool IsMemberSpecialization, bool DeclIsDefn,
+                                bool HasLateParsedContracts = false);
 
   /// Checks if the new declaration declared in dependent context must be
   /// put in the same redeclaration chain as the specified declaration.
@@ -6929,7 +7059,6 @@ public:
     bool InDiscardedStatement;
     bool InImmediateFunctionContext;
     bool InImmediateEscalatingFunctionContext;
-
     bool IsCurrentlyCheckingDefaultArgumentOrInitializer = false;
 
     // We are in a constant context, but we also allow
@@ -6942,11 +7071,13 @@ public:
     /// example, in a for-range initializer).
     bool InLifetimeExtendingContext = false;
 
+
     /// Whether evaluating an expression for a switch case label.
     bool IsCaseExpr = false;
 
     /// Whether we should rebuild CXXDefaultArgExpr and CXXDefaultInitExpr.
     bool RebuildDefaultArgOrDefaultInit = false;
+
 
     // When evaluating immediate functions in the initializer of a default
     // argument or default member initializer, this is the declaration whose
@@ -7016,6 +7147,7 @@ public:
                isPotentiallyEvaluated()) &&
               InDiscardedStatement);
     }
+
   };
 
   const ExpressionEvaluationContextRecord &currentEvaluationContext() const {
@@ -7044,6 +7176,96 @@ public:
     return ExprEvalContexts.back().ExprContext ==
            ExpressionEvaluationContextRecord::ExpressionKind::EK_AttrArgument;
   }
+
+  /// Describes a contract assertion whose predicate is currently being
+  /// parsed or instantiated.
+  struct ContractScopeRecord {
+    ContractKind Kind;
+
+    /// The location of the 'pre', 'post' or 'contract_assert' keyword.
+    SourceLocation KeywordLoc;
+
+    /// The declaration context in which the predicate appears.
+    DeclContext *Context;
+
+    /// The function scope in which the predicate appears and its index within
+    /// FunctionScopes, if there is one.
+    sema::FunctionScopeInfo *FunctionScope;
+    unsigned FunctionScopeIndex;
+  };
+
+  /// The contract assertions whose predicates are currently being parsed or
+  /// instantiated, innermost last. Not all of them necessarily enclose the
+  /// current context: an unrelated entity may be instantiated while a
+  /// predicate is being parsed. Use getEnclosingContractAssertion to find the
+  /// one (if any) that does.
+  SmallVector<ContractScopeRecord, 4> ContractScopeStack;
+
+  void PushContractScope(ContractKind CK, SourceLocation KeywordLoc);
+  void PopContractScope();
+
+  struct ContractScopeRAII {
+    ContractScopeRAII(Sema &S, ContractKind CK, SourceLocation KeywordLoc)
+        : S(S) {
+      S.PushContractScope(CK, KeywordLoc);
+    }
+    ~ContractScopeRAII() { S.PopContractScope(); }
+
+    ContractScopeRAII(const ContractScopeRAII &) = delete;
+    ContractScopeRAII &operator=(const ContractScopeRAII &) = delete;
+
+  private:
+    Sema &S;
+  };
+
+  /// Return the innermost contract assertion whose predicate lexically
+  /// contains the current context (including from within lambda-expressions,
+  /// blocks and local classes nested in the predicate), or null if there is
+  /// none.
+  const ContractScopeRecord *getEnclosingContractAssertion() const;
+
+  /// Return the contract assertion (if any) whose predicate is being parsed
+  /// or instantiated directly in the function scope \p FSI, as opposed to in
+  /// a function scope nested within it.
+  const ContractScopeRecord *
+  getContractAssertionInFunctionScope(const sema::FunctionScopeInfo *FSI) const;
+
+  /// Determine whether the current context is that of the predicate of a
+  /// contract assertion, rather than e.g. the body of a lambda-expression
+  /// nested within the predicate.
+  bool isContractAssertionContext() const;
+
+  /// Determine whether the type of an id-expression naming \p VD in the
+  /// current context is const-qualified because the id-expression appears in
+  /// the predicate of a contract assertion ([expr.prim.id.unqual]p7,
+  /// [expr.prim.id.qual]p7), or because it names a result binding
+  /// ([expr.prim.id.unqual]p6).
+  ///
+  /// This is not the case if the entity is captured by copy by a
+  /// lambda-expression nested within the predicate: the id-expression then
+  /// names the corresponding member of the closure type instead
+  /// ([expr.prim.id.unqual]p4).
+  bool isContractConstified(const ValueDecl *VD) const;
+
+  /// Determine whether the type of 'this' in the current context is a pointer
+  /// to const because the expression appears in the predicate of a contract
+  /// assertion ([expr.prim.this]p3).
+  ///
+  /// \p CopyCapturingClosure is the closure type of the innermost enclosing
+  /// lambda-expression which captures '*this' by copy, if any. If that
+  /// lambda-expression is nested within the predicate, 'this' refers to the
+  /// copy and is not affected by the contract assertion.
+  bool isCXXThisContractConstified(
+      const CXXRecordDecl *CopyCapturingClosure) const;
+
+  /// Diagnose the transformation of the id-expression \p NameInfo, which
+  /// names a non-static member, into a class member access expression using
+  /// (*this) if it occurs in the predicate of a precondition assertion of a
+  /// constructor or a postcondition assertion of a destructor
+  /// ([expr.prim.id.general]p2, [over.call.func]p3). Returns true if a
+  /// diagnostic was issued.
+  bool DiagnoseImplicitMemberAccessInContract(
+      const DeclarationNameInfo &NameInfo);
 
   /// Increment when we find a reference; decrement when we find an ignored
   /// assignment.  Ultimately the value is 0 if every reference is an ignored
@@ -7348,11 +7570,17 @@ public:
                                       bool AcceptInvalidDecl = false);
 
   /// Complete semantic analysis for a reference to the given declaration.
+  ///
+  /// \p ContractConstified specifies whether the type of the expression is
+  /// const because it names a result binding or appears in the predicate of
+  /// a contract assertion (see isContractConstified). If not provided, this
+  /// is determined from the current context.
   ExprResult BuildDeclarationNameExpr(
       const CXXScopeSpec &SS, const DeclarationNameInfo &NameInfo, NamedDecl *D,
       NamedDecl *FoundD = nullptr,
       const TemplateArgumentListInfo *TemplateArgs = nullptr,
-      bool AcceptInvalidDecl = false);
+      bool AcceptInvalidDecl = false,
+      std::optional<bool> ContractConstified = std::nullopt);
 
   // ExpandFunctionLocalPredefinedMacros - Returns a new vector of Tokens,
   // where Tokens representing function local predefined macros (such as
@@ -7849,6 +8077,45 @@ public:
                                   AllowFoldKind CanFold = AllowFoldKind::No) {
     return VerifyIntegerConstantExpression(E, nullptr, CanFold);
   }
+
+  /// Emit the diagnostics for the contract violations that were found, but
+  /// did not make the evaluation fail, while evaluating a manifestly
+  /// constant-evaluated expression. \see Expr::EvalStatus::ContractDiag.
+  ///
+  /// The same expression can be evaluated more than once, e.g. when the
+  /// declaration of a function template is substituted into several times
+  /// for one call. A violation that has been diagnosed with the same notes
+  /// already is not diagnosed again.
+  void DiagnoseConstantEvaluatedContractViolations(
+      ArrayRef<PartialDiagnosticAt> ContractNotes);
+
+  /// The observed contract violations that have been diagnosed, as hashes of
+  /// their diagnostics. \see DiagnoseConstantEvaluatedContractViolations.
+  llvm::DenseSet<llvm::hash_code> DiagnosedContractViolations;
+
+  /// If the evaluation of the manifestly constant-evaluated expression \p E
+  /// failed because of a contract violation, diagnose the violation: the
+  /// program is ill-formed ([basic.contract.eval]p8). This is used where the
+  /// evaluation would otherwise fall back to treating \p E as not being a
+  /// constant expression, e.g. by folding it or by forming a variable length
+  /// array.
+  ///
+  /// \returns true if the contract violation was diagnosed.
+  bool DiagnoseContractViolation(const Expr *E, const Expr::EvalStatus &Status);
+
+  /// Like DiagnoseContractViolation(), but only in a SFINAE context, where a
+  /// contract violation would otherwise be treated as a substitution failure.
+  bool DiagnoseContractViolationInSFINAEContext(const Expr *E,
+                                                const Expr::EvalStatus &Status);
+
+  /// Diagnose the immediate invocations in the initializer \p Init of a
+  /// constant-initialized variable whose evaluation fails because of a
+  /// contract violation. Such an immediate invocation is ill-formed whether
+  /// or not the variable is constant-initialized, so this is more precise
+  /// than diagnosing the failed constant initialization.
+  ///
+  /// \returns true if an immediate invocation was diagnosed.
+  bool DiagnoseContractViolatingImmediateInvocations(Expr *Init);
 
   /// DiagnoseAssignmentAsCondition - Given that an expression is
   /// being used as a boolean condition, warn if it's an assignment.
@@ -8536,8 +8803,14 @@ public:
 
   /// Try to retrieve the type of the 'this' pointer.
   ///
+  /// \param ApplyContractConstification Whether to make the type a pointer to
+  /// const if 'this' is being named within the predicate of a contract
+  /// assertion ([expr.prim.this]p3). If false, this returns the type used to
+  /// refer to the '*this' object itself in the current context, e.g. in order
+  /// to capture it.
+  ///
   /// \returns The type of 'this', if possible. Otherwise, returns a NULL type.
-  QualType getCurrentThisType();
+  QualType getCurrentThisType(bool ApplyContractConstification = true);
 
   /// When non-NULL, the C++ 'this' expression is allowed despite the
   /// current context not being a non-static member function. In such cases,
@@ -9344,6 +9617,11 @@ public:
   /// block literal.
   std::tuple<MangleNumberingContext *, Decl *>
   getCurrentMangleNumberContext(const DeclContext *DC);
+
+  /// Whether the predicate of a function contract specifier of the function
+  /// \p DC is being parsed, and that function-contract-specifier-seq repeats
+  /// the one of a previous declaration of the function.
+  bool isInRepeatedFunctionContracts(const DeclContext *DC) const;
 
   ///@}
 
@@ -11479,6 +11757,14 @@ public:
   void ProcessStmtAttributes(Stmt *Stmt, const ParsedAttributes &InAttrs,
                              SmallVectorImpl<const Attr *> &OutAttrs);
 
+  /// Process the attribute-specifier-seq of a contract assertion; that is, the
+  /// attributes which follow the 'pre', 'post' or 'contract_assert' keyword
+  /// and appertain to the contract assertion. Only attributes which are
+  /// meaningful for a contract assertion are accepted; any other attribute is
+  /// diagnosed. Returns the semantic attributes that have been processed.
+  void ProcessContractAttributes(const ParsedAttributes &InAttrs,
+                                 SmallVectorImpl<const Attr *> &OutAttrs);
+
   ExprResult ActOnCXXAssumeAttr(Stmt *St, const ParsedAttr &A,
                                 SourceRange Range);
   ExprResult BuildCXXAssumeExpr(Expr *Assumption,
@@ -13250,6 +13536,7 @@ public:
       Template,
       DefaultArgument,
       ExceptionSpec,
+      FunctionContracts,
     };
 
     RecursiveInstGuard(Sema &S, Decl *D, Kind Kind)

@@ -56,6 +56,7 @@ protected:
                                       const Expr *Condition) = 0;
   virtual bool visit(const Expr *E) = 0;
   virtual bool emitBool(bool V, const Expr *E) = 0;
+  virtual bool visitContractPredicate(const ContractStmt *S) = 0;
 
   /// Emits jumps.
   bool jumpTrue(const LabelTy &Label, SourceInfo SI);
@@ -64,6 +65,8 @@ protected:
   bool fallthrough(const LabelTy &Label);
   /// Speculative execution.
   bool speculate(const CallExpr *E, const LabelTy &EndLabel);
+  /// Check a contract assertion. The predicate ends at \p EndLabel.
+  bool checkContract(const ContractStmt *S, const LabelTy &EndLabel);
 
   /// We're always emitting bytecode.
   bool isActive() const { return true; }
