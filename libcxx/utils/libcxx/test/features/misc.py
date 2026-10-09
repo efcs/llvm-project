@@ -88,6 +88,8 @@ features = [
         when=lambda cfg: hasCompileFlag(cfg, "-fconstexpr-ops-limit=1"),
     ),
     Feature(name="has-fblocks", when=lambda cfg: hasCompileFlag(cfg, "-fblocks")),
+    # Whether the compiler supports C++26 contracts via -fcontracts.
+    Feature(name="has-fcontracts", when=lambda cfg: hasCompileFlag(cfg, "-fcontracts")),
     Feature(
         name="fdelayed-template-parsing",
         when=lambda cfg: hasCompileFlag(cfg, "-fdelayed-template-parsing"),

@@ -196,3 +196,80 @@ TEST(RecursiveASTVisitorTest, InterfaceDeclWithProtocols) {
                           VisitEvent::EndTraverseObjCProtocolLoc,
                           VisitEvent::EndTraverseObjCInterface));
 }
+
+namespace {
+class CollectContracts : public RecursiveASTVisitor<CollectContracts> {
+public:
+  bool VisitImplicitCode = false;
+  bool shouldVisitImplicitCode() const { return VisitImplicitCode; }
+
+  bool VisitContractStmt(ContractStmt *S) {
+    Kinds.push_back(S->getContractKindString().str());
+    return true;
+  }
+  bool VisitResultNameDecl(ResultNameDecl *D) {
+    ++ResultNames;
+    return true;
+  }
+  bool VisitBuiltinType(BuiltinType *T) {
+    ++BuiltinTypes;
+    return true;
+  }
+
+  std::vector<std::string> Kinds;
+  unsigned ResultNames = 0;
+  unsigned BuiltinTypes = 0;
+};
+
+CollectContracts collectContracts(llvm::StringRef Code, bool Implicit) {
+  CollectContracts Visitor;
+  Visitor.VisitImplicitCode = Implicit;
+  clang::tooling::runToolOnCodeWithArgs(
+      std::make_unique<ProcessASTAction>(
+          [&](clang::ASTContext &Ctx) { Visitor.TraverseAST(Ctx); }),
+      Code, {"-std=c++26", "-fcontracts"}, "input.cc");
+  return Visitor;
+}
+} // namespace
+
+TEST(RecursiveASTVisitorTest, FunctionContracts) {
+  llvm::StringRef Code = R"cpp(
+  int g(int);
+  int f(int x) pre(g(x) > 0) post(r : g(r) > 0) {
+    contract_assert(x != 3);
+    return x;
+  }
+  )cpp";
+  for (bool Implicit : {false, true}) {
+    CollectContracts V = collectContracts(Code, Implicit);
+    EXPECT_THAT(V.Kinds, ElementsAre("pre", "post", "contract_assert"));
+    EXPECT_EQ(V.ResultNames, 1u);
+  }
+}
+
+TEST(RecursiveASTVisitorTest, LambdaContracts) {
+  // The contracts of a lambda's call operator are written in the source, so
+  // they must be visited even when not visiting implicit code (where the call
+  // operator itself is not traversed).
+  llvm::StringRef Code = R"cpp(
+  int g(int);
+  void f() {
+    auto l = [](int x) pre(g(x) > 0) post(r : g(r) > 0) { return x; };
+  }
+  )cpp";
+  for (bool Implicit : {false, true}) {
+    CollectContracts V = collectContracts(Code, Implicit);
+    EXPECT_THAT(V.Kinds, ElementsAre("pre", "post")) << "Implicit=" << Implicit;
+    EXPECT_EQ(V.ResultNames, 1u);
+  }
+}
+
+TEST(RecursiveASTVisitorTest, ResultNameType) {
+  // The (implicit) type of a result name is traversed: the result name
+  // contributes one more 'int' than the same declaration without it.
+  CollectContracts With = collectContracts("int h() post(r : true);", false);
+  CollectContracts Without = collectContracts("int h() post(true);", false);
+  EXPECT_EQ(With.ResultNames, 1u);
+  EXPECT_EQ(Without.ResultNames, 0u);
+  EXPECT_EQ(With.BuiltinTypes, Without.BuiltinTypes + 1);
+}

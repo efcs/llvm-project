@@ -608,10 +608,41 @@ static ControlFlowKind CheckFallThrough(AnalysisDeclContext &AC) {
   CFGBlock::FilterOptions FO;
   FO.IgnoreDefaultsWithCoveredEnums = 1;
 
+  // If the function has postconditions, every normal return goes through the
+  // block which evaluates them, and that block (or the last of the blocks the
+  // postconditions consist of) is the predecessor of the exit block. Look
+  // through the postconditions: the blocks to examine are the predecessors of
+  // their entry block, and the other predecessors of the exit block.
+  const CFGBlock *PostEntry = cfg->getPostconditionsEntry();
+  llvm::BitVector InPostconditions(cfg->getNumBlockIDs());
+  if (PostEntry) {
+    SmallVector<const CFGBlock *, 4> Worklist{PostEntry};
+    while (!Worklist.empty()) {
+      const CFGBlock *B = Worklist.pop_back_val();
+      if (!B || B == &cfg->getExit() || InPostconditions[B->getBlockID()])
+        continue;
+      InPostconditions[B->getBlockID()] = true;
+      Worklist.append(B->succ_begin(), B->succ_end());
+    }
+  }
+  auto IsExitSuccessor = [&](const CFGBlock &B) {
+    return llvm::is_contained(B.succs(), &cfg->getExit()) ||
+           (PostEntry && llvm::is_contained(B.succs(), PostEntry));
+  };
+  SmallVector<const CFGBlock *, 8> ExitPreds;
   for (CFGBlock::filtered_pred_iterator I =
            cfg->getExit().filtered_pred_start_end(FO);
-       I.hasMore(); ++I) {
-    const CFGBlock &B = **I;
+       I.hasMore(); ++I)
+    if (!InPostconditions[(*I)->getBlockID()])
+      ExitPreds.push_back(*I);
+  if (PostEntry)
+    for (CFGBlock::filtered_pred_iterator I =
+             PostEntry->filtered_pred_start_end(FO);
+         I.hasMore(); ++I)
+      ExitPreds.push_back(*I);
+
+  for (const CFGBlock *BP : ExitPreds) {
+    const CFGBlock &B = *BP;
     if (!live[B.getBlockID()])
       continue;
 
@@ -668,7 +699,7 @@ static ControlFlowKind CheckFallThrough(AnalysisDeclContext &AC) {
       HasAbnormalEdge = true;
       continue;
     }
-    if (!llvm::is_contained(B.succs(), &cfg->getExit())) {
+    if (!IsExitSuccessor(B)) {
       HasAbnormalEdge = true;
       continue;
     }

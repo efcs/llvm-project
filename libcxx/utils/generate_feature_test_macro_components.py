@@ -495,6 +495,13 @@ feature_test_macros = [
             ],
         },
         {
+            "name": "__cpp_lib_contracts",
+            "values": {"c++26": 202502},  # P2900R14: Contracts for C++
+            "headers": ["contracts"],
+            "test_suite_guard": "defined(__cpp_contracts) && (!defined(_LIBCPP_VERSION) || _LIBCPP_AVAILABILITY_HAS_CONTRACTS)",
+            "libcxx_guard": "defined(__cpp_contracts) && _LIBCPP_AVAILABILITY_HAS_CONTRACTS",
+        },
+        {
             "name": "__cpp_lib_copyable_function",
             "values": {"c++26": 202306},  # P2548R6 copyable_function
             "headers": ["functional"],

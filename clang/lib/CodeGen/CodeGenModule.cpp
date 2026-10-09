@@ -7082,6 +7082,9 @@ void CodeGenModule::EmitGlobalFunctionDefinition(GlobalDecl GD,
 
   setNonAliasAttributes(GD, Fn);
 
+  if (getLangOpts().CPlusPlus)
+    MaybeEmitContractViolationHandlerAlias(D, Fn);
+
   bool ShouldAddOptNone = !CodeGenOpts.DisableO0ImplyOptNone &&
                           (CodeGenOpts.OptimizationLevel == 0) &&
                           !D->hasAttr<MinSizeAttr>();

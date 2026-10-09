@@ -19,17 +19,22 @@ namespace clang::CodeGenUtils {
 static bool
 hasTrivialDestructorBody(ASTContext &Context,
                          const CXXRecordDecl *BaseClassDecl,
-                         const CXXRecordDecl *MostDerivedClassDecl) {
+                         const CXXRecordDecl *MostDerivedClassDecl,
+                         DtorHasCheckedContractsFn HasCheckedContracts) {
   // If the destructor is trivial we don't have to check anything else.
   if (BaseClassDecl->hasTrivialDestructor())
     return true;
 
-  if (!BaseClassDecl->getDestructor()->hasTrivialBody())
+  // The function contract assertions of a destructor are evaluated as part of
+  // the destructor, and may depend on the dynamic type of the object.
+  const CXXDestructorDecl *BaseDtor = BaseClassDecl->getDestructor();
+  if (!BaseDtor->hasTrivialBody() ||
+      (HasCheckedContracts && HasCheckedContracts(BaseDtor)))
     return false;
 
   // Check fields.
   for (const auto *Field : BaseClassDecl->fields())
-    if (!fieldHasTrivialDestructorBody(Context, Field))
+    if (!fieldHasTrivialDestructorBody(Context, Field, HasCheckedContracts))
       return false;
 
   // Check non-virtual bases.
@@ -38,8 +43,8 @@ hasTrivialDestructorBody(ASTContext &Context,
       continue;
 
     const auto *NonVirtualBase = I.getType()->castAsCXXRecordDecl();
-    if (!hasTrivialDestructorBody(Context, NonVirtualBase,
-                                  MostDerivedClassDecl))
+    if (!hasTrivialDestructorBody(Context, NonVirtualBase, MostDerivedClassDecl,
+                                  HasCheckedContracts))
       return false;
   }
 
@@ -47,7 +52,8 @@ hasTrivialDestructorBody(ASTContext &Context,
     // Check virtual bases.
     for (const auto &I : BaseClassDecl->vbases()) {
       const auto *VirtualBase = I.getType()->castAsCXXRecordDecl();
-      if (!hasTrivialDestructorBody(Context, VirtualBase, MostDerivedClassDecl))
+      if (!hasTrivialDestructorBody(Context, VirtualBase, MostDerivedClassDecl,
+                                    HasCheckedContracts))
         return false;
     }
   }
@@ -55,8 +61,8 @@ hasTrivialDestructorBody(ASTContext &Context,
   return true;
 }
 
-bool fieldHasTrivialDestructorBody(ASTContext &Context,
-                                   const FieldDecl *Field) {
+bool fieldHasTrivialDestructorBody(ASTContext &Context, const FieldDecl *Field,
+                                   DtorHasCheckedContractsFn HasCheckedContracts) {
   QualType FieldBaseElementType = Context.getBaseElementType(Field->getType());
 
   auto *FieldClassDecl = FieldBaseElementType->getAsCXXRecordDecl();
@@ -67,13 +73,15 @@ bool fieldHasTrivialDestructorBody(ASTContext &Context,
   if (FieldClassDecl->isUnion() && FieldClassDecl->isAnonymousStructOrUnion())
     return true;
 
-  return hasTrivialDestructorBody(Context, FieldClassDecl, FieldClassDecl);
+  return hasTrivialDestructorBody(Context, FieldClassDecl, FieldClassDecl,
+                                  HasCheckedContracts);
 }
 
 /// Check whether we need to initialize any vtable pointers before calling this
 /// destructor.
-bool canSkipVTablePointerInitialization(ASTContext &Ctx,
-                                        const CXXDestructorDecl *Dtor) {
+bool canSkipVTablePointerInitialization(
+    ASTContext &Ctx, const CXXDestructorDecl *Dtor,
+    DtorHasCheckedContractsFn HasCheckedContracts) {
   const CXXRecordDecl *ClassDecl = Dtor->getParent();
   if (!ClassDecl->isDynamicClass())
     return true;
@@ -83,12 +91,16 @@ bool canSkipVTablePointerInitialization(ASTContext &Ctx,
   if (ClassDecl->isEffectivelyFinal())
     return true;
 
-  if (!Dtor->hasTrivialBody())
+  // [class.cdtor]p4: A virtual function called during the evaluation of a
+  // precondition assertion of a destructor calls the final overrider in the
+  // destructor's class.
+  if (!Dtor->hasTrivialBody() ||
+      (HasCheckedContracts && HasCheckedContracts(Dtor)))
     return false;
 
   // Check the fields.
   for (const auto *Field : ClassDecl->fields())
-    if (!fieldHasTrivialDestructorBody(Ctx, Field))
+    if (!fieldHasTrivialDestructorBody(Ctx, Field, HasCheckedContracts))
       return false;
 
   return true;

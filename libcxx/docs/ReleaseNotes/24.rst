@@ -55,6 +55,10 @@ Implemented Papers
 - P3450R1: Extend ``std::is_within_lifetime`` (`Github <https://llvm.org/PR189610>`__)
 - P3793R2: Better shifting (`Github <https://llvm.org/PR219389>`__) (no ``std::simd`` overloads)
 - P0040R3: Extending memory management tools (`Github <https://github.com/llvm/llvm-project/issues/103640>`__)
+- P2900R14 (partial): The ``<contracts>`` header and the contract-violation handling runtime are provided. Contract
+  assertions themselves require a compiler supporting ``-fcontracts``, and ``__cpp_lib_contracts`` is only defined
+  when ``__cpp_contracts`` is (`Github <https://llvm.org/PR127870>`__). The runtime implements the Itanium C++
+  Contracts ABI; it lives in libc++abi when libc++ is built on it, and in libc++ itself otherwise.
 
 Improvements and New Features
 -----------------------------
