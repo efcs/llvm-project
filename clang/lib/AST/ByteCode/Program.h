@@ -82,6 +82,13 @@ public:
   UnsignedOrNone getOrCreateGlobal(const ValueDecl *VD,
                                    const Expr *Init = nullptr);
 
+  /// Forgets the global created for the given declaration, if any, so that it
+  /// is created and initialized again the next time it is needed.
+  void removeGlobal(const ValueDecl *VD);
+  /// Makes the given declaration refer to the global with the given index
+  /// again, which was created for it before.
+  void restoreGlobal(const ValueDecl *VD, unsigned Index);
+
   /// Creates a global and returns its index.
   UnsignedOrNone createGlobal(const ValueDecl *VD, const Expr *Init,
                               bool IsConstexprUnknown = false);

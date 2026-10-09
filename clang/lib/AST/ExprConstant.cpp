@@ -528,6 +528,11 @@ namespace {
       return {Callee, Index, ++CurTempVersion};
     }
 
+    /// The object or reference that the result name of a postcondition
+    /// assertion denotes while the postcondition assertions of this call are
+    /// being evaluated.
+    const LValue *ResultObject = nullptr;
+
     // FIXME: Adding this to every 'CallStackFrame' may have a nontrivial impact
     // on the overall stack usage of deeply-recursing constexpr evaluations.
     // (We should cache this map rather than recomputing it repeatedly.)
@@ -1171,6 +1176,7 @@ namespace {
         : Info(&Info), OldStatus(Info.EvalStatus),
           OldSpeculativeEvaluationDepth(Info.SpeculativeEvaluationDepth) {
       Info.EvalStatus.Diag = NewDiag;
+      Info.EvalStatus.ContractDiag = nullptr;
       Info.SpeculativeEvaluationDepth = Info.CallStackDepth + 1;
     }
 
@@ -5906,6 +5912,105 @@ static bool CheckLocalVariableDeclaration(EvalInfo &Info, const VarDecl *VD) {
   return true;
 }
 
+/// Evaluate a contract assertion (C++26 [basic.contract.eval]). Returns false
+/// if the evaluation cannot continue past the contract assertion.
+static bool EvaluateContract(EvalInfo &Info, const ContractStmt *S) {
+  if (!Info.shouldCheckContract(S))
+    return true;
+
+  const Expr *Cond = S->getCond();
+  if (Cond->isValueDependent())
+    return EvaluateDependentExpr(Cond, Info);
+
+  interp::State::ContractCheck Check(Info, S);
+  unsigned OldNumHeapAllocs = Info.NumHeapAllocs;
+  bool Value = false;
+  bool Evaluated = EvaluateCond(Info, /*CondDecl=*/nullptr, Cond, Value);
+
+  // A predicate that leaks memory is not a core constant expression. Whether
+  // it is must not affect the enclosing evaluation, so discard the heap
+  // allocations that it left behind. Heap allocations are numbered in the
+  // order in which they are created.
+  auto Leaked =
+      Info.HeapAllocs.lower_bound(DynamicAllocLValue(OldNumHeapAllocs));
+  if (Leaked != Info.HeapAllocs.end()) {
+    if (Evaluated)
+      Info.CCEDiag(Leaked->second.AllocExpr, diag::note_constexpr_memory_leak)
+          << unsigned(std::distance(Leaked, Info.HeapAllocs.end()) - 1);
+    Info.HeapAllocs.erase(Leaked, Info.HeapAllocs.end());
+  }
+
+  return Check.finish(Evaluated, Value);
+}
+
+/// Evaluate the precondition assertions of the function whose call is the
+/// current frame (C++26 [dcl.contract.func]).
+static bool EvaluatePreconditions(EvalInfo &Info, const FunctionDecl *Callee) {
+  for (const ContractStmt *S : Callee->preconditions())
+    if (!EvaluateContract(Info, S))
+      return false;
+  return true;
+}
+
+/// Evaluate the postcondition assertions of the function whose call is the
+/// current frame, after it has returned normally.
+///
+/// \param E The expression that called the function, if any.
+/// \param Result The returned value, if any.
+/// \param ResultSlot The result object of the call, if the function returns
+///        an object that is initialized in place.
+static bool EvaluatePostconditions(EvalInfo &Info, const FunctionDecl *Callee,
+                                   const Expr *E, APValue &Result,
+                                   const LValue *ResultSlot) {
+  auto Postconditions = Callee->postconditions();
+  if (Postconditions.begin() == Postconditions.end())
+    return true;
+
+  CallStackFrame *Frame = Info.CurrentCall;
+  assert(Frame->Callee == Callee && "evaluating contracts in the wrong frame");
+
+  // Determine what the result name denotes ([dcl.contract.res]). Contract
+  // assertions are not evaluated when checking for a potential constant
+  // expression, in which case we might not have a result.
+  BlockScopeRAII Scope(Info);
+  LValue ResultObject;
+  APValue *ResultCopy = nullptr;
+  if (Callee->getContractsInEffect()->hasCanonicalResultName() &&
+      !Info.checkingPotentialConstantExpression()) {
+    QualType RetTy = Callee->getReturnType();
+    assert(!RetTy->isVoidType() && "result name for a void function");
+    if (RetTy->isReferenceType()) {
+      // The result name is the returned glvalue.
+      ResultObject.setFrom(Info.Ctx, Result);
+    } else if (ResultSlot) {
+      // The result name denotes the result object of the call.
+      ResultObject = *ResultSlot;
+    } else {
+      // The returned value is not an object yet. Materialize it for the
+      // duration of the postcondition assertions.
+      assert(E && "no call expression for a function returning a value");
+      ResultCopy = &Frame->createTemporary(E, E->getType(), ScopeKind::Block,
+                                           ResultObject);
+      *ResultCopy = Result;
+    }
+    Frame->ResultObject = &ResultObject;
+  }
+
+  bool Success = true;
+  for (const ContractStmt *S : Postconditions) {
+    if (!EvaluateContract(Info, S)) {
+      Success = false;
+      break;
+    }
+  }
+
+  Frame->ResultObject = nullptr;
+  // A postcondition assertion can modify the result through the result name.
+  if (Success && ResultCopy)
+    Result = std::move(*ResultCopy);
+  return Success;
+}
+
 // Evaluate a statement.
 static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
                                    const Stmt *S, const SwitchCase *Case) {
@@ -6154,6 +6259,10 @@ static EvalStmtResult EvaluateStmt(StmtResult &Result, EvalInfo &Info,
     }
     return Scope.destroy() ? ESR_Succeeded : ESR_Failed;
   }
+
+  case Stmt::ContractStmtClass:
+    return EvaluateContract(Info, cast<ContractStmt>(S)) ? ESR_Succeeded
+                                                         : ESR_Failed;
 
   case Stmt::WhileStmtClass: {
     const WhileStmt *WS = cast<WhileStmt>(S);
@@ -7174,6 +7283,8 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
   if (IsTrivialMemoryOperation(MD)) {
     unsigned ExplicitOffset = MD->isExplicitObjectMemberFunction() ? 1 : 0;
     assert(ObjectArg);
+    if (!EvaluatePreconditions(Info, Callee))
+      return false;
     APValue RHSValue;
     if (!handleTrivialCopy(Info, MD->getParamDecl(0), Args[0], RHSValue,
                            MD->getParent()->isUnion()))
@@ -7185,7 +7296,7 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                           RHSValue))
       return false;
     ObjectArg->moveInto(Result);
-    return true;
+    return EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
   } else if (MD && isLambdaCallOperator(MD)) {
     // We're in a lambda; determine the lambda capture field maps unless we're
     // just constexpr checking a lambda's call operator. constexpr checking is
@@ -7198,14 +7309,18 @@ static bool HandleFunctionCall(SourceLocation CallLoc,
                                         Frame.LambdaThisCaptureField);
   }
 
+  if (!EvaluatePreconditions(Info, Callee))
+    return false;
+
   StmtResult Ret = {Result, ResultSlot};
   EvalStmtResult ESR = EvaluateStmt(Ret, Info, Body);
   if (ESR == ESR_Succeeded) {
     if (Callee->getReturnType()->isVoidType())
-      return true;
+      return EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
     Info.FFDiag(Callee->getEndLoc(), diag::note_constexpr_no_return);
   }
-  return ESR == ESR_Returned;
+  return ESR == ESR_Returned &&
+         EvaluatePostconditions(Info, Callee, E, Result, ResultSlot);
 }
 
 static bool HandleConstructorCall(const Expr *E, const LValue &This,
@@ -7229,28 +7344,14 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
          CallScope.destroy();
 }
 
-/// Evaluate a constructor call.
-static bool HandleConstructorCall(const Expr *E, const LValue &This,
-                                  CallRef Call,
-                                  const CXXConstructorDecl *Definition,
-                                  EvalInfo &Info, APValue &Result,
-                                  bool IsCompleteClass) {
-
-  SourceLocation CallLoc = E->getExprLoc();
-  if (!Info.CheckCallLimit(CallLoc))
-    return false;
-
+/// Evaluate the function-body of a constructor, including its
+/// ctor-initializer, in the current frame.
+static bool
+EvaluateConstructorBody(const Expr *E, const LValue &This,
+                        const CXXConstructorDecl *Definition, EvalInfo &Info,
+                        APValue &Result,
+                        EvalInfo::EvaluatingConstructorRAII &EvalObj) {
   const CXXRecordDecl *RD = Definition->getParent();
-  if (!Info.getLangOpts().CPlusPlus26 && RD->getNumVBases()) {
-    Info.FFDiag(CallLoc, diag::note_constexpr_virtual_base) << RD;
-    return false;
-  }
-
-  EvalInfo::EvaluatingConstructorRAII EvalObj(
-      Info,
-      ObjectUnderConstruction{This.getLValueBase(), This.Designator.Entries},
-      RD->getNumBases());
-  CallStackFrame Frame(Info, E->getSourceRange(), Definition, &This, E, Call);
 
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
@@ -7462,6 +7563,38 @@ static bool HandleConstructorCall(const Expr *E, const LValue &This,
          LifetimeExtendedScope.destroy();
 }
 
+/// Evaluate a constructor call.
+static bool HandleConstructorCall(const Expr *E, const LValue &This,
+                                  CallRef Call,
+                                  const CXXConstructorDecl *Definition,
+                                  EvalInfo &Info, APValue &Result,
+                                  bool IsCompleteClass) {
+  SourceLocation CallLoc = E->getExprLoc();
+  if (!Info.CheckCallLimit(CallLoc))
+    return false;
+
+  const CXXRecordDecl *RD = Definition->getParent();
+  if (!Info.getLangOpts().CPlusPlus26 && RD->getNumVBases()) {
+    Info.FFDiag(CallLoc, diag::note_constexpr_virtual_base) << RD;
+    return false;
+  }
+
+  EvalInfo::EvaluatingConstructorRAII EvalObj(
+      Info,
+      ObjectUnderConstruction{This.getLValueBase(), This.Designator.Entries},
+      RD->getNumBases());
+  CallStackFrame Frame(Info, E->getSourceRange(), Definition, &This, E, Call);
+
+  // The precondition assertions of a constructor are evaluated before its
+  // function-body, which includes the ctor-initializer. The postcondition
+  // assertions are evaluated once the object is fully constructed.
+  APValue NoResult;
+  return EvaluatePreconditions(Info, Definition) &&
+         EvaluateConstructorBody(E, This, Definition, Info, Result, EvalObj) &&
+         EvaluatePostconditions(Info, Definition, E, NoResult,
+                                /*ResultSlot=*/nullptr);
+}
+
 static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
                                   const LValue &This, APValue &Value,
                                   QualType T, bool IsCompleteClass = true) {
@@ -7587,6 +7720,9 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
     return false;
   }
 
+  if (!EvaluatePreconditions(Info, Definition))
+    return false;
+
   // FIXME: Creating an APValue just to hold a nonexistent return value is
   // wasteful.
   APValue RetVal;
@@ -7596,7 +7732,8 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
 
   // A union destructor does not implicitly destroy its members.
   if (RD->isUnion())
-    return true;
+    return EvaluatePostconditions(Info, Definition, /*E=*/nullptr, RetVal,
+                                  /*ResultSlot=*/nullptr);
 
   if (!ASTContext::hasLayout(RD))
     return false;
@@ -7664,7 +7801,11 @@ static bool HandleDestructionImpl(EvalInfo &Info, SourceRange CallRange,
 
   // The period of destruction ends now. The object is gone.
   Value = APValue();
-  return true;
+
+  // The postcondition assertions of a destructor are evaluated after the
+  // destruction of all members and base classes.
+  return EvaluatePostconditions(Info, Definition, /*E=*/nullptr, RetVal,
+                                /*ResultSlot=*/nullptr);
 }
 
 namespace {
@@ -9460,6 +9601,7 @@ public:
 
   bool VisitCallExpr(const CallExpr *E);
   bool VisitDeclRefExpr(const DeclRefExpr *E);
+  bool VisitResultNameDecl(const Expr *E, const ResultNameDecl *RND);
   bool VisitPredefinedExpr(const PredefinedExpr *E) { return Success(E); }
   bool VisitMaterializeTemporaryExpr(const MaterializeTemporaryExpr *E);
   bool VisitCompoundLiteralExpr(const CompoundLiteralExpr *E);
@@ -9600,6 +9742,8 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   if (isa<FunctionDecl, MSGuidDecl, TemplateParamObjectDecl,
           UnnamedGlobalConstantDecl>(D))
     return Success(cast<ValueDecl>(D));
+  if (const ResultNameDecl *RND = dyn_cast<ResultNameDecl>(D))
+    return VisitResultNameDecl(E, RND);
   if (const VarDecl *VD = dyn_cast<VarDecl>(D))
     return VisitVarDecl(E, VD);
   if (const BindingDecl *BD = dyn_cast<BindingDecl>(D))
@@ -9607,9 +9751,27 @@ bool LValueExprEvaluator::VisitDeclRefExpr(const DeclRefExpr *E) {
   return Error(E);
 }
 
+/// If \p VD is a parameter of a declaration of the function being evaluated
+/// in \p Frame other than the callee of the frame, return the corresponding
+/// parameter of the callee. The predicates of the function contract assertions
+/// refer to the parameters of the declaration that introduces the contracts
+/// ([dcl.contract.func]), which need not be the definition.
+static const VarDecl *getFrameParameter(const CallStackFrame *Frame,
+                                        const VarDecl *VD) {
+  const auto *PVD = dyn_cast<ParmVarDecl>(VD);
+  if (!PVD || !Frame->Callee)
+    return VD;
+  const auto *FD = dyn_cast<FunctionDecl>(PVD->getDeclContext());
+  if (!FD || FD == Frame->Callee || !declaresSameEntity(FD, Frame->Callee) ||
+      PVD->getFunctionScopeIndex() >= Frame->Callee->getNumParams())
+    return VD;
+  return Frame->Callee->getParamDecl(PVD->getFunctionScopeIndex());
+}
+
 bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
   CallStackFrame *Frame = nullptr;
   unsigned Version = 0;
+  VD = getFrameParameter(Info.CurrentCall, VD);
   if (VD->hasLocalStorage()) {
     // Only if a local variable was declared in the function currently being
     // evaluated, do we expect to be able to find its value in the current
@@ -9661,6 +9823,18 @@ bool LValueExprEvaluator::VisitVarDecl(const Expr *E, const VarDecl *VD) {
   }
 
   return Success(*V, E);
+}
+
+bool LValueExprEvaluator::VisitResultNameDecl(const Expr *E,
+                                              const ResultNameDecl *RND) {
+  // A result name can only be named by the postcondition assertions of the
+  // function whose call we're evaluating. If we're not evaluating them, the
+  // predicate is being evaluated on its own and there is no result.
+  const LValue *ResultObject = Info.CurrentCall->ResultObject;
+  if (!ResultObject)
+    return Error(E);
+  Result = *ResultObject;
+  return true;
 }
 
 bool LValueExprEvaluator::VisitCallExpr(const CallExpr *E) {
@@ -22226,16 +22400,26 @@ bool Expr::EvaluateAsLValue(EvalResult &Result, const ASTContext &Ctx,
   return true;
 }
 
+/// Evaluate the destruction of an object.
+///
+/// \param IgnoreContracts Whether to evaluate all contract assertions with the
+///        ignore semantic, which is how it is determined whether the object
+///        has constant destruction (C++26 [expr.const]). \p EStatus's
+///        HasIgnoredContractAssertion is set if that made a difference, in
+///        which case the destruction has to be evaluated again with the
+///        contract assertions checked.
 static bool EvaluateDestruction(const ASTContext &Ctx, APValue::LValueBase Base,
                                 APValue DestroyedValue, QualType Type,
                                 SourceLocation Loc, Expr::EvalStatus &EStatus,
-                                bool IsConstantDestruction) {
+                                bool IsConstantDestruction,
+                                bool IgnoreContracts) {
   EvalInfo Info(Ctx, EStatus,
                 IsConstantDestruction ? EvaluationMode::ConstantExpression
                                       : EvaluationMode::ConstantFold);
   Info.setEvaluatingDecl(Base, DestroyedValue,
                          EvalInfo::EvaluatingDeclKind::Dtor);
   Info.InConstantContext = IsConstantDestruction;
+  Info.IgnoreContracts = IgnoreContracts;
 
   LValue LVal;
   LVal.set(Base);
@@ -22304,21 +22488,32 @@ bool Expr::EvaluateAsConstantExpr(EvalResult &Result, const ASTContext &Ctx,
     return false;
 
   // If this is a class template argument, it's required to have constant
-  // destruction too.
-  if (Kind == ConstantExprKind::ClassTemplateArgument &&
-      (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
-                            true) ||
-       Result.HasSideEffects)) {
-    // FIXME: Prefix a note to indicate that the problem is lack of constant
-    // destruction.
-    return false;
+  // destruction too. Whether it has is determined with all contract
+  // assertions ignored; if that made a difference, the destruction is
+  // evaluated again with them checked, like for a variable.
+  if (Kind == ConstantExprKind::ClassTemplateArgument) {
+    bool IgnoreContracts = Ctx.getLangOpts().Contracts;
+    if (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
+                             /*IsConstantDestruction=*/true, IgnoreContracts) ||
+        Result.HasSideEffects) {
+      // FIXME: Prefix a note to indicate that the problem is lack of constant
+      // destruction.
+      return false;
+    }
+    if (Result.HasIgnoredContractAssertion &&
+        (!EvaluateDestruction(Ctx, Base, Result.Val, T, getBeginLoc(), Result,
+                              /*IsConstantDestruction=*/true,
+                              /*IgnoreContracts=*/false) ||
+         Result.HasSideEffects))
+      return false;
   }
   return true;
 }
 
 bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
                                  Expr::EvalResult &EStatus,
-                                 bool IsConstantInitialization) const {
+                                 bool IsConstantInitialization,
+                                 bool IgnoreContracts) const {
   assert(!isValueDependent() &&
          "Expression evaluator can't be called on a dependent expression.");
   assert(VD && "Need a valid VarDecl");
@@ -22339,6 +22534,7 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
   if (Ctx.getLangOpts().EnableNewConstInterp) {
     interp::EvalSettings Settings(EvalMode, EStatus);
     Settings.InConstantContext = IsConstantInitialization;
+    Settings.IgnoreContracts = IgnoreContracts;
     return Ctx.getInterpContext().evaluateAsInitializer(Settings, VD, this,
                                                         EStatus.Val);
   }
@@ -22349,6 +22545,7 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
   EvalInfo Info(Ctx, EStatus, EvalMode);
   Info.setEvaluatingDecl(VD, EStatus.Val);
   Info.InConstantContext = IsConstantInitialization;
+  Info.IgnoreContracts = IgnoreContracts;
 
   LValue LVal;
   LVal.set(VD);
@@ -22382,7 +22579,8 @@ bool Expr::EvaluateAsInitializer(const ASTContext &Ctx, const VarDecl *VD,
 }
 
 bool VarDecl::evaluateDestruction(
-    SmallVectorImpl<PartialDiagnosticAt> &Notes) const {
+    SmallVectorImpl<PartialDiagnosticAt> &Notes,
+    SmallVectorImpl<PartialDiagnosticAt> *ContractNotes) const {
   // This function is only meaningful for records and arrays of records.
   QualType VarTy = getType();
   if (VarTy->isArrayType()) {
@@ -22395,9 +22593,6 @@ bool VarDecl::evaluateDestruction(
     ensureEvaluatedStmt()->HasConstantDestruction = true;
     return true;
   }
-
-  Expr::EvalStatus EStatus;
-  EStatus.Diag = &Notes;
 
   // Only treat the destruction as constant destruction if we formally have
   // constant initialization (or are usable in a constant expression).
@@ -22413,24 +22608,60 @@ bool VarDecl::evaluateDestruction(
   else if (!handleDefaultInitValue(VarTy, DestroyedValue))
     return false;
 
-  if (Ctx.getLangOpts().EnableNewConstInterp) {
-    interp::EvalSettings Settings(IsConstantDestruction
-                                      ? EvaluationMode::ConstantExpression
-                                      : EvaluationMode::ConstantFold,
-                                  EStatus);
-    Settings.InConstantContext = IsConstantDestruction;
-    if (!Ctx.getInterpContext().evaluateDestruction(Settings, this,
-                                                    std::move(DestroyedValue)))
-      return false;
+  auto Evaluate = [&](Expr::EvalStatus &EStatus, bool IgnoreContracts) {
+    if (Ctx.getLangOpts().EnableNewConstInterp) {
+      interp::EvalSettings Settings(IsConstantDestruction
+                                        ? EvaluationMode::ConstantExpression
+                                        : EvaluationMode::ConstantFold,
+                                    EStatus);
+      Settings.InConstantContext = IsConstantDestruction;
+      Settings.IgnoreContracts = IgnoreContracts;
+      return Ctx.getInterpContext().evaluateDestruction(Settings, this,
+                                                        DestroyedValue);
+    }
+    return EvaluateDestruction(Ctx, this, DestroyedValue, VarTy, getLocation(),
+                               EStatus, IsConstantDestruction,
+                               IgnoreContracts) &&
+           !EStatus.HasSideEffects;
+  };
+
+  // C++26 [expr.const]: Whether an object has constant destruction is
+  // determined with all contract assertions using the ignore semantic, like
+  // whether a variable is constant-initialized ([expr.const.init]p4): a
+  // contract assertion must not silently turn constant destruction into
+  // dynamic destruction. So first evaluate the destruction with all contract
+  // assertions ignored.
+  Expr::EvalStatus EStatus;
+  EStatus.Diag = &Notes;
+  if (!Evaluate(EStatus, /*IgnoreContracts=*/Ctx.getLangOpts().Contracts))
+    return false;
+
+  if (!EStatus.HasIgnoredContractAssertion) {
     ensureEvaluatedStmt()->HasConstantDestruction = true;
     return true;
   }
 
-  if (!EvaluateDestruction(Ctx, this, std::move(DestroyedValue), VarTy,
-                           getLocation(), EStatus, IsConstantDestruction) ||
-      EStatus.HasSideEffects)
+  // The destructor evaluates a contract assertion with a checking semantic,
+  // which the destructor of an object with constant destruction would never
+  // do, since it is not called at run time ([basic.stc.static]p2 doesn't
+  // allow eliminating a destructor with side effects). So the destruction is
+  // not treated as constant: the destructor is called at run time, where it
+  // checks the contract assertion -- unless the variable is required to have
+  // constant destruction. Then the contract assertion is checked now, at
+  // compile time, where a violation with a terminating semantic makes the
+  // program ill-formed ([basic.contract.eval]p8).
+  //
+  // (The subobjects of an object that is not constexpr can't be read during
+  // its constant destruction anyway, so a predicate that reads one wouldn't
+  // be a constant expression.)
+  if (!isConstexpr())
     return false;
-
+  Notes.clear();
+  Expr::EvalStatus Checked;
+  Checked.Diag = &Notes;
+  Checked.ContractDiag = ContractNotes;
+  if (!Evaluate(Checked, /*IgnoreContracts=*/false))
+    return false;
   ensureEvaluatedStmt()->HasConstantDestruction = true;
   return true;
 }

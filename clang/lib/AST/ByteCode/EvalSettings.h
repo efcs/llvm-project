@@ -20,6 +20,9 @@ struct EvalSettings {
   const ConstantExprKind ConstexprKind;
 
   bool InConstantContext = false;
+  /// Whether all contract assertions are evaluated with the ignore semantic.
+  /// \see State::IgnoreContracts.
+  bool IgnoreContracts = false;
   bool CheckingPotentialConstantExpression = false;
   bool CheckingForUndefinedBehavior = false;
 

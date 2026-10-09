@@ -1322,6 +1322,8 @@ private:
     /// The set of tokens that make up an exception-specification that
     /// has not yet been parsed.
     CachedTokens *ExceptionSpecTokens;
+
+    CachedTokens ContractTokens;
   };
 
   /// LateParsedMemberInitializer - An initializer for a non-static class data
@@ -2778,7 +2780,8 @@ private:
                                bool IsAmbiguous, bool RequiresArg = false);
   void InitCXXThisScopeForDeclaratorIfRelevant(
       const Declarator &D, const DeclSpec &DS,
-      std::optional<Sema::CXXThisScopeRAII> &ThisScope);
+      std::optional<Sema::CXXThisScopeRAII> &ThisScope,
+      bool AddConst = false);
 
   /// ParseRefQualifier - Parses a member function ref-qualifier. Returns
   /// true if a ref-qualifier is found.
@@ -9134,6 +9137,98 @@ private:
                             bool OuterMightBeMessageSend = false);
 
   ///@}
+
+//===--------------------------------------------------------------------===//
+  // C++ Contracts
+public:
+  mutable IdentifierInfo *Ident_pre = nullptr;
+  mutable IdentifierInfo *Ident_post = nullptr;
+  mutable IdentifierInfo *Ident___pre = nullptr;
+  mutable IdentifierInfo *Ident___post = nullptr;
+
+  /// The scopes and contexts to enter when parsing late-parsed function
+  /// contract specifiers.
+  enum ContractEnterScopeKind {
+    CES_None = 0,
+    /// Enter the 'this' scope of the function (if it is a member function).
+    CES_CXXThis = 0x1,
+    /// Enter the context of the function and push a function scope. The
+    /// function parameters must already be in scope.
+    CES_Function = 0x2,
+    /// Re-enter the function: push a function scope whose entity is the
+    /// function, introduce the function parameters into it, enter the
+    /// context of the function and push a function scope.
+    CES_ReenterFunction = 0x4,
+    /// The contracts belong to a function definition.
+    CES_Definition = 0x8,
+    /// The contracts are parsed after the body of the function, while still
+    /// in the context of the function: introduce the function parameters into
+    /// a new scope.
+    CES_AfterBody = 0x10,
+    LLVM_MARK_AS_BITMASK_ENUM(CES_AfterBody)
+  };
+
+  std::optional<ContractKind> getContractKeyword(const Token &Token) const;
+  std::optional<ContractKind> getContractKeyword() const {
+    return getContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword() const {
+    return isFunctionContractKeyword(Tok);
+  }
+  bool isFunctionContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).value_or(ContractKind::Assert) !=
+        ContractKind::Assert;
+  }
+
+  bool isAnyContractKeyword(const Token &Token) const {
+    return getContractKeyword(Token).has_value();
+  }
+
+private:
+  StmtResult ParseContractAssertStatement();
+
+  StmtResult ParseFunctionContractSpecifierImpl(
+      llvm::function_ref<QualType()> ReturnTypeResolver, bool &IsInvalid);
+
+  void LateParseFunctionContractSpecifierSeq(CachedTokens &ContractToks);
+  bool LateParseFunctionContractSpecifier(CachedTokens &ContractToks);
+  /// Diagnose (with \p DiagID and its argument \p DiagArg, if it takes one)
+  /// and skip the function contract specifiers at the current token, which
+  /// cannot belong to the declarator they follow.
+  void DiagnoseAndSkipMisplacedContractSpecifiers(unsigned DiagID,
+                                                  int DiagArg = -1);
+  /// Whether function contract specifiers may follow the given declarator,
+  /// that is, whether it may declare a function.
+  bool canHaveFunctionContracts(const Declarator &D) const;
+  /// Handle the function contract specifiers at the current token, which
+  /// follow the declarator \p D of a declaration described by
+  /// \p TemplateInfo: cache their tokens for late parsing if the declarator
+  /// may declare a function, or diagnose and skip them otherwise.
+  void LateParseOrDiagnoseFunctionContractSpecifierSeq(
+      Declarator &D, const ParsedTemplateInfo *TemplateInfo = nullptr);
+  /// Handle the late-parsed function contract specifiers of the member
+  /// \p ThisDecl whose declarator \p DeclaratorInfo is not a function
+  /// declarator: they belong to it if it declares a function through a
+  /// typedef-name.
+  void HandleMemberContractDelays(Declarator &DeclaratorInfo, Decl *ThisDecl);
+
+  bool ParseLexedFunctionContracts(CachedTokens &Toks, Decl *FD,
+                                   ContractEnterScopeKind EnterScopeKinds);
+
+  /// Determine whether the cached function contract specifiers \p Toks of
+  /// the function definition \p FD can only be parsed once the body of the
+  /// function has been parsed: this is the case if a postcondition names the
+  /// result and the return type of the function is deduced from its body.
+  bool shouldParseFunctionContractsAfterBody(Decl *FD,
+                                             const CachedTokens &Toks) const;
+
+  /// Function contract specifiers which are to be parsed once the body of
+  /// their function has been parsed.
+  llvm::DenseMap<Decl *, CachedTokens> ContractsToParseAfterBody;
+
+  /// Parse the function contract specifiers of \p FD (if any) which were
+  /// waiting for the body of the function to be parsed.
+  void ParseFunctionContractsAfterBody(Decl *FD);
 };
 
 } // end namespace clang

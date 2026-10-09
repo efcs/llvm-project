@@ -749,6 +749,9 @@ bool Sema::MergeCXXFunctionDecl(FunctionDecl *New, FunctionDecl *Old,
       Old->isDefined(OldDefinition, true))
     CheckForFunctionRedefinition(New, OldDefinition);
 
+  if (CheckEquivalentContractSequence(Old, New))
+    Invalid = true;
+
   return Invalid;
 }
 
@@ -2324,6 +2327,13 @@ CheckConstexprFunctionStmt(Sema &SemaRef, const FunctionDecl *Dcl, Stmt *S,
     return true;
   }
 
+  case Stmt::ContractStmtClass: {
+    if (!Cxx1yLoc.isValid())
+      Cxx1yLoc = S->getBeginLoc();
+
+    return true;
+  }
+
   case Stmt::IfStmtClass: {
     // C++1y allows if-statements.
     if (!Cxx1yLoc.isValid())
@@ -2649,9 +2659,18 @@ bool Sema::CheckImmediateEscalatingFunctionDefinition(
     FunctionDecl *FD, const sema::FunctionScopeInfo *FSI) {
   if (!getLangOpts().CPlusPlus20 || !FD->isImmediateEscalating())
     return true;
+  // The function contract assertions of a template specialization may have
+  // been instantiated before its definition, in a function scope of their
+  // own, and have recorded an immediate-escalating expression on the function
+  // already (see Sema::InstantiateFunctionContracts). The function has been
+  // an immediate function since then, so its uses before the definition were
+  // checked as immediate invocations.
+  bool WasImmediate =
+      FD->BodyContainsImmediateEscalatingExpressions() ||
+      FD->getCanonicalDecl()->BodyContainsImmediateEscalatingExpressions();
   FD->setBodyContainsImmediateEscalatingExpressions(
-      FSI->FoundImmediateEscalatingExpression);
-  if (FSI->FoundImmediateEscalatingExpression) {
+      FSI->FoundImmediateEscalatingExpression || WasImmediate);
+  if (FSI->FoundImmediateEscalatingExpression && !WasImmediate) {
     auto it = UndefinedButUsed.find(FD->getCanonicalDecl());
     if (it != UndefinedButUsed.end()) {
       Diag(it->second, diag::err_immediate_function_used_before_definition)
@@ -2668,7 +2687,10 @@ bool Sema::CheckImmediateEscalatingFunctionDefinition(
 void Sema::DiagnoseImmediateEscalatingReason(FunctionDecl *FD) {
   assert(FD->isImmediateEscalating() && !FD->isConsteval() &&
          "expected an immediate function");
-  assert(FD->hasBody() && "expected the function to have a body");
+  // The immediate-escalating expression may be within the function contract
+  // assertions of a function which has yet to be defined.
+  assert((FD->hasBody() || FD->getContractsInEffect()) &&
+         "expected the function to have a body");
   struct ImmediateEscalatingExpressionsVisitor : DynamicRecursiveASTVisitor {
     Sema &SemaRef;
 
@@ -2752,7 +2774,12 @@ void Sema::DiagnoseImmediateEscalatingReason(FunctionDecl *FD) {
     bool VisitBlockExpr(BlockExpr *T) override { return true; }
 
   } Visitor(*this, FD);
-  Visitor.TraverseDecl(FD);
+  // The function contract specifiers of the function belong to its first
+  // declaration ([dcl.contract.func]); they are not visited with another
+  // declaration of the function.
+  if (Visitor.TraverseDecl(FD) && !FD->getContracts())
+    if (ContractSpecifierDecl *CSD = FD->getContractsInEffect())
+      Visitor.TraverseDecl(CSD);
 }
 
 CXXRecordDecl *Sema::getCurrentClass(Scope *, const CXXScopeSpec *SS) {
@@ -11130,6 +11157,7 @@ void Sema::ActOnFinishDelayedCXXMethodDeclaration(Scope *S, Decl *MethodD) {
   // Check the default arguments, which we may have added.
   if (!Method->isInvalidDecl())
     CheckCXXDefaultArguments(Method);
+
 }
 
 // Emit the given diagnostic for each non-address-space qualifier.
@@ -16599,8 +16627,17 @@ void Sema::FinalizeVarWithDestructor(VarDecl *VD, CXXRecordDecl *ClassDecl) {
     if (VD->getInit() && !VD->getInit()->isValueDependent())
       HasConstantInit = VD->evaluateValue();
     SmallVector<PartialDiagnosticAt, 8> Notes;
-    if (!VD->evaluateDestruction(Notes) && VD->isConstexpr() &&
-        HasConstantInit) {
+    SmallVector<PartialDiagnosticAt, 0> ContractNotes;
+    bool HasConstantDestruction =
+        VD->evaluateDestruction(Notes, &ContractNotes);
+    // A variable whose destructor evaluates a contract assertion with a
+    // checking semantic does not have constant destruction: the destructor
+    // is called at run time, where it checks the contract assertion. A
+    // constexpr variable is required to have constant destruction, so its
+    // contract assertions are checked now: a violation with the observe
+    // semantic is diagnosed, one with a terminating semantic is an error.
+    DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+    if (!HasConstantDestruction && VD->isConstexpr() && HasConstantInit) {
       Diag(VD->getLocation(),
            diag::err_constexpr_var_requires_const_destruction) << VD;
       for (const PartialDiagnosticAt &Note : Notes)
@@ -18015,10 +18052,13 @@ static bool EvaluateAsStringImpl(Sema &SemaRef, Expr *Message,
 
   Expr::EvalResult Status;
   SmallVector<PartialDiagnosticAt, 8> Notes;
+  SmallVector<PartialDiagnosticAt, 0> ContractNotes;
   Status.Diag = &Notes;
-  if (!Message->EvaluateCharRangeAsString(Result, EvaluatedSize.get(),
-                                          EvaluatedData.get(), Ctx, Status) ||
-      !Notes.empty()) {
+  Status.ContractDiag = &ContractNotes;
+  bool Evaluated = Message->EvaluateCharRangeAsString(
+      Result, EvaluatedSize.get(), EvaluatedData.get(), Ctx, Status);
+  SemaRef.DiagnoseConstantEvaluatedContractViolations(ContractNotes);
+  if (!Evaluated || !Notes.empty()) {
     SemaRef.Diag(Message->getBeginLoc(),
                  ErrorOnInvalidMessage ? diag::err_user_defined_msg_constexpr
                                        : diag::warn_user_defined_msg_constexpr)

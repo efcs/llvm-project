@@ -204,6 +204,24 @@ bool EvalEmitter::fallthrough(const LabelTy &Label) {
   return true;
 }
 
+bool EvalEmitter::checkContract(const ContractStmt *CS,
+                                const LabelTy &EndLabel) {
+  if (!isActive())
+    return true;
+  // An ignored contract assertion has no effect.
+  if (!S.shouldCheckContract(CS))
+    return true;
+
+  State::ContractCheck Check(S, CS);
+  ContractPredicateCleanup Cleanup(S);
+  bool Value = false;
+  bool Evaluated = this->visitContractPredicate(CS);
+  if (Evaluated)
+    Value = S.Stk.pop<bool>();
+  Cleanup.cleanup(Evaluated);
+  return Check.finish(Evaluated, Value);
+}
+
 bool EvalEmitter::speculate(const CallExpr *E, const LabelTy &EndLabel) {
   if (!isActive())
     return true;

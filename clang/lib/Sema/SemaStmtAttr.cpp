@@ -12,6 +12,8 @@
 
 #include "clang/AST/ASTContext.h"
 #include "clang/AST/EvaluatedExprVisitor.h"
+#include "clang/Basic/ContractOptions.h"
+#include "clang/Basic/SourceManager.h"
 #include "clang/Basic/TargetInfo.h"
 #include "clang/Sema/DelayedDiagnostic.h"
 #include "clang/Sema/ParsedAttr.h"
@@ -321,6 +323,78 @@ static Attr *handleNoInlineAttr(Sema &S, Stmt *St, const ParsedAttr &A,
     return nullptr;
 
   return ::new (S.Context) NoInlineAttr(S.Context, A);
+}
+
+/// Diagnose attributes which appear more than once in the
+/// attribute-specifier-seq of a contract assertion.
+static void CheckForDuplicateContractAttrs(Sema &S,
+                                           ArrayRef<const Attr *> Attrs) {
+  for (unsigned I = 0, N = Attrs.size(); I != N; ++I) {
+    for (unsigned J = 0; J != I; ++J) {
+      if (Attrs[J]->getKind() != Attrs[I]->getKind())
+        continue;
+      S.Diag(Attrs[I]->getLocation(), diag::err_disallowed_duplicate_attribute)
+          << Attrs[I] << 1;
+      S.Diag(Attrs[J]->getLocation(), diag::note_previous_attribute);
+      break;
+    }
+  }
+}
+
+static Attr *handleContractGroupAttr(Sema &S, const ParsedAttr &A) {
+  assert(A.getNumArgs() == 1);
+
+  StringRef GroupName;
+  assert(A.getArgAsExpr(0));
+  if (!S.checkStringLiteralArgumentAttr(A, 0, GroupName, nullptr))
+    return nullptr;
+
+  auto EmitDiag = [&](ContractGroupDiagnostic CDK, StringRef Group,
+                      StringRef InvalidRange = "") {
+    S.Diag(A.getLoc(), diag::err_contract_group_attribute_invalid_group)
+        << (int)CDK << Group << InvalidRange
+        << A.getArgAsExpr(0)->getSourceRange();
+  };
+
+  if (!ContractOptions::validateContractGroup(GroupName, EmitDiag))
+    return nullptr;
+
+  return ::new (S.Context) ContractGroupAttr(S.Context, A, GroupName);
+}
+
+/// Check that \p Cond, an argument of the contract attribute \p AL, is a
+/// boolean constant expression and return its value.
+static std::optional<bool> checkBoolArg(Sema &S, const ParsedAttr &AL,
+                                        Expr *Cond) {
+  // The attributes are stored with the value of the argument, so a dependent
+  // argument cannot be supported.
+  APValue Value;
+  if (Cond->isValueDependent() ||
+      !Cond->isCXX11ConstantExpr(S.Context, Value) ||
+      !(Value.isInt() || Value.isNullPointer())) {
+    S.Diag(Cond->getExprLoc(), diag::err_contract_attr_bool_arg_not_constant)
+        << AL << Cond->getSourceRange();
+    return std::nullopt;
+  }
+  return Value.isInt() && Value.getInt() != 0;
+}
+
+static Attr *handleContractMessageAttr(Sema &S, const ParsedAttr &A) {
+  assert(A.getNumArgs() == 1 || A.getNumArgs() == 2);
+  // Check that the argument is a string literal.
+  StringRef MessageStr;
+  SourceLocation LiteralLoc;
+  if (!S.checkStringLiteralArgumentAttr(A, 0, MessageStr, &LiteralLoc))
+    return nullptr;
+
+  Expr *Cond = A.getNumArgs() == 2 ? A.getArgAsExpr(1) : nullptr;
+  std::optional<bool> CondValue = true;
+  if (Cond)
+    CondValue = checkBoolArg(S, A, Cond);
+  if (!CondValue)
+    return nullptr;
+  return ::new (S.Context)
+      ContractMessageAttr(S.Context, A, MessageStr, *CondValue);
 }
 
 static Attr *handleAlwaysInlineAttr(Sema &S, Stmt *St, const ParsedAttr &A,
@@ -749,6 +823,29 @@ static Attr *handleAtomicAttr(Sema &S, Stmt *St, const ParsedAttr &AL,
       AtomicAttr(S.Context, AL, Options.data(), Options.size());
 }
 
+/// Diagnose an attribute which is unknown, or which does not apply to the
+/// current target architecture (such attributes are treated as though they
+/// were unknown). Returns true if the attribute was diagnosed.
+static bool diagnoseUnknownOrUnsupportedAttribute(Sema &S,
+                                                  const ParsedAttr &A) {
+  const TargetInfo *Aux = S.Context.getAuxTargetInfo();
+  if (A.getKind() != ParsedAttr::UnknownAttribute &&
+      (A.existsInTarget(S.Context.getTargetInfo()) ||
+       (S.Context.getLangOpts().SYCLIsDevice && Aux && A.existsInTarget(*Aux))))
+    return false;
+
+  if (A.isRegularKeywordAttribute()) {
+    S.Diag(A.getLoc(), diag::err_keyword_not_supported_on_target)
+        << A << A.getRange();
+  } else if (A.isDeclspecAttribute()) {
+    S.Diag(A.getLoc(), diag::warn_unhandled_ms_attribute_ignored)
+        << A << A.getRange();
+  } else {
+    S.DiagnoseUnknownAttribute(A);
+  }
+  return true;
+}
+
 static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
                                   SourceRange Range) {
   if (A.isInvalid() || A.getKind() == ParsedAttr::IgnoredAttribute)
@@ -757,22 +854,8 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
   // Unknown attributes are automatically warned on. Target-specific attributes
   // which do not apply to the current target architecture are treated as
   // though they were unknown attributes.
-  const TargetInfo *Aux = S.Context.getAuxTargetInfo();
-  if (A.getKind() == ParsedAttr::UnknownAttribute ||
-      !(A.existsInTarget(S.Context.getTargetInfo()) ||
-        (S.Context.getLangOpts().SYCLIsDevice && Aux &&
-         A.existsInTarget(*Aux)))) {
-    if (A.isRegularKeywordAttribute()) {
-      S.Diag(A.getLoc(), diag::err_keyword_not_supported_on_target)
-          << A << A.getRange();
-    } else if (A.isDeclspecAttribute()) {
-      S.Diag(A.getLoc(), diag::warn_unhandled_ms_attribute_ignored)
-          << A << A.getRange();
-    } else {
-      S.DiagnoseUnknownAttribute(A);
-    }
+  if (diagnoseUnknownOrUnsupportedAttribute(S, A))
     return nullptr;
-  }
 
   if (S.checkCommonAttributeFeatures(St, A))
     return nullptr;
@@ -810,6 +893,14 @@ static Attr *ProcessStmtAttribute(Sema &S, Stmt *St, const ParsedAttr &A,
     return handleCodeAlignAttr(S, St, A);
   case ParsedAttr::AT_MSConstexpr:
     return handleMSConstexprAttr(S, St, A, Range);
+  case ParsedAttr::AT_ContractGroup:
+  case ParsedAttr::AT_ContractMessage:
+    // These attributes appertain to a contract assertion and are only
+    // meaningful in its attribute-specifier-seq, which follows the keyword
+    // (see ProcessContractAttributes). They would have no effect here.
+    S.Diag(A.getLoc(), diag::err_contract_attribute_before_keyword)
+        << A << A.getRange();
+    return nullptr;
   case ParsedAttr::AT_NoConvergent:
     return handleNoConvergentAttr(S, St, A, Range);
   case ParsedAttr::AT_Annotate:
@@ -839,6 +930,55 @@ void Sema::ProcessStmtAttributes(Stmt *S, const ParsedAttributes &InAttrs,
 
   CheckForIncompatibleAttributes(*this, OutAttrs);
   CheckForDuplicateLoopAttrs<CodeAlignAttr>(*this, OutAttrs);
+}
+
+static Attr *ProcessContractAttribute(Sema &S, const ParsedAttr &A) {
+  if (A.isInvalid() || A.getKind() == ParsedAttr::IgnoredAttribute)
+    return nullptr;
+
+  if (diagnoseUnknownOrUnsupportedAttribute(S, A))
+    return nullptr;
+
+  // No other attribute appertains to a contract assertion. In particular,
+  // statement attributes do not: a contract assertion introduced by a function
+  // contract specifier is not a statement.
+  if (A.getKind() != ParsedAttr::AT_ContractGroup &&
+      A.getKind() != ParsedAttr::AT_ContractMessage) {
+    S.Diag(A.getLoc(), diag::err_attribute_invalid_on_contract)
+        << A << A.isRegularKeywordAttribute() << A.getRange();
+    return nullptr;
+  }
+
+  // The checks that are common to all attributes, other than those which
+  // depend on the subject of the attribute.
+  if (!A.diagnoseLangOpts(S) || S.CheckAttrTarget(A))
+    return nullptr;
+  if (A.getMinArgs() == A.getMaxArgs()) {
+    if (!A.checkExactlyNumArgs(S, A.getMinArgs()))
+      return nullptr;
+  } else if ((A.getMinArgs() && !A.checkAtLeastNumArgs(S, A.getMinArgs())) ||
+             (!A.hasVariadicArg() && A.getMaxArgs() &&
+              !A.checkAtMostNumArgs(S, A.getMaxArgs()))) {
+    return nullptr;
+  }
+
+  switch (A.getKind()) {
+  case ParsedAttr::AT_ContractGroup:
+    return handleContractGroupAttr(S, A);
+  case ParsedAttr::AT_ContractMessage:
+    return handleContractMessageAttr(S, A);
+  default:
+    llvm_unreachable("not a contract attribute");
+  }
+}
+
+void Sema::ProcessContractAttributes(const ParsedAttributes &InAttrs,
+                                     SmallVectorImpl<const Attr *> &OutAttrs) {
+  for (const ParsedAttr &AL : InAttrs)
+    if (const Attr *A = ProcessContractAttribute(*this, AL))
+      OutAttrs.push_back(A);
+
+  CheckForDuplicateContractAttrs(*this, OutAttrs);
 }
 
 bool Sema::CheckRebuiltStmtAttributes(ArrayRef<const Attr *> Attrs) {
