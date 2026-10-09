@@ -253,8 +253,12 @@ RValue CodeGenFunction::EmitCXXMemberOrOperatorMemberCallExpr(
     }
   }
 
+  // A defaulted special member function of a union which was defaulted after
+  // its first declaration has to be called if it has function contract
+  // assertions to evaluate.
   bool TrivialForCodegen =
-      MD->isTrivial() || (MD->isDefaulted() && MD->getParent()->isUnion());
+      MD->isTrivial() || (MD->isDefaulted() && MD->getParent()->isUnion() &&
+                          !hasCheckedFunctionContracts(MD));
   bool TrivialAssignment =
       TrivialForCodegen &&
       (MD->isCopyAssignmentOperator() || MD->isMoveAssignmentOperator()) &&

@@ -56,6 +56,10 @@ bool CodeGenModule::TryEmitBaseDestructorAsAlias(const CXXDestructorDecl *D) {
   if (!D->hasTrivialBody())
     return true;
 
+  // Likewise if it has function contract assertions to evaluate.
+  if (CodeGenFunction::hasCheckedFunctionContracts(D))
+    return true;
+
   const CXXRecordDecl *Class = D->getParent();
 
   // We are going to instrument this destructor, so give up even if it is

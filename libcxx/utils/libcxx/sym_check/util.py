@@ -251,6 +251,15 @@ cxxabi_symbols = [
 ]
 
 
+# The symbols of the Itanium C++ Contracts ABI's contract-violation runtime
+# that are not named __cxa_*: the default handler, and the C-linkage symbol
+# through which the runtime calls the program's contract-violation handler.
+contracts_abi_symbols = [
+    "__contract_invoke_default_handler",
+    "__handle_contract_violation",
+]
+
+
 def is_stdlib_symbol_name(name, sym):
     name = adjust_mangled_name(name)
     if re.search("@GLIBC|@GCC", name):
@@ -261,6 +270,8 @@ def is_stdlib_symbol_name(name, sym):
     if name in new_delete_std_symbols:
         return True
     if name in cxxabi_symbols:
+        return True
+    if name in contracts_abi_symbols:
         return True
     if name.startswith("_Z"):
         return True

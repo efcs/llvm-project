@@ -1621,9 +1621,43 @@ struct CounterCoverageMappingBuilder
       }
     }
 
+    // The predicates of the function contract assertions are evaluated when
+    // the function is entered and when it returns. Like the initializers of a
+    // constructor they are not part of the body. Only those specified in the
+    // same file as the body are mapped; they may have been specified on
+    // another declaration of the function.
+    if (const auto *FD = dyn_cast<FunctionDecl>(D)) {
+      for (const ContractStmt *CS : FD->contracts()) {
+        if (isIgnoredContract(CS))
+          continue;
+        const Expr *Cond = CS->getCond();
+        SourceLocation CondStart = getStart(Cond);
+        if (CondStart.isInvalid() || getEnd(Cond).isInvalid())
+          continue;
+        if (SM.getFileID(SM.getExpansionLoc(CondStart)) !=
+            SM.getFileID(SM.getExpansionLoc(getStart(Body))))
+          continue;
+        propagateCounts(BodyCounter, Cond);
+      }
+    }
+
     propagateCounts(BodyCounter, Body,
                     /*VisitChildren=*/!Defaulted);
     assert(RegionStack.empty() && "Regions entered but never exited");
+  }
+
+  /// Returns true if the predicate of \p S is never evaluated.
+  bool isIgnoredContract(const ContractStmt *S) {
+    return S->getSemantic(CVM.getCodeGenModule().getContext()) ==
+           ContractEvaluationSemantic::Ignore;
+  }
+
+  void VisitContractStmt(const ContractStmt *S) {
+    extendRegion(S);
+    // Don't map the conditions in the predicate of a contract assertion which
+    // is never evaluated.
+    if (!isIgnoredContract(S))
+      Visit(S->getCond());
   }
 
   void VisitReturnStmt(const ReturnStmt *S) {

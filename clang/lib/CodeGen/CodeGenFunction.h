@@ -104,6 +104,13 @@ class RegionCodeGenTy;
 class TargetCodeGenInfo;
 struct OMPTaskDataTy;
 struct CGCoroData;
+struct CurrentContractInfo;
+struct CGContractData;
+struct CGContractDataDeleter {
+  static CGContractData *Create();
+
+  void operator()(CGContractData *) const;
+};
 
 // clang-format off
 /// The kind of evaluation to perform on values of a particular
@@ -433,6 +440,31 @@ public:
   /// If a return statement is being visited, this holds the return statment's
   /// result expression.
   const Expr *RetExpr = nullptr;
+
+  /// If a contract attribute is being visited, this holds the contract
+  std::unique_ptr<CGContractData, CGContractDataDeleter> ContractData{
+      CGContractDataDeleter::Create()};
+
+  CurrentContractInfo *CurContract();
+
+  /// The function whose precondition and postcondition assertions are emitted
+  /// as part of the current function, if any. This is only set for the
+  /// function (or structor variant) that actually runs the user-written body,
+  /// so that the contracts are evaluated exactly once per call.
+  const FunctionDecl *ContractsFD = nullptr;
+
+  /// While emitting the body of a function with postcondition assertions,
+  /// ReturnBlock is redirected to a block in which FinishFunction evaluates
+  /// the postconditions, and this holds the original return block.
+  JumpDest PostconditionsSavedReturnBlock;
+  /// Whether the profile counter of the function body has been incremented.
+  /// For a function with precondition assertions that is done before they are
+  /// evaluated, so that the counts of the predicates are consistent with it.
+  bool IncrementedFunctionBodyProfileCounter = false;
+  /// The cleanup depth enclosing the cleanups of the function body, i.e.
+  /// everything but the cleanups of the parameters, when the function has
+  /// postcondition assertions.
+  EHScopeStack::stable_iterator PostconditionsCleanupDepth;
 
   /// Return true if a label was seen in the current scope.
   bool hasLabelBeenSeenInCurrentScope() const {
@@ -1742,6 +1774,11 @@ public:
     incrementProfileCounter(UseExecPath, S, false, StepV);
   }
 
+  /// Increment the profiler's counter for the body \p Body of the current
+  /// function and set up the MC/DC state, unless that has already been done
+  /// before evaluating the precondition assertions of the function.
+  void incrementFunctionBodyProfileCounter(const Stmt *Body);
+
   /// Emit increment of Counter.
   /// \param ExecSkip Use `Skipped` Counter if UseSkipPath is specified.
   /// \param S The Stmt that Counter is associated.
@@ -2484,6 +2521,7 @@ public:
                      SourceLocation StartLoc = SourceLocation());
 
   static bool IsConstructorDelegationValid(const CXXConstructorDecl *Ctor);
+  static bool IsDestructorDelegationValid(const CXXDestructorDecl *Dtor);
 
   void EmitConstructorBody(FunctionArgList &Args);
   void EmitDestructorBody(FunctionArgList &Args);
@@ -2680,6 +2718,46 @@ public:
 
   /// Emit a test that checks if the return value \p RV is nonnull.
   void EmitReturnValueCheck(llvm::Value *RV);
+
+  /// Returns true if \p FD has function contract assertions, precondition
+  /// assertions or postcondition assertions (respectively) which are evaluated
+  /// with a checking semantic, i.e. which require code to be emitted.
+  static bool hasCheckedFunctionContracts(const FunctionDecl *FD);
+  static bool hasCheckedPreconditions(const FunctionDecl *FD);
+  static bool hasCheckedPostconditions(const FunctionDecl *FD);
+
+  /// Returns true if the function contract assertions of the function being
+  /// emitted as \p GD should be emitted in that function. This is false for
+  /// structor variants and other functions that merely delegate to another
+  /// function which runs the user-written body (and hence the contracts).
+  bool shouldEmitFunctionContracts(GlobalDecl GD);
+
+  /// Make the parameters of the declaration which introduces the function
+  /// contract assertions of \p FD, which the predicates refer to, denote the
+  /// parameters of \p FD (the definition being emitted). Must be called after
+  /// the function prologue and before any contract assertion is emitted.
+  void MapContractParameters(const FunctionDecl *FD);
+
+  /// Emit the precondition assertions of \p FD.
+  void EmitPreconditions(const FunctionDecl *FD);
+
+  /// Prepare for evaluating the postcondition assertions of ContractsFD when
+  /// the function returns. Must be called after the function prologue and
+  /// before any part of the function body has been emitted.
+  void BeginFunctionPostconditions();
+
+  /// Push EH cleanups which destroy the subobjects of the object being
+  /// constructed or destroyed by the current function if a function contract
+  /// assertion that is evaluated outside of the function body exits via an
+  /// exception: for a constructor, the subobjects which were initialized by
+  /// the constructor; for a destructor, the subobjects which the destructor
+  /// has yet to destroy.
+  void EnterStructorSubobjectEHCleanups();
+
+  /// Emit the postcondition assertions of ContractsFD on the normal return
+  /// path. Called by FinishFunction once all cleanups of the function body
+  /// have been popped, and before the cleanups of the parameters are.
+  void EmitFunctionPostconditions(SourceLocation EndLoc);
 
   /// EmitStartEHSpec - Emit the start of the exception spec.
   void EmitStartEHSpec(const Decl *D);
@@ -3773,6 +3851,25 @@ public:
   void EnterCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
   void ExitCXXTryStmt(const CXXTryStmt &S, bool IsFnTryBlock = false);
 
+  /// Enter a scope that catches every exception thrown by the code emitted
+  /// until the matching ExitCatchAllScope. Unlike EnterCXXTryStmt, the handler
+  /// is not a CXXCatchStmt but IR emitted by the callback passed to
+  /// ExitCatchAllScope. This is used for constructs with a compiler-generated
+  /// handler, such as contract assertions whose predicate exits via an
+  /// exception.
+  void EnterCatchAllScope();
+
+  /// Exit the scope entered by EnterCatchAllScope. If any exception can reach
+  /// the handler, the handler is emitted: the exception is caught (so that it
+  /// is the currently handled exception, visible via std::current_exception),
+  /// \p EmitHandlerBody is invoked to emit the body of the handler, and the
+  /// handler is exited. If the body falls through, control branches to
+  /// \p ContBB. The normal path, if it has an insertion point, also branches
+  /// to \p ContBB. \p ContBB itself is not emitted. The insertion point is
+  /// cleared on return.
+  void ExitCatchAllScope(SourceLocation Loc, llvm::BasicBlock *ContBB,
+                         llvm::function_ref<void()> EmitHandlerBody);
+
   void EmitCXXTryStmt(const CXXTryStmt &S);
   void EmitSEHTryStmt(const SEHTryStmt &S);
   void EmitSEHLeaveStmt(const SEHLeaveStmt &S);
@@ -4667,6 +4764,37 @@ public:
   LValue EmitPointerToDataMemberBinaryExpr(const BinaryOperator *E);
   LValue EmitObjCSelectorLValue(const ObjCSelectorExpr *E);
   void EmitDeclRefExprDbgValue(const DeclRefExpr *E, const APValue &Init);
+
+  /// Get the block, shared by all quick_enforce contract assertions of the
+  /// function, that traps on a contract violation. It is created on first use
+  /// unless \p Create is false.
+  llvm::BasicBlock *GetSharedContractViolationTrapBlock(bool Create = true);
+
+  /// Emit a contract assertion: evaluate its predicate and report a contract
+  /// violation if it is false or exits via an exception.
+  void EmitContractStmt(const ContractStmt &S);
+
+  /// Report a violation of the contract assertion \p S, detected as \p Mode,
+  /// according to the evaluation semantic of \p S: call the runtime entry
+  /// point of the Itanium C++ Contracts ABI selected by the kind, semantic and
+  /// detection mode with the address of the static data block describing the
+  /// assertion (enforce, observe), trap (quick_enforce), or emit nothing
+  /// (ignore). When the violation does not return (enforce, quick_enforce),
+  /// the insertion point is cleared. For an exception violation, this must be
+  /// called from within a handler for the exception.
+  void EmitContractViolation(const ContractStmt &S, ContractDetectionMode Mode);
+
+  /// Emit a trap that terminates the program on a contract violation, and
+  /// clear the insertion point.
+  void EmitContractViolationTrap();
+
+private:
+  /// Whether an exception thrown by the contract-violation handler at the
+  /// current point could not propagate out of the function anyway, in which
+  /// case the non-unwinding '_noexcept' runtime entry points are used.
+  bool isContractViolationInNoexceptContext();
+
+public:
 
   //===--------------------------------------------------------------------===//
   //                         Scalar Expression Emission

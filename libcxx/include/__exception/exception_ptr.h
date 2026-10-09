@@ -64,6 +64,10 @@ _LIBCPP_BEGIN_EXPLICIT_ABI_ANNOTATIONS
 
 inline _LIBCPP_HIDE_FROM_ABI void swap(exception_ptr& __x, exception_ptr& __y) _NOEXCEPT;
 
+namespace contracts {
+class contract_violation;
+}
+
 class _LIBCPP_EXPORTED_FROM_ABI exception_ptr {
   void* __ptr_;
 
@@ -73,6 +77,9 @@ class _LIBCPP_EXPORTED_FROM_ABI exception_ptr {
   friend _LIBCPP_HIDE_FROM_ABI exception_ptr __make_exception_ptr_explicit(_Ep&) _NOEXCEPT;
 
   friend _LIBCPP_EXPORTED_FROM_ABI exception_ptr __copy_exception_ptr(void*, const void*);
+  // contract_violation::evaluation_exception() creates an exception_ptr from
+  // the exception object recorded by the contract-violation runtime.
+  friend class contracts::contract_violation;
 
 public:
   // exception_ptr is basically a COW string so it is trivially relocatable.

@@ -40,6 +40,7 @@ module;
 #include <complex>
 #include <concepts>
 #include <condition_variable>
+#include <contracts>
 #include <coroutine>
 #include <csetjmp>
 #include <csignal>
